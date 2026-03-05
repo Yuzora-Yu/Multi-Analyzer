@@ -117,7 +117,7 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:9000;
 #status-msg{margin-left:auto;font-size:9px;color:var(--txt-d)}
 
 /* ── ALL VIEW ── */
-.all-grid{flex:1;min-height:0;display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+.all-grid{flex:1;min-height:0;display:grid;grid-template-columns:1fr 1fr 1fr;grid-template-rows:auto 1fr;gap:6px 8px}
 .mini-wrap{display:flex;flex-direction:column;gap:4px;min-height:0;overflow:hidden}
 .mini-hdr{flex-shrink:0;display:flex;align-items:center;gap:8px}
 .mini-sym{font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:3px}
@@ -162,6 +162,7 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:9000;
     <button class="tf on" onclick="setTF('5m',this)">5m</button>
     <button class="tf" onclick="setTF('15m',this)">15m</button>
     <button class="tf" onclick="setTF('1h',this)">1H</button>
+    <button class="tf" onclick="setTF('4h',this)">4H</button>
     <button class="tf" onclick="setTF('1d',this)">1D</button>
     <button class="tf" onclick="setTF('1wk',this)">1W</button>
     <button class="tf-toggle on" id="togOB"  onclick="toggleLayer('OB',this)">OB</button>
@@ -216,6 +217,19 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:9000;
 
   <!-- ALL VIEW -->
   <div class="all-grid d-none" id="allGrid">
+    <!-- ALL toolbar -->
+    <div class="tfrow" id="allTfrow" style="grid-column:1/-1;flex-shrink:0">
+      <span class="tfl">TF</span>
+      <button class="tf" onclick="setTFAll('1m',this)">1m</button>
+      <button class="tf on" id="allTf5m" onclick="setTFAll('5m',this)">5m</button>
+      <button class="tf" onclick="setTFAll('15m',this)">15m</button>
+      <button class="tf" onclick="setTFAll('1h',this)">1H</button>
+      <button class="tf" onclick="setTFAll('4h',this)">4H</button>
+      <button class="tf" onclick="setTFAll('1d',this)">1D</button>
+      <button class="tf" onclick="setTFAll('1wk',this)">1W</button>
+      <button class="reload-btn" onclick="reloadAll()">↺ RELOAD</button>
+      <button class="copy-btn" id="copyBtnAll" onclick="copyAllChart()">📋 コピー</button>
+    </div>
     <div class="mini-wrap">
       <div class="mini-hdr">
         <div class="mini-sym sym-gold">GOLD</div>
@@ -269,7 +283,7 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:9000;
 // ═══════════════════════════════════════════════════════════
 const INSTRUMENTS = {
   gold:   { sym:'XAUUSDT', name:'GOLD',   wsStream:'xauusdt', endpoint:'fapi', dp:2, accentL:'var(--gold-l)', symClass:'sym-gold',   allP:'allPg', allC:'allCg', miniLw:'miniLwGold'   },
-  silver: { sym:'XAGUSDT', name:'SILVER', wsStream:'xagusdt', endpoint:'spot', dp:4, accentL:'#C0C0D8',       symClass:'sym-silver', allP:'allPs', allC:'allCs', miniLw:'miniLwSilver' },
+  silver: { sym:'XAGUSDT', name:'SILVER', wsStream:'xagusdt', endpoint:'fapi', dp:4, accentL:'#C0C0D8',       symClass:'sym-silver', allP:'allPs', allC:'allCs', miniLw:'miniLwSilver' },
   btc:    { sym:'BTCUSDT', name:'BTC',    wsStream:'btcusdt', endpoint:'spot', dp:2, accentL:'#F7931A',       symClass:'sym-btc',    allP:'allPb', allC:'allCb', miniLw:'miniLwBtc'    },
 };
 
@@ -299,8 +313,8 @@ let vpBuckets = 60;
 let vpData = { buckets:[], poc:null, vah:null, val:null };
 let obData = [], fvgData = [];
 
-const BN_INTERVAL = { '1m':'1m','5m':'5m','15m':'15m','1h':'1h','1d':'1d','1wk':'1w' };
-const BN_LIMIT    = { '1m':300,'5m':300,'15m':300,'1h':300,'1d':365,'1wk':200 };
+const BN_INTERVAL = { '1m':'1m','5m':'5m','15m':'15m','1h':'1h','4h':'4h','1d':'1d','1wk':'1w' };
+const BN_LIMIT    = { '1m':300,'5m':300,'15m':300,'1h':300,'4h':200,'1d':365,'1wk':200 };
 
 // ═══════════════════════════════════════════════════════════
 //  FETCH
@@ -491,9 +505,12 @@ async function loadData(instId) {
       candleSeries.setData(candles.map(c=>({time:c.time,open:c.open,high:c.high,low:c.low,close:c.close})));
       volSeries.setData(candles.map(c=>({time:c.time,value:c.volume,color:c.close>=c.open?'rgba(61,170,98,.3)':'rgba(196,64,64,.3)'})));
       if (s.isFirstLoad) {
-        const show={'1m':120,'5m':100,'15m':120,'1h':72,'1d':90,'1wk':60}[currentTF]||80;
+        const show={'1m':120,'5m':100,'15m':120,'1h':72,'4h':60,'1d':90,'1wk':60}[currentTF]||80;
         chart.timeScale().setVisibleLogicalRange({from:Math.max(0,candles.length-show),to:candles.length+2});
         s.isFirstLoad=false;
+      } else {
+        // fitContent on instrument switch to reset price scale to new instrument's range
+        chart.timeScale().fitContent();
       }
       // Status bar
       const last=candles[candles.length-1]; const prev=candles[candles.length-2]||last;
@@ -877,6 +894,61 @@ async function copyChart() {
     comp.toBlob(async blob=>{
       try{ await navigator.clipboard.write([new ClipboardItem({'image/png':blob})]); btn.textContent='✓ OK'; btn.className='copy-btn ok'; }
       catch(e){ const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=cfg.name+'_'+tf+'_'+Date.now()+'.png';a.click(); btn.textContent='↓ 保存'; btn.className='copy-btn ok'; }
+      setTimeout(()=>{btn.textContent='📋 コピー';btn.className='copy-btn';},2500);
+    },'image/png');
+  }catch(e){ btn.textContent='✗'; btn.className='copy-btn err'; setTimeout(()=>{btn.textContent='📋 コピー';btn.className='copy-btn';},2500); }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  ALL VIEW: TF / RELOAD / COPY
+// ═══════════════════════════════════════════════════════════
+function setTFAll(tf, btn) {
+  currentTF = tf;
+  // sync single-view TF buttons
+  document.querySelectorAll('.tf').forEach(b=>b.classList.remove('on'));
+  document.querySelectorAll(`button.tf`).forEach(b=>{ if(b.textContent.trim().toLowerCase()===tf||b.textContent.trim()===tf) b.classList.add('on'); });
+  // mark all-view TF buttons
+  document.querySelectorAll('#allTfrow .tf').forEach(b=>b.classList.remove('on'));
+  if (btn) btn.classList.add('on');
+  // reload all instruments
+  for (const iid of ['gold','silver','btc']) {
+    STATE[iid].isFirstLoad=true;
+    const s=STATE[iid]; if(s.ws){try{s.ws.close();}catch(e){}} stopPolling(iid);
+    loadData(iid).then(()=>connectWS(iid));
+  }
+}
+
+function reloadAll() {
+  for (const iid of ['gold','silver','btc']) loadData(iid).then(()=>connectWS(iid));
+}
+
+async function copyAllChart() {
+  const btn=document.getElementById('copyBtnAll'); btn.textContent='⏳'; btn.className='copy-btn';
+  try {
+    const grid=document.getElementById('allGrid');
+    const comp=document.createElement('canvas'); comp.width=grid.offsetWidth; comp.height=grid.offsetHeight;
+    const ctx=comp.getContext('2d'); ctx.fillStyle='#060504'; ctx.fillRect(0,0,comp.width,comp.height);
+    const gridRect=grid.getBoundingClientRect();
+    // Capture each mini chart canvas
+    for (const iid of ['gold','silver','btc']) {
+      const s=STATE[iid]; const cfg=INSTRUMENTS[iid];
+      const lwDiv=document.getElementById(cfg.miniLw);
+      if (!lwDiv) continue;
+      const divRect=lwDiv.getBoundingClientRect();
+      for (const c of lwDiv.querySelectorAll('canvas')) {
+        const cr=c.getBoundingClientRect();
+        try{ctx.drawImage(c,cr.left-gridRect.left,cr.top-gridRect.top,cr.width,cr.height);}catch(e){}
+      }
+      // Label
+      ctx.font='bold 13px "JetBrains Mono",monospace';
+      ctx.fillStyle=cfg.accentL; ctx.fillText(cfg.name,divRect.left-gridRect.left+8,divRect.top-gridRect.top-8);
+    }
+    const ts=new Date().toLocaleString('ja-JP');
+    ctx.font='9px "JetBrains Mono",monospace'; ctx.fillStyle='#5A4E24';
+    ctx.fillText('ALL  '+currentTF+'  '+ts,8,comp.height-6);
+    comp.toBlob(async blob=>{
+      try{ await navigator.clipboard.write([new ClipboardItem({'image/png':blob})]); btn.textContent='✓ OK'; btn.className='copy-btn ok'; }
+      catch(e){ const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='ALL_'+currentTF+'_'+Date.now()+'.png';a.click(); btn.textContent='↓ 保存'; btn.className='copy-btn ok'; }
       setTimeout(()=>{btn.textContent='📋 コピー';btn.className='copy-btn';},2500);
     },'image/png');
   }catch(e){ btn.textContent='✗'; btn.className='copy-btn err'; setTimeout(()=>{btn.textContent='📋 コピー';btn.className='copy-btn';},2500); }
