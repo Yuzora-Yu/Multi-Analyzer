@@ -613,8 +613,10 @@ function calcEntrySignals(){
   const zones=calcScores(),signals=[];
   for(const z of zones){
     if(z.bias==='neu'||!z.tags.includes('OB'))continue;
-    const hasHighOB=(obData.active||[]).some(ob=>Math.abs((ob.top+ob.bottom)/2-z.mid)<tol&&(ob.grade==='S'||ob.grade==='A'));
-    const hasBOB=(obData.active||[]).some(ob=>Math.abs((ob.top+ob.bottom)/2-z.mid)<tol&&ob.grade==='B');
+    // 対象ゾーンに最も近いOBを特定（形成時刻取得用）
+    const nearObs=(obData.active||[]).filter(ob=>Math.abs((ob.top+ob.bottom)/2-z.mid)<tol);
+    const hasHighOB=nearObs.some(ob=>ob.grade==='S'||ob.grade==='A');
+    const hasBOB=nearObs.some(ob=>ob.grade==='B');
     const isStrong=z.score>=8&&hasHighOB&&z.tags.includes('FVG')&&(z.tags.includes('POC')||z.tags.includes('SW'));
     const isNormal=z.score>=5&&(hasHighOB||hasBOB);
     if(!isStrong&&!isNormal)continue;
@@ -622,7 +624,12 @@ function calcEntrySignals(){
     const distRatio=inZone?0:z.bias==='bull'?Math.abs(cur-z.top)/priceRange:Math.abs(cur-z.bot)/priceRange;
     const heat=distRatio<.005?'HOT':distRatio<.020?'WARM':'COLD';
     const entryPrice=z.bias==='bull'?z.top:z.bot;
-    signals.push({type:z.bias,strength:isStrong?'STRONG':'NORMAL',entryPrice,zoneTop:z.top,zoneBot:z.bot,zoneMid:z.mid,score:z.score,maxScore:z.maxScore,tags:z.tags,heat,distRatio});
+    // 最もスコアの高いOBの形成時刻（candle time）を使用
+    const bestOb=nearObs.sort((a,b)=>b.sc-a.sc)[0];
+    const formationTime=bestOb?s.candles[bestOb.idx]?.time??last.time:last.time;
+    signals.push({type:z.bias,strength:isStrong?'STRONG':'NORMAL',entryPrice,
+      zoneTop:z.top,zoneBot:z.bot,zoneMid:z.mid,
+      score:z.score,maxScore:z.maxScore,tags:z.tags,heat,distRatio,formationTime});
   }
   const out=[];
   for(const sig of signals.sort((a,b)=>b.score-a.score)){
@@ -883,19 +890,25 @@ function draw(){
     ctx.fillRect(W*.18,yt,W*.76,h);
   }
 
-  // ── ENTRY ARROWS ──
+  // ── ENTRY ARROWS (時間軸紐づけ) ──
   if(showSIG){
     const sigs=calcEntrySignals();
-    const AX=W*.84;
     const blink=.55+.45*Math.sin(_phase);
     const dp=INST[currentInst].dp;
+    const RX=W*.93; // 右端ライン終端（価格軸の手前）
     for(const sig of sigs){
       const y=p2y(sig.entryPrice);if(y==null)continue;
+      // OB形成時刻のX座標（時間軸上に矢印を打つ）
+      const rawAX=chart.timeScale().timeToCoordinate(sig.formationTime);
+      // 画面外や左端すぎる場合はチャート左端に押しつけ
+      const AX=rawAX==null?W*.20:Math.max(W*.19,Math.min(rawAX,RX-20));
       const isBull=sig.type==='bull',isStrong=sig.strength==='STRONG',isHot=sig.heat==='HOT';
       const[r,g,b]=isBull?[61,170,98]:[196,64,64];
       let alpha=isHot?1.0:sig.heat==='WARM'?.72:.30;
       if(isHot)alpha*=blink;
       const sz=isStrong?11:8;
+
+      // ── OB形成バーに矢印 ──
       ctx.save();ctx.globalAlpha=alpha;
       ctx.fillStyle=`rgba(${r},${g},${b},${isStrong?1:.6})`;
       ctx.strokeStyle=`rgba(${r},${g},${b},1)`;ctx.lineWidth=isStrong?1.5:1;
@@ -904,6 +917,7 @@ function draw(){
       else      {ctx.moveTo(AX,y+sz);ctx.lineTo(AX+sz*.65,y-sz*.55);ctx.lineTo(AX-sz*.65,y-sz*.55);}
       ctx.closePath();
       if(isStrong){ctx.fill();ctx.stroke();}else{ctx.globalAlpha=alpha*.45;ctx.fill();ctx.globalAlpha=alpha;ctx.stroke();}
+      // HOT グロー
       if(isHot&&isStrong){
         ctx.globalAlpha=alpha*.2;ctx.fillStyle=`rgba(${r},${g},${b},.25)`;
         ctx.beginPath();
@@ -912,11 +926,37 @@ function draw(){
         ctx.closePath();ctx.fill();
       }
       ctx.restore();
-      ctx.save();ctx.globalAlpha=alpha*.55;
-      ctx.strokeStyle=`rgba(${r},${g},${b},${isStrong?.75:.45})`;
-      ctx.lineWidth=isStrong?1.2:.8;ctx.setLineDash(isStrong?[5,3]:[3,5]);
-      ctx.beginPath();ctx.moveTo(W*.18,y);ctx.lineTo(AX-sz-4,y);ctx.stroke();
+
+      // ── 矢印から右端まで水平ライン ──
+      ctx.save();ctx.globalAlpha=alpha*.50;
+      ctx.strokeStyle=`rgba(${r},${g},${b},${isStrong?.70:.40})`;
+      ctx.lineWidth=isStrong?1.0:.7;ctx.setLineDash(isStrong?[5,3]:[3,5]);
+      ctx.beginPath();ctx.moveTo(AX+(isBull?sz*.65:sz*.65)+2,y);ctx.lineTo(RX,y);ctx.stroke();
       ctx.setLineDash([]);ctx.restore();
+
+      // ── 右端に現在のheat状態ラベル ──
+      ctx.save();ctx.globalAlpha=alpha*.85;
+      const labelTxt=isHot?'◉':isStrong?'★★':'★';
+      ctx.font=isStrong?'bold 9px JetBrains Mono,monospace':'8px JetBrains Mono,monospace';
+      ctx.fillStyle=`rgba(${r},${g},${b},1)`;ctx.textAlign='right';
+      ctx.fillText(labelTxt,RX+14,y+(isBull?-sz-3:sz+11));
+      ctx.textAlign='left';ctx.restore();
+
+      // ── 形成時刻ラベル（矢印の真下/上） ──
+      const jst=new Date((sig.formationTime+9*3600)*1000);
+      const hh=String(jst.getUTCHours()).padStart(2,'0'),mm=String(jst.getUTCMinutes()).padStart(2,'0');
+      const timeLbl=`${(jst.getMonth()+1)}/${jst.getUTCDate()} ${hh}:${mm}`;
+      ctx.save();ctx.globalAlpha=alpha*.75;
+      ctx.font='8px JetBrains Mono,monospace';
+      ctx.fillStyle=`rgba(${r},${g},${b},.80)`;ctx.textAlign='center';
+      // bullなら矢印の下、bearなら矢印の上
+      const timeY=isBull?y+sz+12:y-sz-5;
+      // 背景ブロック
+      const tw=ctx.measureText(timeLbl).width;
+      ctx.fillStyle=`rgba(6,5,4,.70)`;ctx.fillRect(AX-tw/2-2,timeY-8,tw+4,10);
+      ctx.fillStyle=`rgba(${r},${g},${b},.80)`;
+      ctx.fillText(timeLbl,AX,timeY);
+      ctx.textAlign='left';ctx.restore();
     }
   }
   ctx.restore();
@@ -960,6 +1000,10 @@ function buildSigHtml(sigs,dp){
     const isBull=sig.type==='bull',isStrong=sig.strength==='STRONG';
     const c=isBull?'#3DAA62':'#C44040';
     const heatCls=sig.heat.toLowerCase(),heatTxt=sig.heat==='HOT'?'● HOT':sig.heat==='WARM'?'○ WARM':'· COLD';
+    // JST時刻フォーマット
+    const jst=new Date((sig.formationTime+9*3600)*1000);
+    const hh=String(jst.getUTCHours()).padStart(2,'0'),mm=String(jst.getUTCMinutes()).padStart(2,'0');
+    const timeLbl=`${jst.getMonth()+1}/${jst.getUTCDate()} ${hh}:${mm} JST`;
     return`<div class="sig-card${isStrong?' sig-strong':''}">
       <div class="sig-top">
         <span class="sig-arrow" style="color:${c}">${isBull?'▲':'▼'}</span>
@@ -968,6 +1012,7 @@ function buildSigHtml(sigs,dp){
       </div>
       <div class="sig-price" style="color:${c}">${sig.entryPrice.toFixed(dp)}</div>
       <div class="sig-tags">${sig.tags.join(' + ')}</div>
+      <div style="font-size:8px;color:var(--txt-dd);margin-top:2px;letter-spacing:.5px">⏱ ${timeLbl}</div>
     </div>`;
   }).join('');
 }
