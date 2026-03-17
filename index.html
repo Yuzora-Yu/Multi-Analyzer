@@ -5,7 +5,679 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>MULTI ANALYZER</title>
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
-<script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+<script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js">
+// ═══════════════════════════════════════════════════════════
+//  GOLD 検証 MODULE
+//  Philosophy: ICT/SMC Full-Framework Score System
+//  Indicators: BOS/CHoCH · HTF Bias · Liquidity Pools
+//              Premium/Discount + OTE · Session Levels
+//              Killzone Timing · Score 0-100 · Entry Card
+// ═══════════════════════════════════════════════════════════
+const V = {
+  chart:null, cSeries:null, volSeries:null,
+  candles:[],   // current TF
+  candles1h:[], // for HTF bias
+  candles4h:[],
+  tf:'5m',
+  initialized:false,
+  // derived
+  structure:{events:[],trend:'neutral',swingHighs:[],swingLows:[]},
+  liquidity:[],
+  sessions:{},
+  pd:{ratio:.5,zone:'EQ'},
+  atr:0,
+  htfBias:{h1:'neutral',h4:'neutral'},
+  score:0, breakdown:{},
+  entry:null,
+  showBOS:true,showFVG:true,showLIQ:true,showSES:true,
+  resizeObs:null,
+  drawTimer:null,
+};
+let _vPhase=0;
+
+// ── FETCH ─────────────────────────────────────────────────
+async function vFetch(tf,limit){
+  const lim=limit||BN_LIM[tf]||500;
+  const bnInt=BN_INT[tf]||'5m';
+  const urls=[
+    `https://fapi.binance.com/fapi/v1/klines?symbol=XAUUSDT&interval=${bnInt}&limit=${lim}`,
+    `http://localhost:8001/klines?symbol=XAUUSDT&interval=${bnInt}&limit=${lim}`,
+  ];
+  for(const url of urls){
+    try{const r=await fetch(url);if(!r.ok)continue;
+      const d=await r.json();if(!Array.isArray(d)||!d.length)continue;
+      return d.map(x=>({time:Math.floor(x[0]/1000),open:+x[1],high:+x[2],low:+x[3],close:+x[4],volume:+x[5]}));
+    }catch(e){}
+  }
+  throw new Error('fetch failed');
+}
+
+// ── CALC: BOS / CHoCH ────────────────────────────────────
+function vCalcStructure(candles){
+  if(candles.length<12)return{events:[],trend:'neutral',swingHighs:[],swingLows:[]};
+  const lb=5,n=candles.length;
+  const sHs=[],sLs=[];
+  for(let i=lb;i<n-lb;i++){
+    const c=candles[i];let isH=true,isL=true;
+    for(let j=i-lb;j<=i+lb;j++){if(j===i)continue;if(candles[j].high>=c.high)isH=false;if(candles[j].low<=c.low)isL=false;}
+    if(isH)sHs.push({price:c.high,time:c.time,idx:i});
+    if(isL)sLs.push({price:c.low, time:c.time,idx:i});
+  }
+  const events=[];
+  let trend='neutral';
+  let lastBH=null,lastBL=null;
+  for(let i=lb+1;i<n;i++){
+    const c=candles[i];
+    const rHs=sHs.filter(h=>h.idx<i-lb),rLs=sLs.filter(l=>l.idx<i-lb);
+    if(!rHs.length||!rLs.length)continue;
+    const lastH=rHs[rHs.length-1],lastL=rLs[rLs.length-1];
+    if(c.close>lastH.price&&lastBH!==lastH){
+      const type=trend==='bear'?'CHoCH':'BOS';
+      events.push({type,direction:'bull',price:lastH.price,time:c.time,idx:i});
+      trend='bull';lastBH=lastH;
+    }
+    if(c.close<lastL.price&&lastBL!==lastL){
+      const type=trend==='bull'?'CHoCH':'BOS';
+      events.push({type,direction:'bear',price:lastL.price,time:c.time,idx:i});
+      trend='bear';lastBL=lastL;
+    }
+  }
+  return{events:events.slice(-25),trend,swingHighs:sHs.slice(-10),swingLows:sLs.slice(-10)};
+}
+
+// ── CALC: HTF BIAS ────────────────────────────────────────
+function vCalcHTFBias(){
+  const getBias=(candles)=>{
+    if(!candles.length)return'neutral';
+    const s=vCalcStructure(candles);
+    if(!s.events.length)return'neutral';
+    const lastChoch=s.events.filter(e=>e.type==='CHoCH').slice(-1)[0];
+    if(lastChoch)return lastChoch.direction;
+    const recent=s.events.slice(-5);
+    const bulls=recent.filter(e=>e.direction==='bull').length;
+    const bears=recent.filter(e=>e.direction==='bear').length;
+    return bulls>bears?'bull':bears>bulls?'bear':'neutral';
+  };
+  return{h1:getBias(V.candles1h),h4:getBias(V.candles4h)};
+}
+
+// ── CALC: LIQUIDITY POOLS ─────────────────────────────────
+function vCalcLiquidity(candles){
+  const lb=5,n=candles.length,tol=0.0015;
+  const sHs=[],sLs=[];
+  for(let i=lb;i<n-lb;i++){
+    const c=candles[i];let isH=true,isL=true;
+    for(let j=i-lb;j<=i+lb;j++){if(j===i)continue;if(candles[j].high>=c.high)isH=false;if(candles[j].low<=c.low)isL=false;}
+    if(isH)sHs.push({price:c.high,time:c.time,idx:i});
+    if(isL)sLs.push({price:c.low, time:c.time,idx:i});
+  }
+  const pools=[];
+  // Equal highs → BSL
+  for(let i=0;i<sHs.length-1;i++){
+    for(let j=i+1;j<sHs.length;j++){
+      if(Math.abs(sHs[i].price-sHs[j].price)/sHs[i].price<tol){
+        const p=(sHs[i].price+sHs[j].price)/2;
+        const taken=candles.slice(sHs[j].idx+1).some(c=>c.high>p*(1+tol*2));
+        pools.push({type:'BSL',price:p,time:sHs[j].time,idx:sHs[j].idx,taken,count:2});
+        break;
+      }
+    }
+  }
+  // Equal lows → SSL
+  for(let i=0;i<sLs.length-1;i++){
+    for(let j=i+1;j<sLs.length;j++){
+      if(Math.abs(sLs[i].price-sLs[j].price)/sLs[i].price<tol){
+        const p=(sLs[i].price+sLs[j].price)/2;
+        const taken=candles.slice(sLs[j].idx+1).some(c=>c.low<p*(1-tol*2));
+        pools.push({type:'SSL',price:p,time:sLs[j].time,idx:sLs[j].idx,taken,count:2});
+        break;
+      }
+    }
+  }
+  // Also add most recent swing H/L as single-point liquidity
+  if(sHs.length){const sh=sHs[sHs.length-1];const taken=candles.slice(sh.idx+1).some(c=>c.high>sh.price);pools.push({type:'BSL',price:sh.price,time:sh.time,idx:sh.idx,taken,count:1});}
+  if(sLs.length){const sl=sLs[sLs.length-1];const taken=candles.slice(sl.idx+1).some(c=>c.low<sl.price);pools.push({type:'SSL',price:sl.price,time:sl.time,idx:sl.idx,taken,count:1});}
+  // Deduplicate by price proximity
+  const deduped=[];
+  for(const p of pools){
+    if(!deduped.some(d=>Math.abs(d.price-p.price)/p.price<tol*2))deduped.push(p);
+  }
+  return deduped.sort((a,b)=>b.price-a.price);
+}
+
+// ── CALC: SESSION LEVELS ──────────────────────────────────
+function vCalcSessions(candles){
+  const sessions={};
+  const now=Math.floor(Date.now()/1000);
+  const todayUTC=Math.floor(now/86400)*86400;
+  const todayJST=todayUTC-9*3600; // JST midnight = UTC-9h
+  // Previous JST day
+  const prevStart=todayJST-86400,prevEnd=todayJST;
+  const prev=candles.filter(c=>c.time>=prevStart&&c.time<prevEnd);
+  if(prev.length){sessions.pdh=Math.max(...prev.map(c=>c.high));sessions.pdl=Math.min(...prev.map(c=>c.low));sessions.pdc=prev[prev.length-1].close;}
+  // Asia JST 00:00-09:00 (UTC 15:00 prev - 00:00)
+  const asiaS=todayJST,asiaE=todayJST+9*3600;
+  const asia=candles.filter(c=>c.time>=asiaS&&c.time<asiaE);
+  if(asia.length){sessions.asiaH=Math.max(...asia.map(c=>c.high));sessions.asiaL=Math.min(...asia.map(c=>c.low));}
+  // London JST 16:00-01:00 next (UTC 07:00-16:00)
+  const lonS=todayJST+16*3600,lonE=lonS+9*3600;
+  const lon=candles.filter(c=>c.time>=lonS&&c.time<lonE);
+  if(lon.length){sessions.lonH=Math.max(...lon.map(c=>c.high));sessions.lonL=Math.min(...lon.map(c=>c.low));}
+  // NY JST 22:30 (UTC 13:30)
+  const nyS=todayJST+22*3600+1800,nyE=nyS+7*3600;
+  const ny=candles.filter(c=>c.time>=nyS&&c.time<nyE);
+  if(ny.length){sessions.nyH=Math.max(...ny.map(c=>c.high));sessions.nyL=Math.min(...ny.map(c=>c.low));}
+  return sessions;
+}
+
+// ── CALC: PREMIUM / DISCOUNT ──────────────────────────────
+function vCalcPD(candles){
+  if(candles.length<5)return{ratio:.5,zone:'EQ',hi:0,lo:0};
+  const recent=candles.slice(-50);
+  const hi=Math.max(...recent.map(c=>c.high)),lo=Math.min(...recent.map(c=>c.low));
+  const range=hi-lo;if(!range)return{ratio:.5,zone:'EQ',hi,lo};
+  const cur=candles[candles.length-1].close;
+  const ratio=(cur-lo)/range;
+  const zone=ratio>0.62?'PREMIUM':ratio<0.38?'DISCOUNT':'EQ';
+  const inOTE=(zone==='PREMIUM'&&ratio>0.62&&ratio<0.79)||(zone==='DISCOUNT'&&ratio>0.21&&ratio<0.38);
+  return{ratio,zone,inOTE,hi,lo,range};
+}
+
+// ── CALC: ATR ─────────────────────────────────────────────
+function vCalcATR(candles,p=14){
+  if(candles.length<p+1)return candles.length>1?(candles[candles.length-1].high-candles[candles.length-1].low):1;
+  let s=0;
+  for(let i=candles.length-p;i<candles.length;i++){
+    const c=candles[i],pr=candles[i-1];
+    s+=Math.max(c.high-c.low,Math.abs(c.high-pr.close),Math.abs(c.low-pr.close));
+  }
+  return s/p;
+}
+
+// ── CALC: KILLZONE ────────────────────────────────────────
+function vGetKillzone(){
+  const now=new Date();
+  const jstH=((now.getUTCHours()+9)%24);
+  const jstM=now.getUTCMinutes();
+  const jstT=jstH*60+jstM;
+  if(jstT>=0&&jstT<60)  return{name:'TOKYO OPEN',active:true,color:'rgba(90,78,36,.08)'};
+  if(jstT>=480&&jstT<540)return{name:'TOKYO/LONDON',active:true,color:'rgba(80,100,60,.08)'};
+  if(jstT>=1560&&jstT<1620)return{name:'LONDON OPEN',active:true,color:'rgba(60,80,120,.10)'};
+  if(jstT>=1320&&jstT<1380)return{name:'NY OPEN',active:true,color:'rgba(120,60,60,.10)'};
+  if(jstT>=360&&jstT<420) return{name:'NY CLOSE',active:true,color:'rgba(80,60,40,.08)'};
+  // Next KZ
+  const kzs=[0,480,1320,1560];
+  const next=kzs.find(t=>t>jstT)||kzs[0]+1440;
+  const diff=next-jstT;
+  const diffH=Math.floor(diff/60),diffM=diff%60;
+  return{name:`NEXT KZ ${diffH}h${diffM}m`,active:false,color:null};
+}
+
+// ── SCORE 0-100 ───────────────────────────────────────────
+function vCalcScore(){
+  const s=V;if(!s.candles.length)return{total:0,bd:{}};
+  const cur=s.candles[s.candles.length-1].close;
+  const bd={};let total=0;
+  // 1. HTF Confluence (30pts)
+  const h1=s.htfBias.h1,h4=s.htfBias.h4;
+  const htfDir=h1==='bull'&&h4==='bull'?'bull':h1==='bear'&&h4==='bear'?'bear':h1!=='neutral'?h1:h4!=='neutral'?h4:'neutral';
+  const htfPts=h1!=='neutral'&&h4!=='neutral'&&h1===h4?30:h1!=='neutral'||h4!=='neutral'?12:0;
+  bd.htf={pts:htfPts,max:30,lbl:'HTF Confluence',dir:htfDir};total+=htfPts;
+  // 2. LTF Structure (20pts)
+  const recentEvts=s.structure.events.slice(-8);
+  const lastEvt=recentEvts.slice(-1)[0];
+  const structAligned=lastEvt&&lastEvt.direction===htfDir;
+  const structPts=!lastEvt?0:lastEvt.type==='CHoCH'&&structAligned?20:lastEvt.type==='BOS'&&structAligned?12:5;
+  bd.struct={pts:structPts,max:20,lbl:'LTF Structure'};total+=structPts;
+  // 3. Premium/Discount (15pts)
+  const pd=s.pd;
+  const pdAligned=(htfDir==='bull'&&pd.zone==='DISCOUNT')||(htfDir==='bear'&&pd.zone==='PREMIUM');
+  const pdPts=pd.inOTE&&pdAligned?15:pdAligned?8:pd.zone==='EQ'?3:0;
+  bd.pd={pts:pdPts,max:15,lbl:'P/D Zone ('+pd.zone+')'};total+=pdPts;
+  // 4. Liquidity Swept (20pts)
+  const freshLiq=s.liquidity.filter(l=>!l.taken);
+  const recentC=s.candles.slice(-10);
+  const swept=freshLiq.filter(l=>{
+    if(l.type==='BSL'&&htfDir==='bear')return recentC.some(c=>c.high>=l.price);
+    if(l.type==='SSL'&&htfDir==='bull')return recentC.some(c=>c.low<=l.price);
+    return false;
+  });
+  const liqPts=swept.length>=2?20:swept.length===1?12:0;
+  bd.liq={pts:liqPts,max:20,lbl:'Liquidity Sweep'};total+=liqPts;
+  // 5. OB + FVG at zone (15pts)
+  const obs=calcOB(s.candles),fvgs=calcFVG(s.candles);
+  const nearPct=0.006;
+  const nearOBs=(obs.active||[]).filter(ob=>{
+    const mid=(ob.top+ob.bottom)/2;
+    return Math.abs(mid-cur)/cur<nearPct&&ob.type===(htfDir==='bull'?'bull':'bear');
+  });
+  const nearFVGs=fvgs.filter(fvg=>{const mid=(fvg.top+fvg.bottom)/2;return Math.abs(mid-cur)/cur<nearPct;});
+  const hasHighOB=nearOBs.some(o=>o.grade==='S'||o.grade==='A');
+  const obfvgPts=hasHighOB&&nearFVGs.length?15:hasHighOB?10:nearOBs.length&&nearFVGs.length?8:nearFVGs.length?4:0;
+  bd.obfvg={pts:obfvgPts,max:15,lbl:'OB+FVG Confluence'};total+=obfvgPts;
+  return{total:Math.min(total,100),bd,htfDir,obs,fvgs,swept};
+}
+
+// ── GENERATE ENTRY SETUP ──────────────────────────────────
+function vGenEntry(scoreResult){
+  const{total,htfDir,obs,fvgs}=scoreResult;
+  if(total<45||htfDir==='neutral')return null;
+  const s=V;if(!s.candles.length)return null;
+  const cur=s.candles[s.candles.length-1].close;
+  const atr=s.atr;
+  const dp=2;
+  // Best OB
+  const dirOBs=(obs.active||[]).filter(ob=>ob.type===(htfDir==='bull'?'bull':'bear'));
+  const nearOB=dirOBs.sort((a,b)=>Math.abs((a.top+a.bottom)/2-cur)-Math.abs((b.top+b.bottom)/2-cur))[0];
+  let entry,sl;
+  if(htfDir==='bear'){
+    entry=nearOB?nearOB.bottom:cur;
+    sl=nearOB?nearOB.top+atr*.25:cur+atr*1.5;
+    // TP: nearest bull OB below or ATR targets
+    const bullOBsBelow=(obs.active||[]).filter(o=>o.type==='bull'&&o.top<entry).sort((a,b)=>b.top-a.top);
+    const tp1=bullOBsBelow.length?bullOBsBelow[0].top:entry-atr*2;
+    const tp2=bullOBsBelow.length>1?bullOBsBelow[1].top:entry-atr*4;
+    const risk=Math.abs(entry-sl);
+    return{dir:'bear',entry,sl,tp1,tp2,risk,rr1:((Math.abs(entry-tp1))/risk).toFixed(1),rr2:((Math.abs(entry-tp2))/risk).toFixed(1),score:total,grade:total>=80?'A':total>=60?'B':total>=45?'C':'D'};
+  } else {
+    entry=nearOB?nearOB.top:cur;
+    sl=nearOB?nearOB.bottom-atr*.25:cur-atr*1.5;
+    const bearOBsAbove=(obs.active||[]).filter(o=>o.type==='bear'&&o.bottom>entry).sort((a,b)=>a.bottom-b.bottom);
+    const tp1=bearOBsAbove.length?bearOBsAbove[0].bottom:entry+atr*2;
+    const tp2=bearOBsAbove.length>1?bearOBsAbove[1].bottom:entry+atr*4;
+    const risk=Math.abs(entry-sl);
+    return{dir:'bull',entry,sl,tp1,tp2,risk,rr1:((Math.abs(tp1-entry))/risk).toFixed(1),rr2:((Math.abs(tp2-entry))/risk).toFixed(1),score:total,grade:total>=80?'A':total>=60?'B':total>=45?'C':'D'};
+  }
+}
+
+// ── CHART INIT ────────────────────────────────────────────
+function vInitChart(){
+  const el=document.getElementById('veriLw');
+  if(V.chart){V.chart.remove();V.chart=null;V.cSeries=null;V.volSeries=null;}
+  if(V.resizeObs){V.resizeObs.disconnect();V.resizeObs=null;}
+  V.chart=LightweightCharts.createChart(el,{
+    width:el.offsetWidth,height:el.offsetHeight,
+    layout:{background:{type:'solid',color:'#060504'},textColor:'#5A4E24',fontFamily:"'JetBrains Mono',monospace",fontSize:10},
+    grid:{vertLines:{color:'#080705'},horzLines:{color:'#080705'}},
+    crosshair:{mode:LightweightCharts.CrosshairMode.Normal,vertLine:{color:'#3D2A08',labelBackgroundColor:'#130F07'},horzLine:{color:'#3D2A08',labelBackgroundColor:'#130F07'}},
+    rightPriceScale:{borderColor:'#1E1708',textColor:'#5A4E24',scaleMargins:{top:.06,bottom:.20}},
+    timeScale:{borderColor:'#1E1708',timeVisible:true,secondsVisible:false},
+  });
+  V.cSeries=V.chart.addCandlestickSeries({upColor:'#3DAA62',downColor:'#C44040',borderUpColor:'#3DAA62',borderDownColor:'#C44040',wickUpColor:'#3DAA62',wickDownColor:'#C44040'});
+  V.volSeries=V.chart.addHistogramSeries({color:'#1E1708',priceFormat:{type:'volume'},priceScaleId:'vol'});
+  V.chart.priceScale('vol').applyOptions({scaleMargins:{top:.82,bottom:0}});
+  V.chart.timeScale().subscribeVisibleLogicalRangeChange(()=>requestAnimationFrame(vDraw));
+  V.resizeObs=new ResizeObserver(()=>{
+    const a=document.getElementById('veriChartArea');
+    if(V.chart)V.chart.applyOptions({width:a.offsetWidth,height:a.offsetHeight});
+    vResizeCvs();requestAnimationFrame(vDraw);
+  });
+  V.resizeObs.observe(document.getElementById('veriChartArea'));
+  if(V.drawTimer)clearInterval(V.drawTimer);
+  V.drawTimer=setInterval(()=>{requestAnimationFrame(vDraw);vUpdatePanel();},130);
+}
+function vResizeCvs(){
+  const a=document.getElementById('veriChartArea'),c=document.getElementById('veriCvs');
+  c.width=a.offsetWidth;c.height=a.offsetHeight;
+}
+function vGetPaneOY(){
+  const cvs=document.querySelectorAll('#veriLw canvas');if(!cvs.length)return 0;
+  return Math.round(cvs[0].getBoundingClientRect().top-document.getElementById('veriChartArea').getBoundingClientRect().top);
+}
+function vP2Y(price){return V.cSeries?V.cSeries.priceToCoordinate(price):null;}
+
+// ── LOAD DATA ─────────────────────────────────────────────
+async function vLoadData(){
+  const el=document.getElementById('veriOverlay');
+  el.classList.remove('hidden');document.getElementById('veriOvSub').textContent='データ取得中 ('+V.tf+')...';
+  try{
+    const [main,h1,h4]=await Promise.all([
+      vFetch(V.tf),
+      vFetch('1h',300),
+      vFetch('4h',200),
+    ]);
+    V.candles=main;V.candles1h=h1;V.candles4h=h4;
+    V.cSeries.setData(main.map(c=>({time:c.time,open:c.open,high:c.high,low:c.low,close:c.close})));
+    V.volSeries.setData(main.map(c=>({time:c.time,value:c.volume,color:c.close>=c.open?'rgba(61,170,98,.25)':'rgba(196,64,64,.25)'})));
+    const show=SHOW_B[V.tf]||100;
+    V.chart.priceScale('right').applyOptions({autoScale:true});
+    V.chart.timeScale().fitContent();
+    V.chart.timeScale().setVisibleLogicalRange({from:Math.max(0,main.length-show-2),to:main.length+2});
+    // Set markers for BOS/CHoCH
+    vUpdateStructureMarkers();
+    const last=main[main.length-1];
+    document.getElementById('vStHigh').textContent=' '+Math.max(...main.map(c=>c.high)).toFixed(2);
+    document.getElementById('vStLow').textContent =' '+Math.min(...main.map(c=>c.low)).toFixed(2);
+    el.classList.add('hidden');
+    document.getElementById('vStatusMsg').textContent=main.length+'本 | 1H:'+h1.length+' 4H:'+h4.length;
+  }catch(e){
+    el.classList.remove('hidden');
+    document.querySelector('#veriOverlay .ov-title').textContent='ERROR';
+    document.getElementById('veriOvSub').textContent=e.message;
+  }
+}
+
+function vUpdateStructureMarkers(){
+  if(!V.cSeries||!V.candles.length)return;
+  V.structure=vCalcStructure(V.candles);
+  const markers=V.structure.events.slice(-15).map(e=>({
+    time:e.time,
+    position:e.direction==='bull'?'belowBar':'aboveBar',
+    color:e.type==='CHoCH'?(e.direction==='bull'?'#3DAA62':'#C44040'):(e.direction==='bull'?'rgba(100,200,100,.8)':'rgba(200,100,100,.8)'),
+    shape:e.direction==='bull'?'arrowUp':'arrowDown',
+    text:e.type,size:e.type==='CHoCH'?2:1,
+  }));
+  try{V.cSeries.setMarkers(markers.sort((a,b)=>a.time-b.time));}catch(e){}
+  const atr=vCalcATR(V.candles);
+  document.getElementById('vStATR').textContent=' '+atr.toFixed(2);
+  V.atr=atr;
+}
+
+// ── INIT ──────────────────────────────────────────────────
+function veriInit(){
+  if(!V.initialized){
+    vInitChart();
+    vResizeCvs();
+    V.initialized=true;
+  }
+  vLoadData();
+}
+function vSetTF(tf,btn){
+  V.tf=tf;
+  document.querySelectorAll('#veriTfrow .tf').forEach(b=>b.classList.remove('on'));
+  if(btn)btn.classList.add('on');
+  vLoadData();
+}
+function vReload(){vLoadData();}
+function vToggle(l,btn){
+  if(l==='BOS')V.showBOS=!V.showBOS;
+  else if(l==='FVG')V.showFVG=!V.showFVG;
+  else if(l==='LIQ')V.showLIQ=!V.showLIQ;
+  else V.showSES=!V.showSES;
+  btn.classList.toggle('on',l==='BOS'?V.showBOS:l==='FVG'?V.showFVG:l==='LIQ'?V.showLIQ:V.showSES);
+  requestAnimationFrame(vDraw);
+}
+
+// ── DRAW ──────────────────────────────────────────────────
+function vDraw(){
+  const cvs=document.getElementById('veriCvs'),ctx=cvs.getContext('2d');
+  ctx.clearRect(0,0,cvs.width,cvs.height);
+  if(!V.cSeries||!V.candles.length)return;
+  _vPhase=(_vPhase+.04)%(Math.PI*2);
+  const pOY=vGetPaneOY();
+  ctx.save();ctx.translate(0,pOY);
+  const W=cvs.width;
+
+  // ── Session levels ──
+  if(V.showSES){
+    const ses=vCalcSessions(V.candles);V.sessions=ses;
+    const lvls=[
+      {v:ses.pdh,c:'rgba(232,184,75,.65)',d:[6,4],lbl:'PDH'},
+      {v:ses.pdl,c:'rgba(232,184,75,.65)',d:[6,4],lbl:'PDL'},
+      {v:ses.pdc,c:'rgba(90,78,36,.60)',d:[2,5],lbl:'PDC'},
+      {v:ses.asiaH,c:'rgba(80,120,200,.50)',d:[3,5],lbl:'AsiaH'},
+      {v:ses.asiaL,c:'rgba(80,120,200,.50)',d:[3,5],lbl:'AsiaL'},
+      {v:ses.lonH,c:'rgba(80,160,120,.50)',d:[3,5],lbl:'LonH'},
+      {v:ses.lonL,c:'rgba(80,160,120,.50)',d:[3,5],lbl:'LonL'},
+    ];
+    for(const l of lvls){
+      if(l.v==null)continue;const y=vP2Y(l.v);if(y==null)continue;
+      ctx.strokeStyle=l.c;ctx.lineWidth=1;ctx.setLineDash(l.d);
+      ctx.beginPath();ctx.moveTo(W*.17,y);ctx.lineTo(W*.90,y);ctx.stroke();
+      ctx.setLineDash([]);ctx.font='8px JetBrains Mono,monospace';ctx.fillStyle=l.c;
+      ctx.fillText(l.lbl,W*.17+3,y-2);
+    }
+  }
+
+  // ── OTE zones (P/D) ──
+  const pd=vCalcPD(V.candles);V.pd=pd;
+  if(pd.range>0){
+    const yHi=vP2Y(pd.hi),yLo=vP2Y(pd.lo);
+    if(yHi!=null&&yLo!=null){
+      // Premium OTE zone (top 21-38%)
+      const yOTEsellTop=vP2Y(pd.lo+pd.range*.79),yOTEsellBot=vP2Y(pd.lo+pd.range*.62);
+      // Discount OTE zone (bottom 21-38%)
+      const yOTEbuyTop=vP2Y(pd.lo+pd.range*.38),yOTEbuyBot=vP2Y(pd.lo+pd.range*.21);
+      if(yOTEsellTop!=null&&yOTEsellBot!=null){
+        ctx.fillStyle='rgba(196,64,64,.06)';ctx.fillRect(W*.17,yOTEsellTop,W*.73,yOTEsellBot-yOTEsellTop);
+        ctx.strokeStyle='rgba(196,64,64,.20)';ctx.lineWidth=.7;ctx.setLineDash([2,4]);
+        ctx.strokeRect(W*.17,yOTEsellTop,W*.73,yOTEsellBot-yOTEsellTop);ctx.setLineDash([]);
+        ctx.font='8px JetBrains Mono,monospace';ctx.fillStyle='rgba(196,64,64,.45)';ctx.fillText('OTE ▼',W*.17+3,yOTEsellTop+10);
+      }
+      if(yOTEbuyTop!=null&&yOTEbuyBot!=null){
+        ctx.fillStyle='rgba(61,170,98,.06)';ctx.fillRect(W*.17,yOTEbuyTop,W*.73,yOTEbuyBot-yOTEbuyTop);
+        ctx.strokeStyle='rgba(61,170,98,.20)';ctx.lineWidth=.7;ctx.setLineDash([2,4]);
+        ctx.strokeRect(W*.17,yOTEbuyTop,W*.73,yOTEbuyBot-yOTEbuyTop);ctx.setLineDash([]);
+        ctx.font='8px JetBrains Mono,monospace';ctx.fillStyle='rgba(61,170,98,.45)';ctx.fillText('OTE ▲',W*.17+3,yOTEbuyTop-2);
+      }
+      // Equilibrium line
+      const yEQ=vP2Y(pd.lo+pd.range*.5);
+      if(yEQ!=null){ctx.strokeStyle='rgba(90,78,36,.40)';ctx.lineWidth=.8;ctx.setLineDash([1,6]);ctx.beginPath();ctx.moveTo(W*.17,yEQ);ctx.lineTo(W*.90,yEQ);ctx.stroke();ctx.setLineDash([]);ctx.font='8px JetBrains Mono,monospace';ctx.fillStyle='rgba(90,78,36,.50)';ctx.textAlign='right';ctx.fillText('EQ',W*.90,yEQ-2);ctx.textAlign='left';}
+    }
+  }
+
+  // ── S/A OBs only ──
+  const obsData=calcOB(V.candles);
+  const GRADE={S:{fill:.18,stroke:.92,lw:2,dash:[]},A:{fill:.12,stroke:.72,lw:1.5,dash:[]}};
+  for(const ob of(obsData.active||[])){
+    if(ob.grade!=='S'&&ob.grade!=='A')continue;
+    const yt=vP2Y(ob.top),yb=vP2Y(ob.bottom);if(yt==null||yb==null)continue;
+    const h=Math.max(2,yb-yt),st=GRADE[ob.grade];
+    const[r,g,b]=ob.type==='bull'?[100,160,255]:[255,100,100];
+    ctx.fillStyle=`rgba(${r},${g},${b},${st.fill})`;ctx.strokeStyle=`rgba(${r},${g},${b},${st.stroke})`;
+    ctx.lineWidth=st.lw;ctx.setLineDash(st.dash);
+    ctx.fillRect(W*.17,yt,W*.73,h);ctx.strokeRect(W*.17,yt,W*.73,h);ctx.setLineDash([]);
+    // Grade stripe
+    ctx.fillStyle=`rgba(${r},${g},${b},${ob.grade==='S'?1:.80})`;ctx.fillRect(W*.17,yt,4,h);
+  }
+  // Flip zones
+  for(const ob of(obsData.flip||[])){
+    const yt=vP2Y(ob.top),yb=vP2Y(ob.bottom);if(yt==null||yb==null)continue;
+    const h=Math.max(1,yb-yt);const[r,g,b]=ob.type==='bull'?[100,160,255]:[255,100,100];
+    ctx.fillStyle=`rgba(${r},${g},${b},.03)`;ctx.strokeStyle=`rgba(${r},${g},${b},.18)`;
+    ctx.lineWidth=.6;ctx.setLineDash([3,7]);ctx.fillRect(W*.17,yt,W*.73,h);ctx.strokeRect(W*.17,yt,W*.73,h);ctx.setLineDash([]);
+  }
+
+  // ── FVG ──
+  if(V.showFVG){
+    const fvgsD=calcFVG(V.candles);
+    for(const fvg of fvgsD){
+      const yt=vP2Y(fvg.top),yb=vP2Y(fvg.bottom);if(yt==null||yb==null)continue;
+      const h=Math.max(2,yb-yt);const[r,g,b]=fvg.type==='bull'?[100,220,160]:[220,100,100];
+      ctx.fillStyle=`rgba(${r},${g},${b},.08)`;ctx.strokeStyle=`rgba(${r},${g},${b},.30)`;
+      ctx.lineWidth=.8;ctx.setLineDash([2,4]);ctx.fillRect(W*.17,yt,W*.73,h);ctx.strokeRect(W*.17,yt,W*.73,h);ctx.setLineDash([]);
+    }
+  }
+
+  // ── Liquidity pools ──
+  if(V.showLIQ){
+    const liq=vCalcLiquidity(V.candles);V.liquidity=liq;
+    for(const l of liq.filter(l=>!l.taken)){
+      const y=vP2Y(l.price);if(y==null)continue;
+      const isBSL=l.type==='BSL';
+      const c=isBSL?'rgba(232,184,75,.70)':'rgba(180,120,220,.70)';
+      ctx.strokeStyle=c;ctx.lineWidth=isBSL?.9:.9;ctx.setLineDash([1,3]);
+      ctx.beginPath();ctx.moveTo(W*.17,y);ctx.lineTo(W*.88,y);ctx.stroke();ctx.setLineDash([]);
+      ctx.font=l.count>1?'bold 8px JetBrains Mono,monospace':'8px JetBrains Mono,monospace';
+      ctx.fillStyle=c;ctx.textAlign='right';
+      ctx.fillText(l.type+(l.count>1?'×'+l.count:''),W*.90,y+3);ctx.textAlign='left';
+    }
+  }
+
+  // ── BOS/CHoCH break level lines ──
+  if(V.showBOS){
+    for(const e of V.structure.events.slice(-8)){
+      const y=vP2Y(e.price);if(y==null)continue;
+      const isBull=e.direction==='bull';const isChoch=e.type==='CHoCH';
+      ctx.strokeStyle=isChoch?(isBull?'rgba(61,170,98,.55)':'rgba(196,64,64,.55)'):(isBull?'rgba(100,180,100,.35)':'rgba(180,100,100,.35)');
+      ctx.lineWidth=isChoch?1:.7;ctx.setLineDash(isChoch?[4,3]:[2,5]);
+      ctx.beginPath();ctx.moveTo(W*.17,y);ctx.lineTo(W*.88,y);ctx.stroke();ctx.setLineDash([]);
+    }
+  }
+
+  // ── Entry signal arrow (HOT only) ──
+  if(V.entry&&V.entry.score>=55){
+    const blink=.6+.4*Math.sin(_vPhase);
+    const isBull=V.entry.dir==='bull';
+    const y=vP2Y(V.entry.entry);
+    if(y!=null){
+      const[r,g,b]=isBull?[61,170,98]:[196,64,64];
+      const AX=W*.84,sz=13;
+      ctx.save();ctx.globalAlpha=blink;
+      ctx.fillStyle=`rgba(${r},${g},${b},1)`;ctx.strokeStyle=`rgba(${r},${g},${b},1)`;ctx.lineWidth=1.5;
+      ctx.beginPath();
+      if(isBull){ctx.moveTo(AX,y-sz);ctx.lineTo(AX+sz*.7,y+sz*.6);ctx.lineTo(AX-sz*.7,y+sz*.6);}
+      else{ctx.moveTo(AX,y+sz);ctx.lineTo(AX+sz*.7,y-sz*.6);ctx.lineTo(AX-sz*.7,y-sz*.6);}
+      ctx.closePath();ctx.fill();ctx.stroke();
+      ctx.globalAlpha=blink*.4;ctx.fillStyle=`rgba(${r},${g},${b},.3)`;
+      ctx.beginPath();
+      if(isBull){ctx.moveTo(AX,y-sz-6);ctx.lineTo(AX+sz+5,y+sz*.6+5);ctx.lineTo(AX-sz-5,y+sz*.6+5);}
+      else{ctx.moveTo(AX,y+sz+6);ctx.lineTo(AX+sz+5,y-sz*.6-5);ctx.lineTo(AX-sz-5,y-sz*.6-5);}
+      ctx.closePath();ctx.fill();ctx.restore();
+      // Entry line
+      const ySL=vP2Y(V.entry.sl),yTP1=vP2Y(V.entry.tp1);
+      if(ySL!=null){ctx.save();ctx.globalAlpha=.55;ctx.strokeStyle=`rgba(${r},${g},${b},.70)`;ctx.lineWidth=1;ctx.setLineDash([5,3]);ctx.beginPath();ctx.moveTo(W*.17,y);ctx.lineTo(AX-sz-3,y);ctx.stroke();ctx.setLineDash([]);ctx.restore();}
+      if(ySL!=null){ctx.save();ctx.globalAlpha=.45;ctx.strokeStyle='rgba(196,64,64,.60)';ctx.lineWidth=.8;ctx.setLineDash([3,5]);ctx.beginPath();ctx.moveTo(W*.17,ySL);ctx.lineTo(W*.88,ySL);ctx.stroke();ctx.setLineDash([]);ctx.font='8px JetBrains Mono,monospace';ctx.fillStyle='rgba(196,64,64,.55)';ctx.fillText('SL',W*.88,ySL-2);ctx.restore();}
+      if(yTP1!=null){ctx.save();ctx.globalAlpha=.45;ctx.strokeStyle='rgba(61,170,98,.60)';ctx.lineWidth=.8;ctx.setLineDash([3,5]);ctx.beginPath();ctx.moveTo(W*.17,yTP1);ctx.lineTo(W*.88,yTP1);ctx.stroke();ctx.setLineDash([]);ctx.font='8px JetBrains Mono,monospace';ctx.fillStyle='rgba(61,170,98,.55)';ctx.fillText('TP1',W*.88,yTP1-2);ctx.restore();}
+    }
+  }
+  ctx.restore();
+}
+
+// ── UPDATE PANEL / UI ─────────────────────────────────────
+let _vPanelHash='';
+function vUpdatePanel(){
+  if(!V.cSeries||!V.candles.length)return;
+  const scoreRes=vCalcScore();
+  V.score=scoreRes.total;V.breakdown=scoreRes.bd;
+  V.htfBias=vCalcHTFBias();
+  V.entry=vGenEntry(scoreRes);
+  const dp=2;
+  const hash=[V.score,V.htfBias.h1,V.htfBias.h4,V.pd.zone].join('|');
+  if(hash===_vPanelHash)return;_vPanelHash=hash;
+
+  // HTF bias display
+  const biasMap={'bull':['▲ BULL','vb-bull'],'bear':['▼ BEAR','vb-bear'],'neutral':['— NEU','vb-neu']};
+  const[h1t,h1c]=biasMap[V.htfBias.h1];const[h4t,h4c]=biasMap[V.htfBias.h4];
+  const h1el=document.getElementById('vBias1h');h1el.textContent=h1t;h1el.className='vbi-val '+h1c;
+  const h4el=document.getElementById('vBias4h');h4el.textContent=h4t;h4el.className='vbi-val '+h4c;
+  const structEl=document.getElementById('vBiasStruct');
+  const lastEvt=V.structure.events.slice(-1)[0];
+  if(lastEvt){structEl.textContent=lastEvt.type;structEl.className='vbi-val '+(lastEvt.direction==='bull'?'vb-bull':'vb-bear');}
+  else{structEl.textContent='—';structEl.className='vbi-val vb-neu';}
+
+  // P/D meter
+  const pdCur=document.getElementById('vPDCur');
+  const pct=Math.round(V.pd.ratio*100);
+  pdCur.style.left=pct+'%';
+  const pdC=V.pd.zone==='PREMIUM'?'#C44040':V.pd.zone==='DISCOUNT'?'#3DAA62':'var(--txt-d)';
+  pdCur.style.background=pdC;
+
+  // Killzone
+  const kz=vGetKillzone();
+  const kzEl=document.getElementById('vKZVal');
+  kzEl.textContent=kz.name;kzEl.style.color=kz.active?'var(--gold)':'var(--txt-d)';
+
+  // Score
+  const sEl=document.getElementById('vScoreNum'),sBar=document.getElementById('vScoreBar');
+  sEl.textContent=V.score;
+  const sColor=V.score>=80?'#3DAA62':V.score>=60?'var(--gold)':V.score>=45?'var(--txt-d)':'#C44040';
+  sEl.style.color=sColor;
+  sBar.style.width=V.score+'%';sBar.style.background=sColor;
+
+  // OB count
+  const obsD=calcOB(V.candles);
+  document.getElementById('vStOB').textContent=' '+(obsD.active?.length||0)+'件';
+
+  // Liquidity panel
+  vRenderLiqPanel(dp);
+
+  // Entry card
+  vRenderEntryCard(scoreRes,dp);
+}
+
+function vRenderLiqPanel(dp){
+  const cur=V.candles.length?V.candles[V.candles.length-1].close:0;
+  const fresh=V.liquidity.filter(l=>!l.taken).sort((a,b)=>b.price-a.price);
+  if(!fresh.length){document.getElementById('vLiqPanel').innerHTML='<div class="empty-row">なし</div>';return;}
+  document.getElementById('vLiqPanel').innerHTML=fresh.map(l=>{
+    const isBSL=l.type==='BSL';
+    const c=isBSL?'rgba(232,184,75,.80)':'rgba(180,120,220,.80)';
+    const dist=((l.price-cur)/cur*100).toFixed(2);
+    const bg=Math.abs(l.price-cur)/cur<0.003?'background:rgba(90,78,36,.08);':'';
+    return`<div class="vlp-row" style="${bg}">
+      <span class="vlp-type" style="color:${c}">${l.type}${l.count>1?'×'+l.count:''}</span>
+      <span class="vlp-price" style="color:${c}">${l.price.toFixed(dp)}</span>
+      <span class="vlp-dist">${dist>0?'+':''}${dist}%</span>
+    </div>`;
+  }).join('');
+}
+
+function vRenderEntryCard(scoreRes,dp){
+  const el=document.getElementById('veriEntryCard');
+  const e=V.entry;
+  if(!e){el.innerHTML=`<div class="vec-none">スコア不足 (${scoreRes.total}/100) — エントリー候補なし</div>`;return;}
+  const isBull=e.dir==='bull';
+  const dirC=isBull?'#3DAA62':'#C44040';
+  const dirLbl=isBull?'▲ LONG':'▼ SHORT';
+  const gradeCls=e.grade==='A'?'vec-grade-a':e.grade==='B'?'vec-grade-b':e.grade==='C'?'vec-grade-c':'vec-grade-d';
+  const bd=scoreRes.bd;
+  const bdItems=[
+    {l:'HTF',pts:bd.htf?.pts||0,max:30},
+    {l:'STRUCT',pts:bd.struct?.pts||0,max:20},
+    {l:'P/D',pts:bd.pd?.pts||0,max:15},
+    {l:'LIQ',pts:bd.liq?.pts||0,max:20},
+    {l:'OB/FVG',pts:bd.obfvg?.pts||0,max:15},
+  ];
+  el.innerHTML=`<div class="vec-inner">
+    <div class="vec-main">
+      <div class="vec-head">
+        <div class="vec-dir" style="color:${dirC}">${dirLbl}</div>
+        <div class="vec-grade ${gradeCls}">GRADE ${e.grade}  ${e.score}/100</div>
+      </div>
+      <div class="vec-levels">
+        <div class="vec-lv"><div class="vec-lv-lbl">ENTRY</div><div class="vec-lv-val" style="color:${dirC}">${e.entry.toFixed(dp)}</div></div>
+        <div class="vec-lv"><div class="vec-lv-lbl">SL</div><div class="vec-lv-val" style="color:#C44040">${e.sl.toFixed(dp)} <span style="font-size:9px;color:var(--txt-dd)">(${e.risk.toFixed(dp)}pts)</span></div></div>
+        <div class="vec-lv"><div class="vec-lv-lbl">TP1 ×${e.rr1}R</div><div class="vec-lv-val" style="color:#3DAA62">${e.tp1.toFixed(dp)}</div></div>
+        <div class="vec-lv"><div class="vec-lv-lbl">TP2 ×${e.rr2}R</div><div class="vec-lv-val" style="color:#3DAA62">${e.tp2.toFixed(dp)}</div></div>
+      </div>
+    </div>
+    <div class="vec-side">
+      ${bdItems.map(b=>{
+        const pct=Math.round(b.pts/b.max*100);
+        const bc=b.pts>=b.max*.8?'#3DAA62':b.pts>=b.max*.5?'var(--gold)':'var(--txt-d)';
+        return`<div class="vec-bd-item">
+          <div class="vec-bd-lbl">${b.l}</div>
+          <div class="vec-bd-bar"><div class="vec-bd-fill" style="width:${pct}%;background:${bc}"></div></div>
+          <div class="vec-bd-pts" style="color:${bc}">${b.pts}</div>
+        </div>`;
+      }).join('')}
+    </div>
+  </div>`;
+}
+
+async function vCopy(){
+  const btn=document.getElementById('vCopyBtn');btn.textContent='⏳';btn.className='icon-btn';
+  try{
+    const area=document.getElementById('veriChartArea'),vCvs=document.getElementById('veriCvs');
+    const comp=document.createElement('canvas');comp.width=area.offsetWidth;comp.height=area.offsetHeight;
+    const ctx=comp.getContext('2d');ctx.fillStyle='#060504';ctx.fillRect(0,0,comp.width,comp.height);
+    const ar=area.getBoundingClientRect();
+    for(const c of document.getElementById('veriLw').querySelectorAll('canvas')){const cr=c.getBoundingClientRect();try{ctx.drawImage(c,cr.left-ar.left,cr.top-ar.top,cr.width,cr.height);}catch(e){}}
+    ctx.drawImage(vCvs,0,0);
+    const tf=document.querySelector('#veriTfrow .tf.on')?.textContent||V.tf;
+    ctx.fillStyle='rgba(0,0,0,.55)';ctx.fillRect(0,0,comp.width,28);
+    ctx.font='bold 11px JetBrains Mono,monospace';ctx.fillStyle='var(--gold-l)';ctx.fillText('GOLD 検証',7,18);
+    ctx.font='8px JetBrains Mono,monospace';ctx.fillStyle='#5A4E24';ctx.fillText(tf+'  '+new Date().toLocaleString('ja-JP'),comp.width-170,18);
+    comp.toBlob(async blob=>{
+      try{await navigator.clipboard.write([new ClipboardItem({'image/png':blob})]);btn.textContent='✓';btn.className='icon-btn ok';}
+      catch(e){const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='GOLD_verify_'+V.tf+'_'+Date.now()+'.png';a.click();btn.textContent='↓';btn.className='icon-btn ok';}
+      setTimeout(()=>{btn.textContent='📋';btn.className='icon-btn';},2500);
+    },'image/png');
+  }catch(e){btn.textContent='✗';btn.className='icon-btn err';setTimeout(()=>{btn.textContent='📋';btn.className='icon-btn';},2500);}
+}
+
+</script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -211,6 +883,81 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:9000;
   /* bottom-sheetの高さ分だけmain-areaにpadding-bottom */
   .main-area{margin-bottom:38px}
 }
+
+/* ═══ 検証 VIEW ═══════════════════════════════════════════ */
+.veri-view{display:flex;flex-direction:column;flex:1;min-height:0;gap:4px}
+.veri-top{flex-shrink:0;display:flex;gap:5px;height:52px}
+.veri-card{background:var(--s1);border:1px solid var(--border);border-radius:3px;
+  padding:5px 10px;display:flex;flex-direction:column;justify-content:center;gap:2px}
+.veri-card-lbl{font-size:7px;letter-spacing:2px;color:var(--txt-dd)}
+.veri-card-val{font-size:13px;font-weight:500;letter-spacing:1px;font-family:'Bebas Neue',sans-serif}
+.vb-bull{color:#3DAA62}.vb-bear{color:#C44040}.vb-neu{color:var(--txt-d)}
+.veri-bias-wrap{display:flex;gap:5px}
+.veri-bias-item{background:var(--s1);border:1px solid var(--border);border-radius:3px;
+  padding:5px 10px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;min-width:60px}
+.vbi-lbl{font-size:7px;letter-spacing:2px;color:var(--txt-dd)}
+.vbi-val{font-size:15px;font-family:'Bebas Neue',sans-serif;letter-spacing:1px}
+.veri-pd-wrap{flex:1;background:var(--s1);border:1px solid var(--border);border-radius:3px;padding:5px 10px}
+.vpd-lbl{font-size:7px;letter-spacing:2px;color:var(--txt-dd);margin-bottom:4px}
+.vpd-track{position:relative;height:10px;background:var(--border);border-radius:5px;overflow:visible;margin:3px 0}
+.vpd-disc{position:absolute;left:0;top:0;height:100%;width:38%;background:rgba(61,170,98,.25);border-radius:5px 0 0 5px}
+.vpd-prem{position:absolute;right:0;top:0;height:100%;width:38%;background:rgba(196,64,64,.25);border-radius:0 5px 5px 0}
+.vpd-ote-buy{position:absolute;left:21%;top:0;height:100%;width:17%;background:rgba(61,170,98,.45)}
+.vpd-ote-sell{position:absolute;right:21%;top:0;height:100%;width:17%;background:rgba(196,64,64,.45)}
+.vpd-eq{position:absolute;left:50%;top:-2px;width:1px;height:14px;background:var(--txt-d)}
+.vpd-cur{position:absolute;top:-4px;width:8px;height:18px;border-radius:2px;transform:translateX(-50%);transition:left .3s}
+.vpd-labels{display:flex;justify-content:space-between;font-size:7px;color:var(--txt-dd);margin-top:1px}
+.veri-kz{background:var(--s1);border:1px solid var(--border);border-radius:3px;padding:5px 10px;
+  display:flex;flex-direction:column;justify-content:center;gap:2px;min-width:80px}
+.vkz-lbl{font-size:7px;letter-spacing:2px;color:var(--txt-dd)}
+.vkz-val{font-size:11px;font-weight:500;letter-spacing:.5px}
+.veri-score-wrap{background:var(--s1);border:1px solid var(--border);border-radius:3px;
+  padding:5px 10px;display:flex;flex-direction:column;justify-content:center;gap:3px;min-width:90px}
+.vsc-lbl{font-size:7px;letter-spacing:2px;color:var(--txt-dd)}
+.vsc-num{font-family:'Bebas Neue',sans-serif;font-size:20px;line-height:1}
+.vsc-bar-wrap{height:4px;background:var(--border);border-radius:2px;overflow:hidden}
+.vsc-bar{height:100%;border-radius:2px;transition:width .5s,background .5s}
+/* main */
+.veri-main{flex:1;min-height:0;display:flex;gap:5px}
+.veri-chart-wrap{flex:1;min-width:0;position:relative;border:1px solid var(--border);border-radius:3px;overflow:hidden}
+.veri-chart-wrap::before{content:'';position:absolute;top:0;left:0;right:0;height:1px;
+  background:linear-gradient(90deg,transparent,var(--gold-d),transparent);z-index:1;pointer-events:none}
+#veriLw{position:absolute;inset:0}
+#veriCvs{position:absolute;top:0;left:0;pointer-events:none;z-index:10}
+.veri-liq-panel{width:110px;flex-shrink:0;background:var(--s2);border:1px solid var(--border);
+  border-radius:3px;display:flex;flex-direction:column;overflow:hidden}
+.vlp-hdr{padding:3px 7px;border-bottom:1px solid var(--border);background:var(--s1);
+  font-family:'Bebas Neue',sans-serif;font-size:11px;letter-spacing:1px;color:var(--txt-d);flex-shrink:0}
+.vlp-body{flex:1;overflow-y:auto;padding:3px 0}
+.vlp-body::-webkit-scrollbar{width:2px}.vlp-body::-webkit-scrollbar-thumb{background:var(--border)}
+.vlp-row{display:flex;align-items:center;gap:4px;padding:3px 7px;border-bottom:1px solid rgba(30,23,8,.4)}
+.vlp-row:last-child{border-bottom:none}
+.vlp-type{font-size:8px;width:28px;letter-spacing:.5px}
+.vlp-price{font-size:9px;flex:1}
+.vlp-dist{font-size:8px;color:var(--txt-dd);text-align:right}
+/* entry card */
+.veri-entry-card{flex-shrink:0;border:1px solid var(--border);border-radius:3px;
+  background:var(--s1);overflow:hidden}
+.vec-none{padding:6px 12px;font-size:8px;color:var(--txt-dd);letter-spacing:1px}
+.vec-inner{display:flex;gap:0}
+.vec-main{flex:1;padding:7px 12px;border-right:1px solid var(--border)}
+.vec-head{display:flex;align-items:center;gap:8px;margin-bottom:5px}
+.vec-dir{font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:2px}
+.vec-grade{font-family:'Bebas Neue',sans-serif;font-size:11px;padding:2px 8px;border-radius:2px}
+.vec-grade-a{background:rgba(61,170,98,.2);color:#3DAA62}
+.vec-grade-b{background:rgba(232,184,75,.2);color:var(--gold)}
+.vec-grade-c{background:rgba(90,78,36,.15);color:var(--txt-d)}
+.vec-grade-d{background:rgba(196,64,64,.1);color:var(--dn)}
+.vec-levels{display:flex;gap:14px}
+.vec-lv{display:flex;flex-direction:column;gap:1px}
+.vec-lv-lbl{font-size:7px;color:var(--txt-dd);letter-spacing:1px}
+.vec-lv-val{font-size:11px;font-weight:500}
+.vec-side{width:130px;flex-shrink:0;padding:6px 10px;display:flex;flex-direction:column;gap:4px}
+.vec-bd-item{display:flex;justify-content:space-between;align-items:center}
+.vec-bd-lbl{font-size:8px;color:var(--txt-dd)}
+.vec-bd-bar{flex:1;height:3px;background:var(--border);border-radius:1px;margin:0 5px;overflow:hidden}
+.vec-bd-fill{height:100%;border-radius:1px}
+.vec-bd-pts{font-size:8px;min-width:20px;text-align:right}
 </style>
 </head>
 <body>
@@ -219,6 +966,7 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:9000;
   <!-- INST TABS -->
   <div class="inst-row">
     <button class="inst-tab on" data-id="gold"   onclick="switchInst('gold',this)">GOLD</button>
+    <button class="inst-tab"    data-id="verify" onclick="switchInst('verify',this)">GOLD検証</button>
     <button class="inst-tab"    data-id="silver" onclick="switchInst('silver',this)">SILVER</button>
     <button class="inst-tab"    data-id="btc"    onclick="switchInst('btc',this)">BTC</button>
     <button class="inst-tab"    data-id="all"    onclick="switchInst('all',this)">ALL</button>
@@ -341,6 +1089,105 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:9000;
     </div>
   </div>
 
+
+  <!-- ═══ GOLD 検証 VIEW ═══ -->
+  <div class="veri-view d-none" id="veriView">
+
+    <!-- TOP BAR: bias / PD / score / KZ -->
+    <div class="veri-top">
+      <!-- HTF Bias -->
+      <div class="veri-bias-wrap">
+        <div class="veri-bias-item">
+          <div class="vbi-lbl">1H</div>
+          <div class="vbi-val vb-neu" id="vBias1h">—</div>
+        </div>
+        <div class="veri-bias-item">
+          <div class="vbi-lbl">4H</div>
+          <div class="vbi-val vb-neu" id="vBias4h">—</div>
+        </div>
+        <div class="veri-bias-item">
+          <div class="vbi-lbl">STRUCT</div>
+          <div class="vbi-val vb-neu" id="vBiasStruct">—</div>
+        </div>
+      </div>
+      <!-- Premium/Discount meter -->
+      <div class="veri-pd-wrap">
+        <div class="vpd-lbl">PREMIUM / DISCOUNT</div>
+        <div class="vpd-track">
+          <div class="vpd-disc"></div>
+          <div class="vpd-prem"></div>
+          <div class="vpd-ote-buy"></div>
+          <div class="vpd-ote-sell"></div>
+          <div class="vpd-eq"></div>
+          <div class="vpd-cur" id="vPDCur" style="left:50%;background:var(--txt-d)"></div>
+        </div>
+        <div class="vpd-labels"><span>DISC</span><span>OTE▲</span><span>EQ</span><span>OTE▼</span><span>PREM</span></div>
+      </div>
+      <!-- Killzone -->
+      <div class="veri-kz">
+        <div class="vkz-lbl">SESSION/KZ</div>
+        <div class="vkz-val" id="vKZVal">—</div>
+        <div style="font-size:8px;color:var(--txt-dd)" id="vKZNext">—</div>
+      </div>
+      <!-- Score -->
+      <div class="veri-score-wrap">
+        <div class="vsc-lbl">SCORE</div>
+        <div class="vsc-num" id="vScoreNum" style="color:var(--txt-d)">—</div>
+        <div class="vsc-bar-wrap"><div class="vsc-bar" id="vScoreBar" style="width:0"></div></div>
+      </div>
+    </div>
+
+    <!-- TF ROW -->
+    <div class="tfrow" id="veriTfrow">
+      <span class="tfl">TF</span>
+      <button class="tf"    onclick="vSetTF('1m',this)">1m</button>
+      <button class="tf on" onclick="vSetTF('5m',this)">5m</button>
+      <button class="tf"    onclick="vSetTF('15m',this)">15m</button>
+      <button class="tf"    onclick="vSetTF('1h',this)">1H</button>
+      <button class="tf"    onclick="vSetTF('4h',this)">4H</button>
+      <button class="tf-toggle on" id="vTogBOS" onclick="vToggle('BOS',this)">BOS</button>
+      <button class="tf-toggle on" id="vTogFVG" onclick="vToggle('FVG',this)">FVG</button>
+      <button class="tf-toggle on" id="vTogLIQ" onclick="vToggle('LIQ',this)">LIQ</button>
+      <button class="tf-toggle on" id="vTogSES" onclick="vToggle('SES',this)">SES</button>
+      <button class="icon-btn ml-auto" onclick="vReload()">↺</button>
+      <button class="icon-btn" id="vCopyBtn" onclick="vCopy()">📋</button>
+    </div>
+
+    <!-- MAIN: chart + liq panel -->
+    <div class="veri-main">
+      <div class="veri-chart-wrap" id="veriChartArea">
+        <div id="veriLw"></div>
+        <canvas id="veriCvs"></canvas>
+        <div class="overlay" id="veriOverlay">
+          <div class="spinner"></div>
+          <div class="ov-title">LOADING</div>
+          <div class="ov-sub" id="veriOvSub">取得中...</div>
+        </div>
+      </div>
+      <div class="veri-liq-panel">
+        <div class="vlp-hdr">LIQUIDITY</div>
+        <div class="vlp-body" id="vLiqPanel"></div>
+      </div>
+    </div>
+
+    <!-- ENTRY CARD -->
+    <div class="veri-entry-card" id="veriEntryCard">
+      <div class="vec-none">データ取得後にエントリー候補を表示します</div>
+    </div>
+
+    <!-- STATUS -->
+    <div class="statusbar">
+      <div class="stat">HIGH<span id="vStHigh">—</span></div>
+      <div class="sep" style="height:10px"></div>
+      <div class="stat">LOW<span id="vStLow">—</span></div>
+      <div class="sep" style="height:10px"></div>
+      <div class="stat">ATR<span id="vStATR">—</span></div>
+      <div class="sep" style="height:10px"></div>
+      <div class="stat">OB<span id="vStOB">—</span></div>
+      <div id="vStatusMsg">起動中...</div>
+    </div>
+
+  </div><!-- .veri-view -->
   <!-- STATUS BAR -->
   <div class="statusbar">
     <div class="stat">HIGH<span id="stHigh">—</span></div>
@@ -732,6 +1579,18 @@ async function loadData(instId){
 function switchInst(id,btn){
   document.querySelectorAll('.inst-tab').forEach(t=>t.classList.remove('on'));
   if(btn)btn.classList.add('on');
+  // hide verify view when switching away
+  document.getElementById('veriView').classList.add('d-none');
+  if(id==='verify'){
+    document.getElementById('mainHdr').classList.add('d-none');
+    document.getElementById('mainTfrow').classList.add('d-none');
+    document.getElementById('mainArea').classList.add('d-none');
+    document.getElementById('alertPanel').classList.add('d-none');
+    document.getElementById('allGrid').classList.add('d-none');
+    document.getElementById('veriView').classList.remove('d-none');
+    veriInit();
+    return;
+  }
   if(id==='all'){
     document.getElementById('mainHdr').classList.add('d-none');
     document.getElementById('mainTfrow').classList.add('d-none');
@@ -1173,6 +2032,729 @@ setInterval(()=>{const s=S[currentInst];if(s.candles.length)recalcAll(currentIns
 loadData('gold').then(()=>connectWS('gold'));
 setTimeout(()=>loadData('silver').then(()=>connectWS('silver')),900);
 setTimeout(()=>loadData('btc').then(()=>connectWS('btc')),1800);
+
+// ═══════════════════════════════════════════════════════════
+//  GOLD 検証 MODULE
+//  Philosophy: ICT/SMC Full-Framework Score System
+//  Indicators: BOS/CHoCH · HTF Bias · Liquidity Pools
+//              Premium/Discount + OTE · Session Levels
+//              Killzone Timing · Score 0-100 · Entry Card
+// ═══════════════════════════════════════════════════════════
+const V = {
+  chart:null, cSeries:null, volSeries:null,
+  candles:[],   // current TF
+  candles1h:[], // for HTF bias
+  candles4h:[],
+  tf:'5m',
+  initialized:false,
+  // derived
+  structure:{events:[],trend:'neutral',swingHighs:[],swingLows:[]},
+  liquidity:[],
+  sessions:{},
+  pd:{ratio:.5,zone:'EQ'},
+  atr:0,
+  htfBias:{h1:'neutral',h4:'neutral'},
+  score:0, breakdown:{},
+  entry:null,
+  showBOS:true,showFVG:true,showLIQ:true,showSES:true,
+  resizeObs:null,
+  drawTimer:null,
+};
+let _vPhase=0;
+
+// ── FETCH ─────────────────────────────────────────────────
+async function vFetch(tf,limit){
+  const lim=limit||BN_LIM[tf]||500;
+  const bnInt=BN_INT[tf]||'5m';
+  const urls=[
+    `https://fapi.binance.com/fapi/v1/klines?symbol=XAUUSDT&interval=${bnInt}&limit=${lim}`,
+    `http://localhost:8001/klines?symbol=XAUUSDT&interval=${bnInt}&limit=${lim}`,
+  ];
+  for(const url of urls){
+    try{const r=await fetch(url);if(!r.ok)continue;
+      const d=await r.json();if(!Array.isArray(d)||!d.length)continue;
+      return d.map(x=>({time:Math.floor(x[0]/1000),open:+x[1],high:+x[2],low:+x[3],close:+x[4],volume:+x[5]}));
+    }catch(e){}
+  }
+  throw new Error('fetch failed');
+}
+
+// ── CALC: BOS / CHoCH ────────────────────────────────────
+function vCalcStructure(candles){
+  if(candles.length<12)return{events:[],trend:'neutral',swingHighs:[],swingLows:[]};
+  const lb=5,n=candles.length;
+  const sHs=[],sLs=[];
+  for(let i=lb;i<n-lb;i++){
+    const c=candles[i];let isH=true,isL=true;
+    for(let j=i-lb;j<=i+lb;j++){if(j===i)continue;if(candles[j].high>=c.high)isH=false;if(candles[j].low<=c.low)isL=false;}
+    if(isH)sHs.push({price:c.high,time:c.time,idx:i});
+    if(isL)sLs.push({price:c.low, time:c.time,idx:i});
+  }
+  const events=[];
+  let trend='neutral';
+  let lastBH=null,lastBL=null;
+  for(let i=lb+1;i<n;i++){
+    const c=candles[i];
+    const rHs=sHs.filter(h=>h.idx<i-lb),rLs=sLs.filter(l=>l.idx<i-lb);
+    if(!rHs.length||!rLs.length)continue;
+    const lastH=rHs[rHs.length-1],lastL=rLs[rLs.length-1];
+    if(c.close>lastH.price&&lastBH!==lastH){
+      const type=trend==='bear'?'CHoCH':'BOS';
+      events.push({type,direction:'bull',price:lastH.price,time:c.time,idx:i});
+      trend='bull';lastBH=lastH;
+    }
+    if(c.close<lastL.price&&lastBL!==lastL){
+      const type=trend==='bull'?'CHoCH':'BOS';
+      events.push({type,direction:'bear',price:lastL.price,time:c.time,idx:i});
+      trend='bear';lastBL=lastL;
+    }
+  }
+  return{events:events.slice(-25),trend,swingHighs:sHs.slice(-10),swingLows:sLs.slice(-10)};
+}
+
+// ── CALC: HTF BIAS ────────────────────────────────────────
+function vCalcHTFBias(){
+  const getBias=(candles)=>{
+    if(!candles.length)return'neutral';
+    const s=vCalcStructure(candles);
+    if(!s.events.length)return'neutral';
+    const lastChoch=s.events.filter(e=>e.type==='CHoCH').slice(-1)[0];
+    if(lastChoch)return lastChoch.direction;
+    const recent=s.events.slice(-5);
+    const bulls=recent.filter(e=>e.direction==='bull').length;
+    const bears=recent.filter(e=>e.direction==='bear').length;
+    return bulls>bears?'bull':bears>bulls?'bear':'neutral';
+  };
+  return{h1:getBias(V.candles1h),h4:getBias(V.candles4h)};
+}
+
+// ── CALC: LIQUIDITY POOLS ─────────────────────────────────
+function vCalcLiquidity(candles){
+  const lb=5,n=candles.length,tol=0.0015;
+  const sHs=[],sLs=[];
+  for(let i=lb;i<n-lb;i++){
+    const c=candles[i];let isH=true,isL=true;
+    for(let j=i-lb;j<=i+lb;j++){if(j===i)continue;if(candles[j].high>=c.high)isH=false;if(candles[j].low<=c.low)isL=false;}
+    if(isH)sHs.push({price:c.high,time:c.time,idx:i});
+    if(isL)sLs.push({price:c.low, time:c.time,idx:i});
+  }
+  const pools=[];
+  // Equal highs → BSL
+  for(let i=0;i<sHs.length-1;i++){
+    for(let j=i+1;j<sHs.length;j++){
+      if(Math.abs(sHs[i].price-sHs[j].price)/sHs[i].price<tol){
+        const p=(sHs[i].price+sHs[j].price)/2;
+        const taken=candles.slice(sHs[j].idx+1).some(c=>c.high>p*(1+tol*2));
+        pools.push({type:'BSL',price:p,time:sHs[j].time,idx:sHs[j].idx,taken,count:2});
+        break;
+      }
+    }
+  }
+  // Equal lows → SSL
+  for(let i=0;i<sLs.length-1;i++){
+    for(let j=i+1;j<sLs.length;j++){
+      if(Math.abs(sLs[i].price-sLs[j].price)/sLs[i].price<tol){
+        const p=(sLs[i].price+sLs[j].price)/2;
+        const taken=candles.slice(sLs[j].idx+1).some(c=>c.low<p*(1-tol*2));
+        pools.push({type:'SSL',price:p,time:sLs[j].time,idx:sLs[j].idx,taken,count:2});
+        break;
+      }
+    }
+  }
+  // Also add most recent swing H/L as single-point liquidity
+  if(sHs.length){const sh=sHs[sHs.length-1];const taken=candles.slice(sh.idx+1).some(c=>c.high>sh.price);pools.push({type:'BSL',price:sh.price,time:sh.time,idx:sh.idx,taken,count:1});}
+  if(sLs.length){const sl=sLs[sLs.length-1];const taken=candles.slice(sl.idx+1).some(c=>c.low<sl.price);pools.push({type:'SSL',price:sl.price,time:sl.time,idx:sl.idx,taken,count:1});}
+  // Deduplicate by price proximity
+  const deduped=[];
+  for(const p of pools){
+    if(!deduped.some(d=>Math.abs(d.price-p.price)/p.price<tol*2))deduped.push(p);
+  }
+  return deduped.sort((a,b)=>b.price-a.price);
+}
+
+// ── CALC: SESSION LEVELS ──────────────────────────────────
+function vCalcSessions(candles){
+  const sessions={};
+  const now=Math.floor(Date.now()/1000);
+  const todayUTC=Math.floor(now/86400)*86400;
+  const todayJST=todayUTC-9*3600; // JST midnight = UTC-9h
+  // Previous JST day
+  const prevStart=todayJST-86400,prevEnd=todayJST;
+  const prev=candles.filter(c=>c.time>=prevStart&&c.time<prevEnd);
+  if(prev.length){sessions.pdh=Math.max(...prev.map(c=>c.high));sessions.pdl=Math.min(...prev.map(c=>c.low));sessions.pdc=prev[prev.length-1].close;}
+  // Asia JST 00:00-09:00 (UTC 15:00 prev - 00:00)
+  const asiaS=todayJST,asiaE=todayJST+9*3600;
+  const asia=candles.filter(c=>c.time>=asiaS&&c.time<asiaE);
+  if(asia.length){sessions.asiaH=Math.max(...asia.map(c=>c.high));sessions.asiaL=Math.min(...asia.map(c=>c.low));}
+  // London JST 16:00-01:00 next (UTC 07:00-16:00)
+  const lonS=todayJST+16*3600,lonE=lonS+9*3600;
+  const lon=candles.filter(c=>c.time>=lonS&&c.time<lonE);
+  if(lon.length){sessions.lonH=Math.max(...lon.map(c=>c.high));sessions.lonL=Math.min(...lon.map(c=>c.low));}
+  // NY JST 22:30 (UTC 13:30)
+  const nyS=todayJST+22*3600+1800,nyE=nyS+7*3600;
+  const ny=candles.filter(c=>c.time>=nyS&&c.time<nyE);
+  if(ny.length){sessions.nyH=Math.max(...ny.map(c=>c.high));sessions.nyL=Math.min(...ny.map(c=>c.low));}
+  return sessions;
+}
+
+// ── CALC: PREMIUM / DISCOUNT ──────────────────────────────
+function vCalcPD(candles){
+  if(candles.length<5)return{ratio:.5,zone:'EQ',hi:0,lo:0};
+  const recent=candles.slice(-50);
+  const hi=Math.max(...recent.map(c=>c.high)),lo=Math.min(...recent.map(c=>c.low));
+  const range=hi-lo;if(!range)return{ratio:.5,zone:'EQ',hi,lo};
+  const cur=candles[candles.length-1].close;
+  const ratio=(cur-lo)/range;
+  const zone=ratio>0.62?'PREMIUM':ratio<0.38?'DISCOUNT':'EQ';
+  const inOTE=(zone==='PREMIUM'&&ratio>0.62&&ratio<0.79)||(zone==='DISCOUNT'&&ratio>0.21&&ratio<0.38);
+  return{ratio,zone,inOTE,hi,lo,range};
+}
+
+// ── CALC: ATR ─────────────────────────────────────────────
+function vCalcATR(candles,p=14){
+  if(candles.length<p+1)return candles.length>1?(candles[candles.length-1].high-candles[candles.length-1].low):1;
+  let s=0;
+  for(let i=candles.length-p;i<candles.length;i++){
+    const c=candles[i],pr=candles[i-1];
+    s+=Math.max(c.high-c.low,Math.abs(c.high-pr.close),Math.abs(c.low-pr.close));
+  }
+  return s/p;
+}
+
+// ── CALC: KILLZONE ────────────────────────────────────────
+function vGetKillzone(){
+  const now=new Date();
+  const jstH=((now.getUTCHours()+9)%24);
+  const jstM=now.getUTCMinutes();
+  const jstT=jstH*60+jstM;
+  if(jstT>=0&&jstT<60)  return{name:'TOKYO OPEN',active:true,color:'rgba(90,78,36,.08)'};
+  if(jstT>=480&&jstT<540)return{name:'TOKYO/LONDON',active:true,color:'rgba(80,100,60,.08)'};
+  if(jstT>=1560&&jstT<1620)return{name:'LONDON OPEN',active:true,color:'rgba(60,80,120,.10)'};
+  if(jstT>=1320&&jstT<1380)return{name:'NY OPEN',active:true,color:'rgba(120,60,60,.10)'};
+  if(jstT>=360&&jstT<420) return{name:'NY CLOSE',active:true,color:'rgba(80,60,40,.08)'};
+  // Next KZ
+  const kzs=[0,480,1320,1560];
+  const next=kzs.find(t=>t>jstT)||kzs[0]+1440;
+  const diff=next-jstT;
+  const diffH=Math.floor(diff/60),diffM=diff%60;
+  return{name:`NEXT KZ ${diffH}h${diffM}m`,active:false,color:null};
+}
+
+// ── SCORE 0-100 ───────────────────────────────────────────
+function vCalcScore(){
+  const s=V;if(!s.candles.length)return{total:0,bd:{}};
+  const cur=s.candles[s.candles.length-1].close;
+  const bd={};let total=0;
+  // 1. HTF Confluence (30pts)
+  const h1=s.htfBias.h1,h4=s.htfBias.h4;
+  const htfDir=h1==='bull'&&h4==='bull'?'bull':h1==='bear'&&h4==='bear'?'bear':h1!=='neutral'?h1:h4!=='neutral'?h4:'neutral';
+  const htfPts=h1!=='neutral'&&h4!=='neutral'&&h1===h4?30:h1!=='neutral'||h4!=='neutral'?12:0;
+  bd.htf={pts:htfPts,max:30,lbl:'HTF Confluence',dir:htfDir};total+=htfPts;
+  // 2. LTF Structure (20pts)
+  const recentEvts=s.structure.events.slice(-8);
+  const lastEvt=recentEvts.slice(-1)[0];
+  const structAligned=lastEvt&&lastEvt.direction===htfDir;
+  const structPts=!lastEvt?0:lastEvt.type==='CHoCH'&&structAligned?20:lastEvt.type==='BOS'&&structAligned?12:5;
+  bd.struct={pts:structPts,max:20,lbl:'LTF Structure'};total+=structPts;
+  // 3. Premium/Discount (15pts)
+  const pd=s.pd;
+  const pdAligned=(htfDir==='bull'&&pd.zone==='DISCOUNT')||(htfDir==='bear'&&pd.zone==='PREMIUM');
+  const pdPts=pd.inOTE&&pdAligned?15:pdAligned?8:pd.zone==='EQ'?3:0;
+  bd.pd={pts:pdPts,max:15,lbl:'P/D Zone ('+pd.zone+')'};total+=pdPts;
+  // 4. Liquidity Swept (20pts)
+  const freshLiq=s.liquidity.filter(l=>!l.taken);
+  const recentC=s.candles.slice(-10);
+  const swept=freshLiq.filter(l=>{
+    if(l.type==='BSL'&&htfDir==='bear')return recentC.some(c=>c.high>=l.price);
+    if(l.type==='SSL'&&htfDir==='bull')return recentC.some(c=>c.low<=l.price);
+    return false;
+  });
+  const liqPts=swept.length>=2?20:swept.length===1?12:0;
+  bd.liq={pts:liqPts,max:20,lbl:'Liquidity Sweep'};total+=liqPts;
+  // 5. OB + FVG at zone (15pts)
+  const obs=calcOB(s.candles),fvgs=calcFVG(s.candles);
+  const nearPct=0.006;
+  const nearOBs=(obs.active||[]).filter(ob=>{
+    const mid=(ob.top+ob.bottom)/2;
+    return Math.abs(mid-cur)/cur<nearPct&&ob.type===(htfDir==='bull'?'bull':'bear');
+  });
+  const nearFVGs=fvgs.filter(fvg=>{const mid=(fvg.top+fvg.bottom)/2;return Math.abs(mid-cur)/cur<nearPct;});
+  const hasHighOB=nearOBs.some(o=>o.grade==='S'||o.grade==='A');
+  const obfvgPts=hasHighOB&&nearFVGs.length?15:hasHighOB?10:nearOBs.length&&nearFVGs.length?8:nearFVGs.length?4:0;
+  bd.obfvg={pts:obfvgPts,max:15,lbl:'OB+FVG Confluence'};total+=obfvgPts;
+  return{total:Math.min(total,100),bd,htfDir,obs,fvgs,swept};
+}
+
+// ── GENERATE ENTRY SETUP ──────────────────────────────────
+function vGenEntry(scoreResult){
+  const{total,htfDir,obs,fvgs}=scoreResult;
+  if(total<45||htfDir==='neutral')return null;
+  const s=V;if(!s.candles.length)return null;
+  const cur=s.candles[s.candles.length-1].close;
+  const atr=s.atr;
+  const dp=2;
+  // Best OB
+  const dirOBs=(obs.active||[]).filter(ob=>ob.type===(htfDir==='bull'?'bull':'bear'));
+  const nearOB=dirOBs.sort((a,b)=>Math.abs((a.top+a.bottom)/2-cur)-Math.abs((b.top+b.bottom)/2-cur))[0];
+  let entry,sl;
+  if(htfDir==='bear'){
+    entry=nearOB?nearOB.bottom:cur;
+    sl=nearOB?nearOB.top+atr*.25:cur+atr*1.5;
+    // TP: nearest bull OB below or ATR targets
+    const bullOBsBelow=(obs.active||[]).filter(o=>o.type==='bull'&&o.top<entry).sort((a,b)=>b.top-a.top);
+    const tp1=bullOBsBelow.length?bullOBsBelow[0].top:entry-atr*2;
+    const tp2=bullOBsBelow.length>1?bullOBsBelow[1].top:entry-atr*4;
+    const risk=Math.abs(entry-sl);
+    return{dir:'bear',entry,sl,tp1,tp2,risk,rr1:((Math.abs(entry-tp1))/risk).toFixed(1),rr2:((Math.abs(entry-tp2))/risk).toFixed(1),score:total,grade:total>=80?'A':total>=60?'B':total>=45?'C':'D'};
+  } else {
+    entry=nearOB?nearOB.top:cur;
+    sl=nearOB?nearOB.bottom-atr*.25:cur-atr*1.5;
+    const bearOBsAbove=(obs.active||[]).filter(o=>o.type==='bear'&&o.bottom>entry).sort((a,b)=>a.bottom-b.bottom);
+    const tp1=bearOBsAbove.length?bearOBsAbove[0].bottom:entry+atr*2;
+    const tp2=bearOBsAbove.length>1?bearOBsAbove[1].bottom:entry+atr*4;
+    const risk=Math.abs(entry-sl);
+    return{dir:'bull',entry,sl,tp1,tp2,risk,rr1:((Math.abs(tp1-entry))/risk).toFixed(1),rr2:((Math.abs(tp2-entry))/risk).toFixed(1),score:total,grade:total>=80?'A':total>=60?'B':total>=45?'C':'D'};
+  }
+}
+
+// ── CHART INIT ────────────────────────────────────────────
+function vInitChart(){
+  const el=document.getElementById('veriLw');
+  if(V.chart){V.chart.remove();V.chart=null;V.cSeries=null;V.volSeries=null;}
+  if(V.resizeObs){V.resizeObs.disconnect();V.resizeObs=null;}
+  V.chart=LightweightCharts.createChart(el,{
+    width:el.offsetWidth,height:el.offsetHeight,
+    layout:{background:{type:'solid',color:'#060504'},textColor:'#5A4E24',fontFamily:"'JetBrains Mono',monospace",fontSize:10},
+    grid:{vertLines:{color:'#080705'},horzLines:{color:'#080705'}},
+    crosshair:{mode:LightweightCharts.CrosshairMode.Normal,vertLine:{color:'#3D2A08',labelBackgroundColor:'#130F07'},horzLine:{color:'#3D2A08',labelBackgroundColor:'#130F07'}},
+    rightPriceScale:{borderColor:'#1E1708',textColor:'#5A4E24',scaleMargins:{top:.06,bottom:.20}},
+    timeScale:{borderColor:'#1E1708',timeVisible:true,secondsVisible:false},
+  });
+  V.cSeries=V.chart.addCandlestickSeries({upColor:'#3DAA62',downColor:'#C44040',borderUpColor:'#3DAA62',borderDownColor:'#C44040',wickUpColor:'#3DAA62',wickDownColor:'#C44040'});
+  V.volSeries=V.chart.addHistogramSeries({color:'#1E1708',priceFormat:{type:'volume'},priceScaleId:'vol'});
+  V.chart.priceScale('vol').applyOptions({scaleMargins:{top:.82,bottom:0}});
+  V.chart.timeScale().subscribeVisibleLogicalRangeChange(()=>requestAnimationFrame(vDraw));
+  V.resizeObs=new ResizeObserver(()=>{
+    const a=document.getElementById('veriChartArea');
+    if(V.chart)V.chart.applyOptions({width:a.offsetWidth,height:a.offsetHeight});
+    vResizeCvs();requestAnimationFrame(vDraw);
+  });
+  V.resizeObs.observe(document.getElementById('veriChartArea'));
+  if(V.drawTimer)clearInterval(V.drawTimer);
+  V.drawTimer=setInterval(()=>{requestAnimationFrame(vDraw);vUpdatePanel();},130);
+}
+function vResizeCvs(){
+  const a=document.getElementById('veriChartArea'),c=document.getElementById('veriCvs');
+  c.width=a.offsetWidth;c.height=a.offsetHeight;
+}
+function vGetPaneOY(){
+  const cvs=document.querySelectorAll('#veriLw canvas');if(!cvs.length)return 0;
+  return Math.round(cvs[0].getBoundingClientRect().top-document.getElementById('veriChartArea').getBoundingClientRect().top);
+}
+function vP2Y(price){return V.cSeries?V.cSeries.priceToCoordinate(price):null;}
+
+// ── LOAD DATA ─────────────────────────────────────────────
+async function vLoadData(){
+  const el=document.getElementById('veriOverlay');
+  el.classList.remove('hidden');document.getElementById('veriOvSub').textContent='データ取得中 ('+V.tf+')...';
+  try{
+    const [main,h1,h4]=await Promise.all([
+      vFetch(V.tf),
+      vFetch('1h',300),
+      vFetch('4h',200),
+    ]);
+    V.candles=main;V.candles1h=h1;V.candles4h=h4;
+    V.cSeries.setData(main.map(c=>({time:c.time,open:c.open,high:c.high,low:c.low,close:c.close})));
+    V.volSeries.setData(main.map(c=>({time:c.time,value:c.volume,color:c.close>=c.open?'rgba(61,170,98,.25)':'rgba(196,64,64,.25)'})));
+    const show=SHOW_B[V.tf]||100;
+    V.chart.priceScale('right').applyOptions({autoScale:true});
+    V.chart.timeScale().fitContent();
+    V.chart.timeScale().setVisibleLogicalRange({from:Math.max(0,main.length-show-2),to:main.length+2});
+    // Set markers for BOS/CHoCH
+    vUpdateStructureMarkers();
+    const last=main[main.length-1];
+    document.getElementById('vStHigh').textContent=' '+Math.max(...main.map(c=>c.high)).toFixed(2);
+    document.getElementById('vStLow').textContent =' '+Math.min(...main.map(c=>c.low)).toFixed(2);
+    el.classList.add('hidden');
+    document.getElementById('vStatusMsg').textContent=main.length+'本 | 1H:'+h1.length+' 4H:'+h4.length;
+  }catch(e){
+    el.classList.remove('hidden');
+    document.querySelector('#veriOverlay .ov-title').textContent='ERROR';
+    document.getElementById('veriOvSub').textContent=e.message;
+  }
+}
+
+function vUpdateStructureMarkers(){
+  if(!V.cSeries||!V.candles.length)return;
+  V.structure=vCalcStructure(V.candles);
+  const markers=V.structure.events.slice(-15).map(e=>({
+    time:e.time,
+    position:e.direction==='bull'?'belowBar':'aboveBar',
+    color:e.type==='CHoCH'?(e.direction==='bull'?'#3DAA62':'#C44040'):(e.direction==='bull'?'rgba(100,200,100,.8)':'rgba(200,100,100,.8)'),
+    shape:e.direction==='bull'?'arrowUp':'arrowDown',
+    text:e.type,size:e.type==='CHoCH'?2:1,
+  }));
+  try{V.cSeries.setMarkers(markers.sort((a,b)=>a.time-b.time));}catch(e){}
+  const atr=vCalcATR(V.candles);
+  document.getElementById('vStATR').textContent=' '+atr.toFixed(2);
+  V.atr=atr;
+}
+
+// ── WS / POLLING ──────────────────────────────────────────
+function vConnectWS(){
+  if(V.ws){try{V.ws.close();}catch(e){}V.ws=null;}
+  clearTimeout(V.wsTimer);
+  if(V.wsFailCount>=5){vStartPoll();return;}
+  const bnInt=BN_INT[V.tf]||'5m';
+  const url=`wss://fstream.binance.com/ws/xauusdt@kline_${bnInt}`;
+  const ws=new WebSocket(url);V.ws=ws;let opened=false;
+  ws.onopen=()=>{opened=true;V.wsFailCount=0;vStopPoll();
+    const sm=document.getElementById('vStatusMsg');if(sm)sm.textContent=sm.textContent.replace(/ ⚡.*/,'')+' ⚡RT';};
+  ws.onerror=()=>{};
+  ws.onclose=()=>{
+    if(!opened)V.wsFailCount++;
+    const d=opened?5000:Math.min(3000*Math.pow(2,V.wsFailCount),30000);
+    if(V.wsFailCount<5)V.wsTimer=setTimeout(vConnectWS,d);else vStartPoll();
+  };
+  ws.onmessage=e=>{
+    try{
+      const k=JSON.parse(e.data).k;if(!k)return;
+      const c={time:Math.floor(k.t/1000),open:+k.o,high:+k.h,low:+k.l,close:+k.c,volume:+k.v};
+      if(V.candles.length){
+        const last=V.candles[V.candles.length-1];
+        if(last.time===c.time)V.candles[V.candles.length-1]=c;
+        else if(c.time>last.time)V.candles.push(c);
+      }
+      if(V.cSeries){
+        try{V.cSeries.update({time:c.time,open:c.open,high:c.high,low:c.low,close:c.close});}catch(ex){}
+        try{V.volSeries.update({time:c.time,value:c.volume,color:c.close>=c.open?'rgba(61,170,98,.25)':'rgba(196,64,64,.25)'});}catch(ex){}
+      }
+      if(!vConnectWS._n)vConnectWS._n=0;
+      if(++vConnectWS._n%30===0)vUpdateStructureMarkers();
+    }catch(ex){}
+  };
+}
+function vStartPoll(){
+  if(V.pollTimer)return;
+  V.pollTimer=setInterval(async()=>{
+    try{
+      const cs=await vFetch(V.tf,5);if(!cs.length)return;
+      const c=cs[cs.length-1];
+      if(V.candles.length){const prev=V.candles[V.candles.length-1];if(prev.time===c.time)V.candles[V.candles.length-1]=c;else if(c.time>prev.time)V.candles.push(c);}
+      if(V.cSeries)try{V.cSeries.update({time:c.time,open:c.open,high:c.high,low:c.low,close:c.close});}catch(e){}
+    }catch(e){}
+  },15000);
+}
+function vStopPoll(){if(V.pollTimer){clearInterval(V.pollTimer);V.pollTimer=null;}}
+
+// ── INIT ──────────────────────────────────────────────────
+function veriInit(){
+  if(!V.initialized){vInitChart();vResizeCvs();V.initialized=true;}
+  if(V.ws){try{V.ws.close();}catch(e){}V.ws=null;}
+  vStopPoll();V.wsFailCount=0;if(vConnectWS._n)vConnectWS._n=0;
+  vLoadData().then(()=>vConnectWS());
+}
+function vSetTF(tf,btn){
+  V.tf=tf;
+  document.querySelectorAll('#veriTfrow .tf').forEach(b=>b.classList.remove('on'));
+  if(btn)btn.classList.add('on');
+  if(V.ws){try{V.ws.close();}catch(e){}V.ws=null;}
+  vStopPoll();V.wsFailCount=0;
+  vLoadData().then(()=>vConnectWS());
+}
+function vReload(){
+  if(V.ws){try{V.ws.close();}catch(e){}V.ws=null;}
+  vStopPoll();V.wsFailCount=0;
+  vLoadData().then(()=>vConnectWS());
+}
+function vToggle(l,btn){
+  if(l==='BOS')V.showBOS=!V.showBOS;
+  else if(l==='FVG')V.showFVG=!V.showFVG;
+  else if(l==='LIQ')V.showLIQ=!V.showLIQ;
+  else V.showSES=!V.showSES;
+  btn.classList.toggle('on',l==='BOS'?V.showBOS:l==='FVG'?V.showFVG:l==='LIQ'?V.showLIQ:V.showSES);
+  requestAnimationFrame(vDraw);
+}
+
+// ── DRAW ──────────────────────────────────────────────────
+function vDraw(){
+  const cvs=document.getElementById('veriCvs'),ctx=cvs.getContext('2d');
+  ctx.clearRect(0,0,cvs.width,cvs.height);
+  if(!V.cSeries||!V.candles.length)return;
+  _vPhase=(_vPhase+.04)%(Math.PI*2);
+  const pOY=vGetPaneOY();
+  ctx.save();ctx.translate(0,pOY);
+  const W=cvs.width;
+
+  // ── Session levels ──
+  if(V.showSES){
+    const ses=vCalcSessions(V.candles);V.sessions=ses;
+    const lvls=[
+      {v:ses.pdh,c:'rgba(232,184,75,.65)',d:[6,4],lbl:'PDH'},
+      {v:ses.pdl,c:'rgba(232,184,75,.65)',d:[6,4],lbl:'PDL'},
+      {v:ses.pdc,c:'rgba(90,78,36,.60)',d:[2,5],lbl:'PDC'},
+      {v:ses.asiaH,c:'rgba(80,120,200,.50)',d:[3,5],lbl:'AsiaH'},
+      {v:ses.asiaL,c:'rgba(80,120,200,.50)',d:[3,5],lbl:'AsiaL'},
+      {v:ses.lonH,c:'rgba(80,160,120,.50)',d:[3,5],lbl:'LonH'},
+      {v:ses.lonL,c:'rgba(80,160,120,.50)',d:[3,5],lbl:'LonL'},
+    ];
+    for(const l of lvls){
+      if(l.v==null)continue;const y=vP2Y(l.v);if(y==null)continue;
+      ctx.strokeStyle=l.c;ctx.lineWidth=1;ctx.setLineDash(l.d);
+      ctx.beginPath();ctx.moveTo(W*.17,y);ctx.lineTo(W*.90,y);ctx.stroke();
+      ctx.setLineDash([]);ctx.font='8px JetBrains Mono,monospace';ctx.fillStyle=l.c;
+      ctx.fillText(l.lbl,W*.17+3,y-2);
+    }
+  }
+
+  // ── OTE zones (P/D) ──
+  const pd=vCalcPD(V.candles);V.pd=pd;
+  if(pd.range>0){
+    const yHi=vP2Y(pd.hi),yLo=vP2Y(pd.lo);
+    if(yHi!=null&&yLo!=null){
+      // Premium OTE zone (top 21-38%)
+      const yOTEsellTop=vP2Y(pd.lo+pd.range*.79),yOTEsellBot=vP2Y(pd.lo+pd.range*.62);
+      // Discount OTE zone (bottom 21-38%)
+      const yOTEbuyTop=vP2Y(pd.lo+pd.range*.38),yOTEbuyBot=vP2Y(pd.lo+pd.range*.21);
+      if(yOTEsellTop!=null&&yOTEsellBot!=null){
+        ctx.fillStyle='rgba(196,64,64,.06)';ctx.fillRect(W*.17,yOTEsellTop,W*.73,yOTEsellBot-yOTEsellTop);
+        ctx.strokeStyle='rgba(196,64,64,.20)';ctx.lineWidth=.7;ctx.setLineDash([2,4]);
+        ctx.strokeRect(W*.17,yOTEsellTop,W*.73,yOTEsellBot-yOTEsellTop);ctx.setLineDash([]);
+        ctx.font='8px JetBrains Mono,monospace';ctx.fillStyle='rgba(196,64,64,.45)';ctx.fillText('OTE ▼',W*.17+3,yOTEsellTop+10);
+      }
+      if(yOTEbuyTop!=null&&yOTEbuyBot!=null){
+        ctx.fillStyle='rgba(61,170,98,.06)';ctx.fillRect(W*.17,yOTEbuyTop,W*.73,yOTEbuyBot-yOTEbuyTop);
+        ctx.strokeStyle='rgba(61,170,98,.20)';ctx.lineWidth=.7;ctx.setLineDash([2,4]);
+        ctx.strokeRect(W*.17,yOTEbuyTop,W*.73,yOTEbuyBot-yOTEbuyTop);ctx.setLineDash([]);
+        ctx.font='8px JetBrains Mono,monospace';ctx.fillStyle='rgba(61,170,98,.45)';ctx.fillText('OTE ▲',W*.17+3,yOTEbuyTop-2);
+      }
+      // Equilibrium line
+      const yEQ=vP2Y(pd.lo+pd.range*.5);
+      if(yEQ!=null){ctx.strokeStyle='rgba(90,78,36,.40)';ctx.lineWidth=.8;ctx.setLineDash([1,6]);ctx.beginPath();ctx.moveTo(W*.17,yEQ);ctx.lineTo(W*.90,yEQ);ctx.stroke();ctx.setLineDash([]);ctx.font='8px JetBrains Mono,monospace';ctx.fillStyle='rgba(90,78,36,.50)';ctx.textAlign='right';ctx.fillText('EQ',W*.90,yEQ-2);ctx.textAlign='left';}
+    }
+  }
+
+  // ── S/A OBs only ──
+  const obsData=calcOB(V.candles);
+  const GRADE={S:{fill:.18,stroke:.92,lw:2,dash:[]},A:{fill:.12,stroke:.72,lw:1.5,dash:[]}};
+  for(const ob of(obsData.active||[])){
+    if(ob.grade!=='S'&&ob.grade!=='A')continue;
+    const yt=vP2Y(ob.top),yb=vP2Y(ob.bottom);if(yt==null||yb==null)continue;
+    const h=Math.max(2,yb-yt),st=GRADE[ob.grade];
+    const[r,g,b]=ob.type==='bull'?[100,160,255]:[255,100,100];
+    ctx.fillStyle=`rgba(${r},${g},${b},${st.fill})`;ctx.strokeStyle=`rgba(${r},${g},${b},${st.stroke})`;
+    ctx.lineWidth=st.lw;ctx.setLineDash(st.dash);
+    ctx.fillRect(W*.17,yt,W*.73,h);ctx.strokeRect(W*.17,yt,W*.73,h);ctx.setLineDash([]);
+    // Grade stripe
+    ctx.fillStyle=`rgba(${r},${g},${b},${ob.grade==='S'?1:.80})`;ctx.fillRect(W*.17,yt,4,h);
+  }
+  // Flip zones
+  for(const ob of(obsData.flip||[])){
+    const yt=vP2Y(ob.top),yb=vP2Y(ob.bottom);if(yt==null||yb==null)continue;
+    const h=Math.max(1,yb-yt);const[r,g,b]=ob.type==='bull'?[100,160,255]:[255,100,100];
+    ctx.fillStyle=`rgba(${r},${g},${b},.03)`;ctx.strokeStyle=`rgba(${r},${g},${b},.18)`;
+    ctx.lineWidth=.6;ctx.setLineDash([3,7]);ctx.fillRect(W*.17,yt,W*.73,h);ctx.strokeRect(W*.17,yt,W*.73,h);ctx.setLineDash([]);
+  }
+
+  // ── FVG ──
+  if(V.showFVG){
+    const fvgsD=calcFVG(V.candles);
+    for(const fvg of fvgsD){
+      const yt=vP2Y(fvg.top),yb=vP2Y(fvg.bottom);if(yt==null||yb==null)continue;
+      const h=Math.max(2,yb-yt);const[r,g,b]=fvg.type==='bull'?[100,220,160]:[220,100,100];
+      ctx.fillStyle=`rgba(${r},${g},${b},.08)`;ctx.strokeStyle=`rgba(${r},${g},${b},.30)`;
+      ctx.lineWidth=.8;ctx.setLineDash([2,4]);ctx.fillRect(W*.17,yt,W*.73,h);ctx.strokeRect(W*.17,yt,W*.73,h);ctx.setLineDash([]);
+    }
+  }
+
+  // ── Liquidity pools ──
+  if(V.showLIQ){
+    const liq=vCalcLiquidity(V.candles);V.liquidity=liq;
+    for(const l of liq.filter(l=>!l.taken)){
+      const y=vP2Y(l.price);if(y==null)continue;
+      const isBSL=l.type==='BSL';
+      const c=isBSL?'rgba(232,184,75,.70)':'rgba(180,120,220,.70)';
+      ctx.strokeStyle=c;ctx.lineWidth=isBSL?.9:.9;ctx.setLineDash([1,3]);
+      ctx.beginPath();ctx.moveTo(W*.17,y);ctx.lineTo(W*.88,y);ctx.stroke();ctx.setLineDash([]);
+      ctx.font=l.count>1?'bold 8px JetBrains Mono,monospace':'8px JetBrains Mono,monospace';
+      ctx.fillStyle=c;ctx.textAlign='right';
+      ctx.fillText(l.type+(l.count>1?'×'+l.count:''),W*.90,y+3);ctx.textAlign='left';
+    }
+  }
+
+  // ── BOS/CHoCH break level lines ──
+  if(V.showBOS){
+    for(const e of V.structure.events.slice(-8)){
+      const y=vP2Y(e.price);if(y==null)continue;
+      const isBull=e.direction==='bull';const isChoch=e.type==='CHoCH';
+      ctx.strokeStyle=isChoch?(isBull?'rgba(61,170,98,.55)':'rgba(196,64,64,.55)'):(isBull?'rgba(100,180,100,.35)':'rgba(180,100,100,.35)');
+      ctx.lineWidth=isChoch?1:.7;ctx.setLineDash(isChoch?[4,3]:[2,5]);
+      ctx.beginPath();ctx.moveTo(W*.17,y);ctx.lineTo(W*.88,y);ctx.stroke();ctx.setLineDash([]);
+    }
+  }
+
+  // ── Entry signal arrow (HOT only) ──
+  if(V.entry&&V.entry.score>=55){
+    const blink=.6+.4*Math.sin(_vPhase);
+    const isBull=V.entry.dir==='bull';
+    const y=vP2Y(V.entry.entry);
+    if(y!=null){
+      const[r,g,b]=isBull?[61,170,98]:[196,64,64];
+      const AX=W*.84,sz=13;
+      ctx.save();ctx.globalAlpha=blink;
+      ctx.fillStyle=`rgba(${r},${g},${b},1)`;ctx.strokeStyle=`rgba(${r},${g},${b},1)`;ctx.lineWidth=1.5;
+      ctx.beginPath();
+      if(isBull){ctx.moveTo(AX,y-sz);ctx.lineTo(AX+sz*.7,y+sz*.6);ctx.lineTo(AX-sz*.7,y+sz*.6);}
+      else{ctx.moveTo(AX,y+sz);ctx.lineTo(AX+sz*.7,y-sz*.6);ctx.lineTo(AX-sz*.7,y-sz*.6);}
+      ctx.closePath();ctx.fill();ctx.stroke();
+      ctx.globalAlpha=blink*.4;ctx.fillStyle=`rgba(${r},${g},${b},.3)`;
+      ctx.beginPath();
+      if(isBull){ctx.moveTo(AX,y-sz-6);ctx.lineTo(AX+sz+5,y+sz*.6+5);ctx.lineTo(AX-sz-5,y+sz*.6+5);}
+      else{ctx.moveTo(AX,y+sz+6);ctx.lineTo(AX+sz+5,y-sz*.6-5);ctx.lineTo(AX-sz-5,y-sz*.6-5);}
+      ctx.closePath();ctx.fill();ctx.restore();
+      // Entry line
+      const ySL=vP2Y(V.entry.sl),yTP1=vP2Y(V.entry.tp1);
+      if(ySL!=null){ctx.save();ctx.globalAlpha=.55;ctx.strokeStyle=`rgba(${r},${g},${b},.70)`;ctx.lineWidth=1;ctx.setLineDash([5,3]);ctx.beginPath();ctx.moveTo(W*.17,y);ctx.lineTo(AX-sz-3,y);ctx.stroke();ctx.setLineDash([]);ctx.restore();}
+      if(ySL!=null){ctx.save();ctx.globalAlpha=.45;ctx.strokeStyle='rgba(196,64,64,.60)';ctx.lineWidth=.8;ctx.setLineDash([3,5]);ctx.beginPath();ctx.moveTo(W*.17,ySL);ctx.lineTo(W*.88,ySL);ctx.stroke();ctx.setLineDash([]);ctx.font='8px JetBrains Mono,monospace';ctx.fillStyle='rgba(196,64,64,.55)';ctx.fillText('SL',W*.88,ySL-2);ctx.restore();}
+      if(yTP1!=null){ctx.save();ctx.globalAlpha=.45;ctx.strokeStyle='rgba(61,170,98,.60)';ctx.lineWidth=.8;ctx.setLineDash([3,5]);ctx.beginPath();ctx.moveTo(W*.17,yTP1);ctx.lineTo(W*.88,yTP1);ctx.stroke();ctx.setLineDash([]);ctx.font='8px JetBrains Mono,monospace';ctx.fillStyle='rgba(61,170,98,.55)';ctx.fillText('TP1',W*.88,yTP1-2);ctx.restore();}
+    }
+  }
+  ctx.restore();
+}
+
+// ── UPDATE PANEL / UI ─────────────────────────────────────
+let _vPanelHash='';
+function vUpdatePanel(){
+  if(!V.cSeries||!V.candles.length)return;
+  const scoreRes=vCalcScore();
+  V.score=scoreRes.total;V.breakdown=scoreRes.bd;
+  V.htfBias=vCalcHTFBias();
+  V.entry=vGenEntry(scoreRes);
+  const dp=2;
+  const hash=[V.score,V.htfBias.h1,V.htfBias.h4,V.pd.zone].join('|');
+  if(hash===_vPanelHash)return;_vPanelHash=hash;
+
+  // HTF bias display
+  const biasMap={'bull':['▲ BULL','vb-bull'],'bear':['▼ BEAR','vb-bear'],'neutral':['— NEU','vb-neu']};
+  const[h1t,h1c]=biasMap[V.htfBias.h1];const[h4t,h4c]=biasMap[V.htfBias.h4];
+  const h1el=document.getElementById('vBias1h');h1el.textContent=h1t;h1el.className='vbi-val '+h1c;
+  const h4el=document.getElementById('vBias4h');h4el.textContent=h4t;h4el.className='vbi-val '+h4c;
+  const structEl=document.getElementById('vBiasStruct');
+  const lastEvt=V.structure.events.slice(-1)[0];
+  if(lastEvt){structEl.textContent=lastEvt.type;structEl.className='vbi-val '+(lastEvt.direction==='bull'?'vb-bull':'vb-bear');}
+  else{structEl.textContent='—';structEl.className='vbi-val vb-neu';}
+
+  // P/D meter
+  const pdCur=document.getElementById('vPDCur');
+  const pct=Math.round(V.pd.ratio*100);
+  pdCur.style.left=pct+'%';
+  const pdC=V.pd.zone==='PREMIUM'?'#C44040':V.pd.zone==='DISCOUNT'?'#3DAA62':'var(--txt-d)';
+  pdCur.style.background=pdC;
+
+  // Killzone
+  const kz=vGetKillzone();
+  const kzEl=document.getElementById('vKZVal');
+  kzEl.textContent=kz.name;kzEl.style.color=kz.active?'var(--gold)':'var(--txt-d)';
+
+  // Score
+  const sEl=document.getElementById('vScoreNum'),sBar=document.getElementById('vScoreBar');
+  sEl.textContent=V.score;
+  const sColor=V.score>=80?'#3DAA62':V.score>=60?'var(--gold)':V.score>=45?'var(--txt-d)':'#C44040';
+  sEl.style.color=sColor;
+  sBar.style.width=V.score+'%';sBar.style.background=sColor;
+
+  // OB count
+  const obsD=calcOB(V.candles);
+  document.getElementById('vStOB').textContent=' '+(obsD.active?.length||0)+'件';
+
+  // Liquidity panel
+  vRenderLiqPanel(dp);
+
+  // Entry card
+  vRenderEntryCard(scoreRes,dp);
+}
+
+function vRenderLiqPanel(dp){
+  const cur=V.candles.length?V.candles[V.candles.length-1].close:0;
+  const fresh=V.liquidity.filter(l=>!l.taken).sort((a,b)=>b.price-a.price);
+  if(!fresh.length){document.getElementById('vLiqPanel').innerHTML='<div class="empty-row">なし</div>';return;}
+  document.getElementById('vLiqPanel').innerHTML=fresh.map(l=>{
+    const isBSL=l.type==='BSL';
+    const c=isBSL?'rgba(232,184,75,.80)':'rgba(180,120,220,.80)';
+    const dist=((l.price-cur)/cur*100).toFixed(2);
+    const bg=Math.abs(l.price-cur)/cur<0.003?'background:rgba(90,78,36,.08);':'';
+    return`<div class="vlp-row" style="${bg}">
+      <span class="vlp-type" style="color:${c}">${l.type}${l.count>1?'×'+l.count:''}</span>
+      <span class="vlp-price" style="color:${c}">${l.price.toFixed(dp)}</span>
+      <span class="vlp-dist">${dist>0?'+':''}${dist}%</span>
+    </div>`;
+  }).join('');
+}
+
+function vRenderEntryCard(scoreRes,dp){
+  const el=document.getElementById('veriEntryCard');
+  const e=V.entry;
+  if(!e){el.innerHTML=`<div class="vec-none">スコア不足 (${scoreRes.total}/100) — エントリー候補なし</div>`;return;}
+  const isBull=e.dir==='bull';
+  const dirC=isBull?'#3DAA62':'#C44040';
+  const dirLbl=isBull?'▲ LONG':'▼ SHORT';
+  const gradeCls=e.grade==='A'?'vec-grade-a':e.grade==='B'?'vec-grade-b':e.grade==='C'?'vec-grade-c':'vec-grade-d';
+  const bd=scoreRes.bd;
+  const bdItems=[
+    {l:'HTF',pts:bd.htf?.pts||0,max:30},
+    {l:'STRUCT',pts:bd.struct?.pts||0,max:20},
+    {l:'P/D',pts:bd.pd?.pts||0,max:15},
+    {l:'LIQ',pts:bd.liq?.pts||0,max:20},
+    {l:'OB/FVG',pts:bd.obfvg?.pts||0,max:15},
+  ];
+  el.innerHTML=`<div class="vec-inner">
+    <div class="vec-main">
+      <div class="vec-head">
+        <div class="vec-dir" style="color:${dirC}">${dirLbl}</div>
+        <div class="vec-grade ${gradeCls}">GRADE ${e.grade}  ${e.score}/100</div>
+      </div>
+      <div class="vec-levels">
+        <div class="vec-lv"><div class="vec-lv-lbl">ENTRY</div><div class="vec-lv-val" style="color:${dirC}">${e.entry.toFixed(dp)}</div></div>
+        <div class="vec-lv"><div class="vec-lv-lbl">SL</div><div class="vec-lv-val" style="color:#C44040">${e.sl.toFixed(dp)} <span style="font-size:9px;color:var(--txt-dd)">(${e.risk.toFixed(dp)}pts)</span></div></div>
+        <div class="vec-lv"><div class="vec-lv-lbl">TP1 ×${e.rr1}R</div><div class="vec-lv-val" style="color:#3DAA62">${e.tp1.toFixed(dp)}</div></div>
+        <div class="vec-lv"><div class="vec-lv-lbl">TP2 ×${e.rr2}R</div><div class="vec-lv-val" style="color:#3DAA62">${e.tp2.toFixed(dp)}</div></div>
+      </div>
+    </div>
+    <div class="vec-side">
+      ${bdItems.map(b=>{
+        const pct=Math.round(b.pts/b.max*100);
+        const bc=b.pts>=b.max*.8?'#3DAA62':b.pts>=b.max*.5?'var(--gold)':'var(--txt-d)';
+        return`<div class="vec-bd-item">
+          <div class="vec-bd-lbl">${b.l}</div>
+          <div class="vec-bd-bar"><div class="vec-bd-fill" style="width:${pct}%;background:${bc}"></div></div>
+          <div class="vec-bd-pts" style="color:${bc}">${b.pts}</div>
+        </div>`;
+      }).join('')}
+    </div>
+  </div>`;
+}
+
+async function vCopy(){
+  const btn=document.getElementById('vCopyBtn');btn.textContent='⏳';btn.className='icon-btn';
+  try{
+    const area=document.getElementById('veriChartArea'),vCvs=document.getElementById('veriCvs');
+    const comp=document.createElement('canvas');comp.width=area.offsetWidth;comp.height=area.offsetHeight;
+    const ctx=comp.getContext('2d');ctx.fillStyle='#060504';ctx.fillRect(0,0,comp.width,comp.height);
+    const ar=area.getBoundingClientRect();
+    for(const c of document.getElementById('veriLw').querySelectorAll('canvas')){const cr=c.getBoundingClientRect();try{ctx.drawImage(c,cr.left-ar.left,cr.top-ar.top,cr.width,cr.height);}catch(e){}}
+    ctx.drawImage(vCvs,0,0);
+    const tf=document.querySelector('#veriTfrow .tf.on')?.textContent||V.tf;
+    ctx.fillStyle='rgba(0,0,0,.55)';ctx.fillRect(0,0,comp.width,28);
+    ctx.font='bold 11px JetBrains Mono,monospace';ctx.fillStyle='var(--gold-l)';ctx.fillText('GOLD 検証',7,18);
+    ctx.font='8px JetBrains Mono,monospace';ctx.fillStyle='#5A4E24';ctx.fillText(tf+'  '+new Date().toLocaleString('ja-JP'),comp.width-170,18);
+    comp.toBlob(async blob=>{
+      try{await navigator.clipboard.write([new ClipboardItem({'image/png':blob})]);btn.textContent='✓';btn.className='icon-btn ok';}
+      catch(e){const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='GOLD_verify_'+V.tf+'_'+Date.now()+'.png';a.click();btn.textContent='↓';btn.className='icon-btn ok';}
+      setTimeout(()=>{btn.textContent='📋';btn.className='icon-btn';},2500);
+    },'image/png');
+  }catch(e){btn.textContent='✗';btn.className='icon-btn err';setTimeout(()=>{btn.textContent='📋';btn.className='icon-btn';},2500);}
+}
+
 </script>
 </body>
 </html>
