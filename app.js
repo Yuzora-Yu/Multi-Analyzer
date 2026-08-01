@@ -46,6 +46,11 @@
     ema50Series: null,
     vwapSeries: null,
     priceLines: [],
+    chartResizeObserver: null,
+    chartResizeFrame: 0,
+    chartSize: { width: 0, height: 0 },
+    chartFitted: false,
+    insightTab: 'signal',
     settings: loadSettings(),
     micro: { bid: null, ask: null, spreadBps: null, bookImbalance: 0, markPrice: null, indexPrice: null, basisBps: 0, fundingRate: 0, nextFundingTime: null },
     microTimer: null,
@@ -340,19 +345,41 @@
     if (array.length > 1500) array.splice(0, array.length - 1500);
   }
 
+  function resizeChartToContainer() {
+    if (!state.chart) return;
+    const container = $('chartContainer');
+    const rect = container.getBoundingClientRect();
+    const width = Math.max(1, Math.floor(rect.width));
+    const height = Math.max(1, Math.floor(rect.height));
+    if (width < 80 || height < 120) return;
+    if (state.chartSize.width === width && state.chartSize.height === height) return;
+    state.chartSize = { width, height };
+    state.chart.applyOptions({ width, height });
+  }
+
+  function scheduleChartResize() {
+    cancelAnimationFrame(state.chartResizeFrame);
+    state.chartResizeFrame = requestAnimationFrame(resizeChartToContainer);
+  }
+
   function initChart() {
     if (state.chart || !window.LightweightCharts) return;
     const container = $('chartContainer');
+    const rect = container.getBoundingClientRect();
+    const initialWidth = Math.max(320, Math.floor(rect.width || 800));
+    const initialHeight = Math.max(240, Math.floor(rect.height || 520));
+    state.chartSize = { width: initialWidth, height: initialHeight };
+    state.chartFitted = false;
     state.chart = LightweightCharts.createChart(container, {
-      width: container.clientWidth,
-      height: container.clientHeight,
+      width: initialWidth,
+      height: initialHeight,
       layout: { background: { color: '#0c1117' }, textColor: '#718096', fontFamily: 'JetBrains Mono' },
       grid: { vertLines: { color: '#141d27' }, horzLines: { color: '#141d27' } },
-      rightPriceScale: { borderColor: '#263140', scaleMargins: { top: .08, bottom: .18 } },
-      timeScale: { borderColor: '#263140', timeVisible: true, secondsVisible: false, rightOffset: 6, barSpacing: 8 },
+      rightPriceScale: { borderColor: '#263140', scaleMargins: { top: .10, bottom: .16 } },
+      timeScale: { borderColor: '#263140', timeVisible: true, secondsVisible: false, rightOffset: 6, barSpacing: 8, lockVisibleTimeRangeOnResize: true },
       crosshair: { mode: LightweightCharts.CrosshairMode.Normal, vertLine: { color: '#405166' }, horzLine: { color: '#405166' } },
-      handleScroll: true,
-      handleScale: true,
+      handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: false },
+      handleScale: { axisPressedMouseMove: true, mouseWheel: true, pinch: true },
     });
     const cfg = currentInstrument();
     state.candleSeries = state.chart.addCandlestickSeries({
@@ -362,13 +389,9 @@
     state.ema20Series = state.chart.addLineSeries({ color: '#e6b85c', lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
     state.ema50Series = state.chart.addLineSeries({ color: '#64a8ff', lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
     state.vwapSeries = state.chart.addLineSeries({ color: '#a58cff', lineWidth: 1, lineStyle: 2, priceLineVisible: false, lastValueVisible: false });
-    const observedChart = state.chart;
-    const ro = new ResizeObserver(entries => {
-      if (state.chart !== observedChart) return;
-      const rect = entries[0].contentRect;
-      observedChart.applyOptions({ width: rect.width, height: rect.height });
-    });
-    ro.observe(container);
+    state.chartResizeObserver = new ResizeObserver(scheduleChartResize);
+    state.chartResizeObserver.observe(container);
+    scheduleChartResize();
   }
 
   function toChartTime(ms) { return Math.floor(ms / 1000); }
@@ -409,7 +432,10 @@
         state.priceLines.push(state.candleSeries.createPriceLine({ price, color, lineWidth: 1, lineStyle: style, axisLabelVisible: true, title }));
       }
     }
-    state.chart.timeScale().fitContent();
+    if (!state.chartFitted) {
+      state.chart.timeScale().fitContent();
+      state.chartFitted = true;
+    }
   }
 
   function updateLiveCandle(candle) {
@@ -465,6 +491,9 @@
     const a = state.analysis;
     const badge = $('signalBadge');
     badge.textContent = stateLabel(a.state);
+    const sheetSummary = $('sheetSummary');
+    sheetSummary.textContent = stateLabel(a.state);
+    sheetSummary.style.color = a.state.includes('LONG') ? 'var(--green)' : a.state.includes('SHORT') ? 'var(--red)' : a.state.startsWith('WATCH') ? 'var(--orange)' : 'var(--muted)';
     badge.className = 'signal-badge';
     if (a.state.includes('LONG')) badge.classList.add(a.state.startsWith('WATCH') ? 'watch' : 'long');
     else if (a.state.includes('SHORT')) badge.classList.add(a.state.startsWith('WATCH') ? 'watch' : 'short');
@@ -686,7 +715,44 @@
     analyzeAndRender();
   }
 
+  function setInsightTab(tab) {
+    state.insightTab = tab;
+    qsa('[data-insight-tab]').forEach(button => button.classList.toggle('active', button.dataset.insightTab === tab));
+    qsa('[data-insight-page]').forEach(page => page.classList.toggle('active', page.dataset.insightPage === tab));
+    if (window.matchMedia('(max-width: 760px)').matches) {
+      $('insightPanel').classList.remove('sheet-collapsed');
+      $('insightToggle').setAttribute('aria-expanded', 'true');
+      scheduleChartResize();
+    }
+  }
+
+  function toggleInsightSheet() {
+    if (!window.matchMedia('(max-width: 760px)').matches) return;
+    const panel = $('insightPanel');
+    const collapsed = panel.classList.toggle('sheet-collapsed');
+    $('insightToggle').setAttribute('aria-expanded', String(!collapsed));
+    setTimeout(scheduleChartResize, 240);
+  }
+
+  function syncInsightLayout() {
+    const mobile = window.matchMedia('(max-width: 760px)').matches;
+    const panel = $('insightPanel');
+    if (mobile) {
+      panel.classList.add('sheet-collapsed');
+      $('insightToggle').setAttribute('aria-expanded', 'false');
+    } else {
+      panel.classList.remove('sheet-collapsed');
+      $('insightToggle').setAttribute('aria-expanded', 'true');
+    }
+    scheduleChartResize();
+  }
+
   function bindEvents() {
+    qsa('[data-insight-tab]').forEach(button => button.addEventListener('click', () => setInsightTab(button.dataset.insightTab)));
+    $('insightToggle').addEventListener('click', toggleInsightSheet);
+    window.addEventListener('resize', scheduleChartResize, { passive: true });
+    window.addEventListener('orientationchange', () => setTimeout(scheduleChartResize, 180), { passive: true });
+    window.matchMedia('(max-width: 760px)').addEventListener?.('change', syncInsightLayout);
     qsa('.instrument-tab').forEach(button => button.addEventListener('click', () => {
       if (button.dataset.instrument === state.instrumentId) return;
       state.instrumentId = button.dataset.instrument;
@@ -723,9 +789,15 @@
   }
 
   function destroyChart() {
+    if (state.chartResizeObserver) state.chartResizeObserver.disconnect();
+    state.chartResizeObserver = null;
+    cancelAnimationFrame(state.chartResizeFrame);
+    state.chartResizeFrame = 0;
     if (state.chart) state.chart.remove();
     state.chart = state.candleSeries = state.ema20Series = state.ema50Series = state.vwapSeries = null;
     state.priceLines = [];
+    state.chartSize = { width: 0, height: 0 };
+    state.chartFitted = false;
   }
 
   function startClock() {
@@ -743,6 +815,8 @@
   function init() {
     bindEvents();
     restorePositionInputs();
+    setInsightTab('signal');
+    syncInsightLayout();
     startClock();
     loadAllData();
   }

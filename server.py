@@ -52,7 +52,7 @@ def _fetch_upstream(url: str) -> tuple[bytes, str]:
         url,
         headers={
             "Accept": "application/json",
-            "User-Agent": "Multi-Analyzer-Ultimate/3.0 (public market-data proxy)",
+            "User-Agent": "Multi-Analyzer-Ultimate/3.1 (public market-data proxy)",
         },
         method="GET",
     )
@@ -70,7 +70,7 @@ def _fetch_upstream(url: str) -> tuple[bytes, str]:
 
 
 class Handler(SimpleHTTPRequestHandler):
-    server_version = "MultiAnalyzerLocal/3.0"
+    server_version = "MultiAnalyzerLocal/3.1"
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, directory=str(ROOT), **kwargs)
@@ -113,7 +113,7 @@ class Handler(SimpleHTTPRequestHandler):
     def _handle_api(self, parsed: urllib.parse.ParseResult) -> None:
         try:
             if parsed.path == "/api/health":
-                self._send(HTTPStatus.OK, _json_bytes({"ok": True, "version": "3.0.0", "time": int(time.time() * 1000)}))
+                self._send(HTTPStatus.OK, _json_bytes({"ok": True, "version": "3.1.0", "time": int(time.time() * 1000)}))
                 return
             query = urllib.parse.parse_qs(parsed.query)
             market = query.get("market", ["futures"])[0].lower()
