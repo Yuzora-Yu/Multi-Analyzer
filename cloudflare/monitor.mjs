@@ -16,7 +16,17 @@ const safeJson = async response => {
 };
 const escapeHtml = text => text.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 export class MarketMonitor extends DurableObject {
-  async status(){ return await this.ctx.storage.get('status') || {state:'NOT_STARTED',updatedAt:0}; }
+  async start(asset){
+    if(!ASSETS[asset]) throw new Error('Invalid asset');
+    await this.ctx.storage.put('asset',asset);
+    const scheduledAt=Date.now()+30000;await this.ctx.storage.setAlarm(scheduledAt);return {scheduledAt};
+  }
+  async alarm(){
+    const asset=await this.ctx.storage.get('asset');if(!ASSETS[asset])return;
+    await this.ctx.storage.setAlarm(Date.now()+300000);
+    await this.tick(asset);
+  }
+  async status(){ const status=await this.ctx.storage.get('status') || {state:'NOT_STARTED',updatedAt:0}; return {...status,nextRunAt:await this.ctx.storage.getAlarm()}; }
   async tick(asset, dryRun=false){
     if(!ASSETS[asset]) throw new Error('Invalid asset');
     if(this.pending) return this.pending;
@@ -70,10 +80,6 @@ const authorized=(request,env)=>{
   return Boolean(env.ADMIN_TOKEN && Buffer.byteLength(got)===Buffer.byteLength(want) && timingSafeEqual(Buffer.from(got),Buffer.from(want)));
 };
 export default {
-  async scheduled(controller,env){
-    // Sequential assets keep the free API's eight requests/minute budget bounded.
-    for(const asset of Object.keys(ASSETS))await env.MONITOR.getByName(asset).tick(asset);
-  },
   async fetch(request,env){
     const url=new URL(request.url);
     if(request.method==='GET' && url.pathname==='/api/monitor'){
@@ -84,6 +90,7 @@ export default {
     }
     if(!authorized(request,env))return new Response('Not found',{status:404});
     if(request.method!=='POST')return new Response('Method not allowed',{status:405});
+    if(url.pathname==='/start'){const asset=url.searchParams.get('asset');if(!ASSETS[asset])return new Response('Invalid asset',{status:400});return Response.json(await env.MONITOR.getByName(asset).start(asset));}
     if(url.pathname==='/run'){
       const asset=url.searchParams.get('asset');if(!ASSETS[asset])return new Response('Invalid asset',{status:400});
       return Response.json(await env.MONITOR.getByName(asset).tick(asset,url.searchParams.get('dry')==='true'));

@@ -2,7 +2,7 @@
 
 ## 構成
 
-Workers Free + SQLite Durable Objects + 5分ごとのCron + 確認済み本人宛てEmail binding。
+Workers Free + SQLite Durable Objects + 5分ごとの永続アラーム + 確認済み本人宛てEmail binding。
 通知は売買候補が新しく成立した場合に送る。初回に既存候補を一斉送信しない。同じ足・同じ判定は重複抑止する。
 メール送信直後の障害で記録に失敗した場合など、厳密なexactly-once配信は保証しない。
 
@@ -29,7 +29,7 @@ BasicのXAU/USD試用銘柄に対する実取得を確認済み。利用権・�
 実設定はGit管理対象外の `.runtime/wrangler-monitor.jsonc`。
 `wrangler.example.jsonc`をコピーし、宛先・Worker名を設定する。宛先はCloudflare Email Routingで確認済みの本人アドレスを使う。
 `TWELVE_API_KEY` と `ADMIN_TOKEN` は `wrangler secret put` で登録する。APIキー・管理トークン・宛先入り実設定をGitへ追加しない。
-検証中はALERTS_ENABLED=false、triggers.crons=[]。検証後に通知をtrue・Cronを5分間隔に変更する。
+検証中はALERTS_ENABLED=false、triggers.crons=[]。検証後に通知をtrueにし、認証付きPOST `/start?asset=gold` と `/start?asset=btc` を一度呼ぶ。最初は30秒後、その後は5分ごとに自動実行する。Cronは設定しない。
 
 ```powershell
 npx wrangler deploy --config .runtime/wrangler-monitor.jsonc
