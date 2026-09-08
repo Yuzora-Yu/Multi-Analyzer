@@ -11,7 +11,7 @@ Cloudflare無料枠で5分間隔の監視を実装しました。[構成・設�
 ## 起動
 
 ```powershell
-python server.py --monitor
+python server.py
 ```
 
 http://127.0.0.1:8000/ を開きます。Python 3.10+ / Node 20+。追加パッケージ不要。
