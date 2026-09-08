@@ -1,57 +1,47 @@
-# Cloudflare無料監視
+# 無料の共通判定・通知
 
-## 構成
+Workers Free + SQLite Durable Objects + 1分ごとの永続アラーム + 確認済み本人宛てEmail binding。
+市場取得はBybit公開APIでキー不要。金XAUUSDT無期限契約、BTCUSDT現物。XMのUSD市場とは異なります。
+PCの常時起動は不要。有料プランへの変更は行っていません。
 
-Workers Free + SQLite Durable Objects + 5分ごとの永続アラーム + 確認済み本人宛てEmail binding。
-通知は売買候補が新しく成立した場合に送る。初回に既存候補を一斉送信しない。同じ足・同じ判定は重複抑止する。
-メール送信直後の障害で記録に失敗した場合など、厳密なexactly-once配信は保証しない。
+15分足の確定2秒後以降、15分・1時間・4時間のデータを保存して共通エンジンで分析します。
+公開画面とメールは同じスナップショット・設定・エンジンを使用。秒単位の価格表示は別途WebSocketで更新します。
 
-公開ページ: https://yuzora-yu.github.io/Multi-Analyzer/
-状態API: https://multi-analyzer-monitor.rikai-829.workers.dev/api/monitor
+- GET `/api/monitor`: 稼働状態。更新停止・データエラーを表示。
+- GET `/api/snapshot?asset=gold|btc`: 最新の共通OHLCVと設定。
+- GET `/api/snapshot?asset=gold|btc&id=...`: 通知時点の保存記録。各銘柄24件保持。
+- 認証POST `/run?asset=...&dry=true`: 配信なし分析。
+- 認証POST `/start?asset=...`: 初回30秒後、その後1分間隔の永続アラーム。
+- 認証POST `/test-email`: 固定宛先へ検証メール。
 
-## 市場データと制限
+新規P条件は研究段階で、利益上の優位性は未確認です。[条件と検証結果](../RESEARCH_V43.md)。
+同じ足・同じ判定の重複を抑止。初回は既存候補を送信しません。
+送信済み候補を仮の保有として追跡し、撤退条件では「前回候補を保有中なら」と送ります。
+実保有の取得・同期や自動注文は行いません。実際のSL設定をメールで代行しません。
+送信直後の保存失敗では重複する可能性があり、exactly-onceは保証しません。
 
-クラウドはTwelve DataのXAU/USD・BTC/USDの15分・1時間・4時間足を使う。
-BasicのXAU/USD試用銘柄に対する実取得を確認済み。利用権・提供範囲の変更や障害では取得が停止し得る。
-クラウドで取得したローソク足を公開APIや公開チャートへ再配信しない。状態APIは稼働状態のみを返す。
-公開チャートは引き続きBinanceのXAUUSDT先物・BTCUSDT現物。両者の価格・判定は一致しないため、メール・画面に取得元の違いを表示する。
+通常1銘柄約1,470回/日の市場API取得、上限2,000回/日。超過・市場取得失敗では候補通知を停止。
+無料枠は他Workerと共用で、停止の可能性はあります。有料への自動変更はありません。
 
-- 15分足の売買候補を5分ごとに確認。秒単位の通知ではない。
-- 上位足は次の足の境界まで保存データを再利用する。未確定の途中データを確定後まで再利用しない。
-- 通常約636 APIリクエスト/日。1銘柄350回/日、合計700回/日の制限を設ける（無料枠800回/日）。同じAPIキーを他で大量使用すれば先にAPI側の上限に達する。
-- 出来高なしのデータではVWAP・出来高スコア・POCを使用しない。架空の出来高を補わない。
-- クラウド通知は新規売買候補のみ。ブラウザの保有ポジションはクラウドへ同期しない。クローズ推奨表示はブラウザ側の登録ポジションで動作する。
-- 取得失敗時は該当銘柄の推奨通知を停止し、状態APIにエラーを表示する。
-- 無料サービスの上限はアカウント内の他アプリと共用。有料プランへ自動変更しない。
-
-## 設定・デプロイ
-
-実設定はGit管理対象外の `.runtime/wrangler-monitor.jsonc`。
-`wrangler.example.jsonc`をコピーし、宛先・Worker名を設定する。宛先はCloudflare Email Routingで確認済みの本人アドレスを使う。
-`TWELVE_API_KEY` と `ADMIN_TOKEN` は `wrangler secret put` で登録する。APIキー・管理トークン・宛先入り実設定をGitへ追加しない。
-検証中はALERTS_ENABLED=false、triggers.crons=[]。検証後に通知をtrueにし、認証付きPOST `/start?asset=gold` と `/start?asset=btc` を一度呼ぶ。最初は30秒後、その後は5分ごとに自動実行する。Cronは設定しない。
+設定はGit非公開の `.runtime/wrangler-monitor.jsonc`。公開用サンプルは `wrangler.example.jsonc`。
+秘密はADMIN_TOKENのみ。旧TWELVE_API_KEYは現行監視では使用しません。
+検証中はALERTS_ENABLED=false、triggers.crons=[]。運用はALERTS_ENABLED=trueと認証POST `/start`。
 
 ```powershell
 npx wrangler deploy --config .runtime/wrangler-monitor.jsonc
 npx wrangler types .runtime/monitor-env.d.ts --config .runtime/wrangler-monitor.jsonc
 ```
 
-認証付きPOST `/run?asset=gold&dry=true` またはbtcで配信なしの分析テスト。
-認証付きPOST `/test-email` は固定宛先への接続テスト。
-APIの認証は `Authorization: Bearer <ADMIN_TOKEN>`。キーをURLへ含めない。
-通常運用ではPC側の `--monitor` を併用しない（別データ源からの重複通知になる）。
+認証はAuthorization Bearerヘッダー。秘密をURLやGitに含めません。
+ローカルmonitor.jsも同じスナップショットへ移行済みですが、クラウドとの併用は重複通知になるため避けます。
 
-## 検証記録
+## 検証履歴
 
-2026-09-08: 通常Workerでの分析CPUは1銘柄18〜56ms、公称10msを超えたためDOへ移した。DOは無料でもCPU30秒/呼び出し。
-Binance RESTはクラウドから403。BTC WebSocketは受信成功、Gold WebSocketは403。Twelve Dataの個人キーで両銘柄・各時間足300本を取得し、DO内で分析成功。
-Cloudflare Email bindingによる固定宛先テストは受付成功。受信箱への到着確認とは区別する。
-試験コードはprobe.mjsに残すが、監視にはmonitor.mjsを使用する。
+2026-09-08: 従来のTwelve DataとBinanceの判定不一致を修正。CloudflareとPCの両方でBybitの両銘柄300本を取得成功。
+BinanceはCloudflareで403、OKXは金取得成功・BTC429、Bybitは双方成功を確認したため採用。
+最終のデプロイ・メール検証はTEST_REPORT.md参照。
 
-## 公式資料
-
-- https://developers.cloudflare.com/durable-objects/platform/limits/
 - https://developers.cloudflare.com/durable-objects/platform/pricing/
+- https://developers.cloudflare.com/durable-objects/platform/limits/
 - https://developers.cloudflare.com/email-service/platform/pricing/
-- https://twelvedata.com/pricing
-- https://twelvedata.com/exchanges/commodity?group=core
+- https://bybit-exchange.github.io/docs/v5/market/kline

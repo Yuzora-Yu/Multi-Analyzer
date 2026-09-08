@@ -1,0 +1,258 @@
+{
+  "generatedAt": "2026-09-08T08:28:42.596Z",
+  "version": "4.3.0",
+  "source": "Bybit",
+  "method": "Prespecified baseline vs ribbon and pullback filters; chronological first 60%, final 40%; same-bar stop-first; next-open execution; fixed costs; no parameter fitting.",
+  "assets": {
+    "gold": {
+      "bars": 6000,
+      "start": "2026-07-10T23:30:00.000Z",
+      "end": "2026-09-07T20:00:00.000Z",
+      "split": "2026-08-14T08:30:00.000Z",
+      "rawCandidates": 2,
+      "models": {
+        "baseline": {
+          "all": {
+            "trades": 2,
+            "winRate": 0,
+            "expectancyR": -1.102,
+            "profitFactor": 0,
+            "maxDrawdownR": 2.2,
+            "totalR": -2.2,
+            "longestLosingStreak": 2
+          },
+          "development": {
+            "trades": 1,
+            "winRate": 0,
+            "expectancyR": -1.068,
+            "profitFactor": 0,
+            "maxDrawdownR": 1.07,
+            "totalR": -1.07,
+            "longestLosingStreak": 1
+          },
+          "holdout": {
+            "trades": 1,
+            "winRate": 0,
+            "expectancyR": -1.135,
+            "profitFactor": 0,
+            "maxDrawdownR": 1.14,
+            "totalR": -1.14,
+            "longestLosingStreak": 1
+          }
+        },
+        "ribbon": {
+          "all": {
+            "trades": 2,
+            "winRate": 0,
+            "expectancyR": -1.102,
+            "profitFactor": 0,
+            "maxDrawdownR": 2.2,
+            "totalR": -2.2,
+            "longestLosingStreak": 2
+          },
+          "development": {
+            "trades": 1,
+            "winRate": 0,
+            "expectancyR": -1.068,
+            "profitFactor": 0,
+            "maxDrawdownR": 1.07,
+            "totalR": -1.07,
+            "longestLosingStreak": 1
+          },
+          "holdout": {
+            "trades": 1,
+            "winRate": 0,
+            "expectancyR": -1.135,
+            "profitFactor": 0,
+            "maxDrawdownR": 1.14,
+            "totalR": -1.14,
+            "longestLosingStreak": 1
+          }
+        },
+        "pullback": {
+          "all": {
+            "trades": 0,
+            "winRate": 0,
+            "expectancyR": 0,
+            "profitFactor": 0,
+            "maxDrawdownR": 0,
+            "totalR": 0,
+            "longestLosingStreak": 0
+          },
+          "development": {
+            "trades": 0,
+            "winRate": 0,
+            "expectancyR": 0,
+            "profitFactor": 0,
+            "maxDrawdownR": 0,
+            "totalR": 0,
+            "longestLosingStreak": 0
+          },
+          "holdout": {
+            "trades": 0,
+            "winRate": 0,
+            "expectancyR": 0,
+            "profitFactor": 0,
+            "maxDrawdownR": 0,
+            "totalR": 0,
+            "longestLosingStreak": 0
+          }
+        },
+        "independentPullback": {
+          "all": {
+            "trades": 9,
+            "winRate": 55.6,
+            "expectancyR": -0.185,
+            "profitFactor": 0.55,
+            "maxDrawdownR": 3.68,
+            "totalR": -1.66,
+            "longestLosingStreak": 4
+          },
+          "development": {
+            "trades": 6,
+            "winRate": 50,
+            "expectancyR": -0.233,
+            "profitFactor": 0.45,
+            "maxDrawdownR": 2.56,
+            "totalR": -1.4,
+            "longestLosingStreak": 3
+          },
+          "holdout": {
+            "trades": 3,
+            "winRate": 66.7,
+            "expectancyR": -0.087,
+            "profitFactor": 0.77,
+            "maxDrawdownR": 1.12,
+            "totalR": -0.26,
+            "longestLosingStreak": 1
+          }
+        }
+      }
+    },
+    "btc": {
+      "bars": 6000,
+      "start": "2026-07-10T23:30:00.000Z",
+      "end": "2026-09-07T20:00:00.000Z",
+      "split": "2026-08-14T08:30:00.000Z",
+      "rawCandidates": 0,
+      "models": {
+        "baseline": {
+          "all": {
+            "trades": 0,
+            "winRate": 0,
+            "expectancyR": 0,
+            "profitFactor": 0,
+            "maxDrawdownR": 0,
+            "totalR": 0,
+            "longestLosingStreak": 0
+          },
+          "development": {
+            "trades": 0,
+            "winRate": 0,
+            "expectancyR": 0,
+            "profitFactor": 0,
+            "maxDrawdownR": 0,
+            "totalR": 0,
+            "longestLosingStreak": 0
+          },
+          "holdout": {
+            "trades": 0,
+            "winRate": 0,
+            "expectancyR": 0,
+            "profitFactor": 0,
+            "maxDrawdownR": 0,
+            "totalR": 0,
+            "longestLosingStreak": 0
+          }
+        },
+        "ribbon": {
+          "all": {
+            "trades": 0,
+            "winRate": 0,
+            "expectancyR": 0,
+            "profitFactor": 0,
+            "maxDrawdownR": 0,
+            "totalR": 0,
+            "longestLosingStreak": 0
+          },
+          "development": {
+            "trades": 0,
+            "winRate": 0,
+            "expectancyR": 0,
+            "profitFactor": 0,
+            "maxDrawdownR": 0,
+            "totalR": 0,
+            "longestLosingStreak": 0
+          },
+          "holdout": {
+            "trades": 0,
+            "winRate": 0,
+            "expectancyR": 0,
+            "profitFactor": 0,
+            "maxDrawdownR": 0,
+            "totalR": 0,
+            "longestLosingStreak": 0
+          }
+        },
+        "pullback": {
+          "all": {
+            "trades": 0,
+            "winRate": 0,
+            "expectancyR": 0,
+            "profitFactor": 0,
+            "maxDrawdownR": 0,
+            "totalR": 0,
+            "longestLosingStreak": 0
+          },
+          "development": {
+            "trades": 0,
+            "winRate": 0,
+            "expectancyR": 0,
+            "profitFactor": 0,
+            "maxDrawdownR": 0,
+            "totalR": 0,
+            "longestLosingStreak": 0
+          },
+          "holdout": {
+            "trades": 0,
+            "winRate": 0,
+            "expectancyR": 0,
+            "profitFactor": 0,
+            "maxDrawdownR": 0,
+            "totalR": 0,
+            "longestLosingStreak": 0
+          }
+        },
+        "independentPullback": {
+          "all": {
+            "trades": 9,
+            "winRate": 44.4,
+            "expectancyR": -0.181,
+            "profitFactor": 0.67,
+            "maxDrawdownR": 4.99,
+            "totalR": -1.63,
+            "longestLosingStreak": 5
+          },
+          "development": {
+            "trades": 7,
+            "winRate": 28.6,
+            "expectancyR": -0.52,
+            "profitFactor": 0.27,
+            "maxDrawdownR": 4.99,
+            "totalR": -3.64,
+            "longestLosingStreak": 5
+          },
+          "holdout": {
+            "trades": 2,
+            "winRate": 100,
+            "expectancyR": 1.004,
+            "profitFactor": 99,
+            "maxDrawdownR": 0,
+            "totalR": 2.01,
+            "longestLosingStreak": 0
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,11 +1,11 @@
 {
   "name": "multi-analyzer-ultimate",
-  "version": "4.1.0",
+  "version": "4.3.1",
   "private": true,
   "description": "Rule-based multi-timeframe market analysis and paper-trading dashboard",
   "scripts": {
     "test": "node --test tests/*.test.js",
-    "check": "node --check app.js && node --check strategy-core.js && node --check smc-core.js && node --check monitor.js && node --check backtest-worker.js && node --check alert-event.js && node --check cloudflare/monitor.mjs"
+    "check": "node --check app.js && node --check strategy-core.js && node --check smc-core.js && node --check monitor.js && node --check backtest-worker.js && node --check alert-event.js && node --check cloudflare/monitor.mjs && node --check flow-core.js && node --check market-feed.js && node --check chart-overlays.js && node --check research-validation.js"
   },
   "engines": {
     "node": ">=20"

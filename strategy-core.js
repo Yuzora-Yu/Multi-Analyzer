@@ -9,11 +9,13 @@
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
   'use strict';
 
-  const VERSION = '4.0.0';
+  const VERSION = '4.3.1';
   const SMC = typeof module === 'object' && module.exports ? require('./smc-core.js') : globalThis.MultiAnalyzerSMC;
+  const Flow = typeof module === 'object' && module.exports ? require('./flow-core.js') : globalThis.MultiAnalyzerFlow;
   const MINUTE = 60_000;
   const DEFAULTS = Object.freeze({
     executionMinutes: 15,
+    entryModel: 'pullback-v1',
     minBars: 220,
     riskPct: 0.5,
     accountEquity: 1000,
@@ -96,7 +98,9 @@
       if (![time, open, high, low, close].every(Number.isFinite)) continue;
       if (time <= 0 || open <= 0 || high <= 0 || low <= 0 || close <= 0) continue;
       if (high < Math.max(open, close, low) || low > Math.min(open, close, high)) continue;
-      byTime.set(time, { time, open, high, low, close, volume });
+      const takerBuyVolume = raw.takerBuyVolume == null ? null : finite(raw.takerBuyVolume, NaN);
+      byTime.set(time, { time, open, high, low, close, volume,
+        ...(Number.isFinite(takerBuyVolume) && takerBuyVolume >= 0 && takerBuyVolume <= volume ? {takerBuyVolume} : {}) });
     }
     return [...byTime.values()].sort((a, b) => a.time - b.time);
   }
@@ -448,6 +452,8 @@
     const structure = detectStructure(candles, swings);
     const pattern = candlePattern(candles);
     const smc = SMC.analyze(candles, atr14, swings, rsi14);
+    const flow = Flow.analyze(candles, ema, atr14, dmiData.adx, swings);
+    smc.poc = flow.profile?.poc ?? null;
     const i = candles.length - 1;
     const last = candles[i];
     const atrNow = atr14[i] || mean(trueRange(candles).slice(-14)) || 0;
@@ -478,7 +484,7 @@
       vwap: vwap96[i], dayVwap: dayVwap[i], weekVwap: weekVwap[i], volZ: volZ[i],
       extensionATR, nearReference, emaSlope,
     };
-    return { candles, quality, ready: candles.length >= 60, intervalMinutes, trend, regime, structure, pattern, swings, smc, values, series: { ema20, ema50, ema200, atr14, rsi14, macd: macdData, bb, dmi: dmiData, vwap96, dayVwap, weekVwap, volZ } };
+    return { candles, quality, ready: candles.length >= 60, intervalMinutes, trend, regime, structure, pattern, swings, smc, flow, values, series: { ema20, ema50, ema200, atr14, rsi14, macd: macdData, bb, dmi: dmiData, vwap96, dayVwap, weekVwap, volZ } };
   }
 
   function addScore(bucket, key, longPts, shortPts, text) {
@@ -556,6 +562,7 @@
     let urgency = 25;
     const reasons = [];
     if (stopHit) { action = dir === 'LONG' ? 'EXIT_LONG' : 'EXIT_SHORT'; urgency = 100; reasons.push('ストップ水準に到達'); }
+    else if(position.referenceOnly && signal.generatedAt-position.openedAt>=48*900000){action=dir==='LONG'?'EXIT_LONG':'EXIT_SHORT';urgency=70;reasons.push('前回候補から12時間経過・保有継続を見直し');}
     else if (oppositeReady && structureFlip) { action = dir === 'LONG' ? 'EXIT_LONG' : 'EXIT_SHORT'; urgency = 92; reasons.push('反対方向の確定シグナルと構造転換'); }
     else if (htfFlip && opposite >= same + 8) { action = dir === 'LONG' ? 'EXIT_LONG' : 'EXIT_SHORT'; urgency = 82; reasons.push('上位足の方向が反転'); }
     else if (structureFlip && opposite > same) { action = dir === 'LONG' ? 'REDUCE_LONG' : 'REDUCE_SHORT'; urgency = 68; reasons.push('執行足で構造転換'); }
@@ -580,6 +587,8 @@
     const m15 = execMinutes === 15 && tf15Raw === execRaw ? exec : analyzeTimeframe(tf15Raw, 15, now);
     const h1 = analyzeTimeframe(h1Raw, 60, now);
     const h4 = analyzeTimeframe(h4Raw, 240, now);
+    Flow.align(exec, h1, execMinutes);
+    if(m15 !== exec) Flow.align(m15, h1, 15);
     const score = { long: 0, short: 0, components: [] };
     const micro = input.micro || {};
     const vetoes = [];
@@ -697,8 +706,29 @@
       actionable: ['READY_LONG', 'STRONG_LONG', 'READY_SHORT', 'STRONG_SHORT'].includes(state),
       disclaimer: '研究・ペーパートレード用のルールベース表示です。自動発注や利益保証はありません。',
     };
+    if(settings.entryModel === 'pullback-v1') applyPullback(result,settings);
     result.positionDecision = positionDecision(settings.position, result, settings.livePrice ?? exec.values?.close);
     return result;
+  }
+
+  function applyPullback(result,settings){
+    const {exec,h1}=result,f=exec.flow?.latest;
+    const direction=f?.direction>0?'LONG':'SHORT';
+    const plan=exec.ready?buildTradePlan(direction,exec,settings):null;
+    const vetoes=[];
+    if(!exec.ready||exec.candles.length<220||!h1.ready)vetoes.push('確定足・上位足が不足');
+    if(exec.quality.stale||h1.quality.stale||settings.feedStale)vetoes.push('相場更新停止');
+    if(exec.quality.gaps>3)vetoes.push('ローソク足に複数の欠損');
+    if(settings.blackout)vetoes.push('重要指標・手動ブラックアウト中');
+    if(settings.executionMinutes<15)vetoes.push('P候補は15分足以上で判定');
+    if(!f?.pullbackConfirmed)vetoes.push('押し目・EMA13奪還・出来高・H1一致の成立待ち');
+    if(!(exec.values.adx>=20))vetoes.push('ADX20未満');
+    if(!plan||plan.costs.costRiskRatio>.22||plan.netRR<settings.minNetRR)vetoes.push('コスト後の損益比が不足');
+    const actionable=vetoes.length===0;
+    Object.assign(result,{entryModel:'pullback-v1',direction,plan,actionable,state:actionable?'READY_'+direction:'NO_TRADE',vetoes,
+      message:actionable?'検証用の押し目・戻り候補。収益上の優位性は未確認です。':'押し目・戻り条件の成立を待機。収益上の優位性は未確認です。'});
+    result.warnings.push('Pルールは研究段階です。過去検証でプラスの期待値は確認できていません。');
+    // Scores remain contextual diagnostics; they no longer trigger this model.
   }
 
   function parseCSV(text) {

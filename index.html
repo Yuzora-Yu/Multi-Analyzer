@@ -12,9 +12,12 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css">
   <script defer src="https://unpkg.com/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js"></script>
+  <script defer src="market-feed.js?v=4.3.1"></script>
   <script defer src="smc-core.js"></script>
-  <script defer src="strategy-core.js?v=4.2.0"></script>
-  <script defer src="app.js?v=4.2.0"></script>
+  <script defer src="chart-overlays.js?v=4.3.1"></script>
+  <script defer src="flow-core.js?v=4.3.1"></script>
+  <script defer src="strategy-core.js?v=4.3.1"></script>
+  <script defer src="app.js?v=4.3.1"></script>
 </head>
 <body>
   <div class="app-shell">
@@ -66,7 +69,7 @@
 
           <div class="toolbar-actions">
             <span id="lastUpdate">未更新</span>
-            <span id="dataSource">BINANCE FUTURES</span>
+            <span id="dataSource">BYBIT GOLD PERP</span>
             <label class="icon-button file-button" title="CSVを読み込む">CSV<input id="csvInput" type="file" accept=".csv,text/csv"></label>
           </div>
         </div>
@@ -140,9 +143,12 @@
                   </div>
 
                   <div class="live-preview">
-                    <div><span class="pulse-dot"></span><strong>形成中プレビュー</strong></div>
+                    <div><span class="pulse-dot"></span><strong>判定モード</strong></div>
                     <span id="livePreviewText">価格更新待ち</span>
                   </div>
+                  <div class="flow-summary" id="flowSummary" aria-live="polite"></div>
+                  <p class="dialog-note">参考スコアは相場環境の表示です。通知はP条件で判定します。<a href="https://github.com/Yuzora-Yu/Multi-Analyzer/blob/main/RESEARCH_V43.md" target="_blank" rel="noopener">条件と検証結果</a></p>
+                  <a id="currentSnapshotLink" href="?tf=15m">現在の共通判定を開く</a>
                 </article>
               </section>
 
@@ -259,7 +265,7 @@
         <label>最大レバレッジ<input id="settingLeverage" type="number" min="1" max="100" step="0.5"></label>
         <label class="checkbox-label"><input id="settingBlackout" type="checkbox"><span>重要指標ブラックアウト</span></label>
       </div>
-      <div class="dialog-note">ブラックアウトをONにすると、スコアに関係なく新規取引候補を停止します。設定はブラウザー内に保存されます。</div>
+      <div class="dialog-note">共通設定は資金1,000 USD・許容損失0.5%の参考計算です。15分足の共通判定を開いている間は変更できません。ブラックアウトをONにすると、スコアに関係なく新規取引候補を停止します。15分足は通知との一致のため共通設定を使用します。個別設定は5分・1時間・CSV検証に適用します。</div>
       <div class="dialog-actions"><button class="ghost-button" value="cancel">キャンセル</button><button class="primary-button" id="saveSettingsButton" value="default">保存して再分析</button></div>
     </form>
   </dialog>

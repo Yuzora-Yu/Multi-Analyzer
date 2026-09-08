@@ -18,6 +18,13 @@ const handler = {
     if(request.method !== 'POST') return new Response('Method not allowed',{status:405});
     const url = new URL(request.url);
     try {
+      if(url.pathname === '/probe-volume-feed') {
+        const asset=url.searchParams.get('asset')==='btc'?'btc':'gold';
+        const venue=url.searchParams.get('venue')==='bybit'?'bybit':'okx';
+        const endpoint=venue==='okx'?'https://www.okx.com/api/v5/market/candles?instId='+ (asset==='gold'?'XAU-USDT-SWAP':'BTC-USDT')+'&bar=15m&limit=300':'https://api.bybit.com/v5/market/kline?category='+ (asset==='gold'?'linear':'spot')+'&symbol='+(asset==='gold'?'XAUUSDT':'BTCUSDT')+'&interval=15&limit=300';
+        const data=await json(endpoint);
+        return Response.json({venue,asset,code:data.code??data.retCode,bars:data.data?.length??data.result?.list?.length,first:data.data?.[0]??data.result?.list?.[0]});
+      }
       if (url.pathname === '/test-email') {
         await env.EMAIL.send({from:'alerts@yu-zora.com',to:env.EMAIL_TO,subject:'Multi-Analyzer｜Cloudflare移行テスト',text:'Cloudflareからの通知テストです。トレード推奨ではありません。\n公開チャート: https://yuzora-yu.github.io/Multi-Analyzer/',html:'<p>Cloudflareからの通知テストです。トレード推奨ではありません。</p><p><a href="https://yuzora-yu.github.io/Multi-Analyzer/">公開チャートを開く</a></p>'});
         return Response.json({emailAccepted:true});

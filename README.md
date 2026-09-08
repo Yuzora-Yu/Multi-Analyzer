@@ -6,7 +6,7 @@ Gold/USD・BTC/USD向けのブラウザ分析補助ツール。売買候補・�
 
 ## PC不要のメール監視
 
-Cloudflare無料枠で5分間隔の監視を実装しました。[構成・設定・制限](cloudflare/README.md)。クラウドはTwelve Data USD市場、公開チャートはBinance USDT参考市場で、取得元と判定が異なります。クラウド通知は新規候補のみです。
+Cloudflare無料枠で1分間隔監視・15分確定足判定。画面とメールはBybitの同じ保存スナップショット・設定・共通エンジンを使います。[構成](cloudflare/README.md) / [条件と実データ検証](RESEARCH_V43.md)。P候補は研究段階で、プラスの期待値は未確認です。
 
 ## 起動
 
@@ -42,7 +42,7 @@ http://127.0.0.1:8000/ を開きます。Python 3.10+ / Node 20+。追加パッ�
 
 ## データ
 
-無料・キー不要のBinance XAUUSDT perpetual / BTCUSDT spotのローソク足で分析します。**XAUUSDのCFDやBTCUSDそのものの足ではありません。** Gold APIのUSD参考価格を別表示し、足と混ぜません。ブローカー価格に目標・SLをそのまま転用できません。
+無料・キー不要のBybit XAUUSDT perpetual / BTCUSDT spotのローソク足で分析します。**XAUUSDのCFDやBTCUSDそのものの足ではありません。** Gold APIのUSD参考価格を別表示し、足と混ぜません。ブローカー価格に目標・SLをそのまま転用できません。
 
 ライブ価格はWebSocket、切断時15秒ポーリング。サーバー監視は15分足・15秒間隔。ブラウザを閉じてもPC/サーバー稼働中は継続します。通知先は環境変数で設定します。現在は未設定です。
 

@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const Core = require('./strategy-core.js');
+const Feed = require('./market-feed.js');
 const DIR = path.join(__dirname, '.runtime');
 const instruments = { gold: { symbol: 'XAUUSDT', market: 'futures' }, btc: { symbol: 'BTCUSDT', market: 'spot' } };
 const PUBLIC_PAGE = 'https://yuzora-yu.github.io/Multi-Analyzer/';
@@ -16,18 +17,8 @@ async function run() {
   let saved = { delivered: {}, pending: {}, baselines: {}, disabled: {} };
   try { saved = { ...saved, ...JSON.parse(fs.readFileSync(stateFile, 'utf8')) }; } catch {}
   const channels = [process.env.MA_DISCORD_WEBHOOK && 'Discord', process.env.MA_SMTP_HOST && process.env.MA_EMAIL_TO && process.env.MA_EMAIL_FROM && (!process.env.MA_SMTP_USER || process.env.MA_SMTP_PASSWORD) && 'Email'].filter(Boolean);
-  const base = process.env.MA_BASE_URL || 'http://127.0.0.1:8000';
-  const cache = new Map();
   const atomic = (file, value) => { fs.writeFileSync(file + '.tmp', JSON.stringify(value)); fs.renameSync(file + '.tmp', file); };
   const fetchJSON = async url => { const r = await fetch(url, { signal: AbortSignal.timeout(12000) }); if (!r.ok) throw new Error(`Market API HTTP ${r.status}`); return r.json(); };
-  async function candles(asset, interval) {
-    const cfg = instruments[asset], key = `${asset}:${interval}`;
-    const ttl = interval === '15m' ? 0 : 60000;
-    if (cache.has(key) && Date.now() - cache.get(key).at < ttl) return cache.get(key).rows;
-    const raw = await fetchJSON(`${base}/api/klines?${new URLSearchParams({ ...cfg, interval, limit: '300' })}`);
-    const rows = Core.normalizeCandles(raw.map(b => ({ time: b[0], open: b[1], high: b[2], low: b[3], close: b[4], volume: b[5] })));
-    cache.set(key, { at: Date.now(), rows }); return rows;
-  }
   async function tick() {
     const status = { updatedAt: Date.now(), channels, assets: {}, error: null, summary: '' };
     let config = {};
@@ -36,16 +27,13 @@ async function run() {
     const validKeys = new Set();
     for (const asset of Object.keys(instruments)) {
       try {
-        const cfg = instruments[asset];
-        const [exec, h1, h4, ticker, premium] = await Promise.all([candles(asset, '15m'), candles(asset, '1h'), candles(asset, '4h'), fetchJSON(`${base}/api/ticker?${new URLSearchParams(cfg)}`), cfg.market === 'futures' ? fetchJSON(`${base}/api/premium-index?${new URLSearchParams(cfg)}`) : Promise.resolve(null)]);
-        const bid = Number(ticker.bidPrice), ask = Number(ticker.askPrice);
-        if (!(bid > 0 && ask >= bid)) throw new Error('Invalid live quote');
-        const position = config.positions?.[asset];
-        const bq = Number(ticker.bidQty), aq = Number(ticker.askQty), mid = (bid + ask) / 2;
-        const micro = { bookImbalance: bq + aq > 0 ? (bq - aq) / (bq + aq) : 0, basisBps: premium?.indexPrice > 0 ? (Number(premium.markPrice) - Number(premium.indexPrice)) / Number(premium.indexPrice) * 10000 : 0, fundingRate: Number(premium?.lastFundingRate || 0) };
-        const a = Core.analyzeMarket({ exec, m15: exec, h1, h4, micro }, { ...config.settings, now: Date.now(), executionMinutes: 15, market: cfg.market, livePrice: (bid + ask) / 2, spreadBps: Math.max(config.settings?.spreadBps || Core.DEFAULTS.spreadBps, (ask - bid) / mid * 10000), position });
-        status.assets[asset] = { state: a.state, position: a.positionDecision?.action || null, bar: exec.at(-1)?.time };
-        const event = eventFor(a, asset, position);
+        const snapshot=await fetchJSON('https://multi-analyzer-monitor.rikai-829.workers.dev/api/snapshot?asset='+asset);
+        if(snapshot.version!==Core.VERSION || Date.now()-snapshot.settings.now>1200000)throw new Error('Stale or incompatible shared snapshot');
+        const position=config.positions?.[asset];
+        const a=Core.analyzeMarket(Feed.input(snapshot),snapshot.settings);
+        a.positionDecision=Core.positionDecision(position,a,a.exec.values.close);
+        status.assets[asset]={state:a.state,position:a.positionDecision?.action||null,bar:a.exec.candles.at(-1)?.time,snapshotId:snapshot.id};
+        const event=eventFor(a,asset,position,{symbol:snapshot.symbol,snapshot:snapshot.id,version:snapshot.version,note:'Bybit共通判定。USDT参考市場で、XMのUSD価格とは異なります。'});
         // Baseline on first run: don't broadcast existing historical setups.
         if (!saved.baselines[asset]) { saved.baselines[asset] = true; if (event) for (const ch of channels) saved.delivered[`${ch}:${event.key}`] = Date.now(); }
         if (event) for (const ch of channels) {
