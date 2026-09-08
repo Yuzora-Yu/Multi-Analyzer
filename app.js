@@ -300,7 +300,7 @@
     if (state.offlineCsv) return;
     const cfg = currentInstrument();
     const interval = currentTf().api;
-    const base = cfg.market === 'futures' ? 'wss://fstream.binance.com/ws' : 'wss://stream.binance.com:9443/ws';
+    const base = cfg.market === 'futures' ? 'wss://fstream.binance.com/market/ws' : 'wss://stream.binance.com:9443/ws';
     const url = `${base}/${cfg.stream}@kline_${interval}`;
     try {
       const ws = new WebSocket(url);
@@ -667,7 +667,7 @@
     const id = state.instrumentId;
     const results = await Promise.allSettled([
       fetchJson(STATIC_HOST ? `https://api.gold-api.com/price/${id === 'gold' ? 'XAU' : 'BTC'}` : `/api/reference?asset=${id}`),
-      STATIC_HOST ? Promise.resolve({ staticHost: true }) : fetchJson('/api/monitor')
+      fetchJson('https://multi-analyzer-monitor.rikai-829.workers.dev/api/monitor')
     ]);
     if (id !== state.instrumentId) return;
     if (results[0].status === 'fulfilled') {
@@ -677,13 +677,9 @@
     } else $('referenceQuote').textContent = 'USD参考値: 取得できません（分析はUSDT建て）';
     if (results[1].status === 'fulfilled') {
       const m = results[1].value;
-      if (m.staticHost) {
-        $('monitorStatus').textContent = '公開チャート表示モード / メール監視はPC側サーバーで動作します。ここから送信状態は確認できません。';
-        return;
-      }
-      const fresh = m.updatedAt && Date.now() - m.updatedAt < 60000;
-      $('monitorStatus').textContent = `${fresh ? '● サーバー監視稼働中' : '○ サーバー監視停止'} / ${m.channels?.join('・') || '通知先未設定'} / ${m.summary || 'python server.py --monitor で起動'}${m.error ? ' / ' + m.error : ''}`;
-    } else $('monitorStatus').textContent = '監視APIに接続できません。server.pyで起動してください。';
+      const fresh = m.updatedAt && Date.now() - m.updatedAt < 420000;
+      $('monitorStatus').textContent = `${fresh ? '● クラウド監視更新中' : '○ クラウド監視の更新遅延'} / ${m.channels?.join('・') || '通知検証中'} / ${m.summary || '未開始'} / ${m.source || ''}${m.error ? ' / ' + m.error : ''}（このチャートとはデータ取得元が異なります）`;
+    } else $('monitorStatus').textContent = 'クラウド監視の状態を取得できません。';
   }
 
   function renderTfRow(prefix, tf) {

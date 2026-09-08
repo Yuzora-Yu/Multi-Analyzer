@@ -84,7 +84,7 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_header(
             "Content-Security-Policy",
             "default-src 'self'; script-src 'self' https://unpkg.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
-            "font-src https://fonts.gstatic.com; connect-src 'self' https://api.binance.com https://fapi.binance.com "
+            "font-src https://fonts.gstatic.com; connect-src 'self' https://multi-analyzer-monitor.rikai-829.workers.dev https://api.binance.com https://fapi.binance.com "
             "wss://stream.binance.com:9443 wss://fstream.binance.com; img-src 'self' data:; worker-src 'self'; frame-ancestors 'none'",
         )
         super().end_headers()

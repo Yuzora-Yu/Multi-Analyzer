@@ -280,7 +280,7 @@
       if (q.length > period) {
         const old = q.shift(); pv -= old.pv; vol -= old.vol;
       }
-      out[i] = vol > 0 ? pv / vol : mean(candles.slice(Math.max(0, i - period + 1), i + 1).map(x => x.close));
+      out[i] = vol > 0 ? pv / vol : null;
     }
     return out;
   }
@@ -297,7 +297,7 @@
       const typical = (candles[i].high + candles[i].low + candles[i].close) / 3;
       pv += typical * candles[i].volume;
       vol += candles[i].volume;
-      out[i] = vol > 0 ? pv / vol : typical;
+      out[i] = vol > 0 ? pv / vol : null;
     }
     return out;
   }
@@ -577,7 +577,7 @@
     const h1Raw = input.h1 || aggregateCandles(execRaw, 60, { baseMinutes: execMinutes });
     const h4Raw = input.h4 || aggregateCandles(execRaw, 240, { baseMinutes: execMinutes });
     const exec = analyzeTimeframe(execRaw, execMinutes, now);
-    const m15 = analyzeTimeframe(tf15Raw, 15, now);
+    const m15 = execMinutes === 15 && tf15Raw === execRaw ? exec : analyzeTimeframe(tf15Raw, 15, now);
     const h1 = analyzeTimeframe(h1Raw, 60, now);
     const h4 = analyzeTimeframe(h4Raw, 240, now);
     const score = { long: 0, short: 0, components: [] };
@@ -633,7 +633,9 @@
 
     addScore(score, 'REGIME', exec.regime === 'trend' && exec.trend === 'bull' ? 5 : exec.regime === 'range' ? 2 : 0,
       exec.regime === 'trend' && exec.trend === 'bear' ? 5 : exec.regime === 'range' ? 2 : 0, `相場環境 ${exec.regime}`);
-    addScore(score, 'VOLUME', v.volZ > 0.5 ? 5 : v.volZ > -0.2 ? 2 : 0, v.volZ > 0.5 ? 5 : v.volZ > -0.2 ? 2 : 0, `出来高Z ${round(v.volZ, 2)}`);
+    const hasVolume = exec.candles.slice(-30).some(c => c.volume > 0);
+    if (hasVolume) addScore(score, 'VOLUME', v.volZ > 0.5 ? 5 : v.volZ > -0.2 ? 2 : 0, v.volZ > 0.5 ? 5 : v.volZ > -0.2 ? 2 : 0, `出来高Z ${round(v.volZ, 2)}`);
+    else warnings.push('出来高未提供：VWAP・出来高スコア・POCを使用しません');
     addScore(score, 'SESSION', sess.overlap ? 5 : (sess.londonOpen || sess.nyOpen ? 4 : (sess.london || sess.newYork ? 3 : 1)),
       sess.overlap ? 5 : (sess.londonOpen || sess.nyOpen ? 4 : (sess.london || sess.newYork ? 3 : 1)), sess.name);
 

@@ -4,6 +4,10 @@ Gold/USD・BTC/USD向けのブラウザ分析補助ツール。売買候補・�
 
 公開チャート: https://yuzora-yu.github.io/Multi-Analyzer/
 
+## PC不要のメール監視
+
+Cloudflare無料枠で5分間隔の監視を実装しました。[構成・設定・制限](cloudflare/README.md)。クラウドはTwelve Data USD市場、公開チャートはBinance USDT参考市場で、取得元と判定が異なります。クラウド通知は新規候補のみです。
+
 ## 起動
 
 ```powershell

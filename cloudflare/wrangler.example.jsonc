@@ -1,0 +1,42 @@
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "multi-analyzer-monitor",
+  "main": "monitor.mjs",
+  "compatibility_date": "2026-09-08",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "workers_dev": true,
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "MONITOR",
+        "class_name": "MarketMonitor"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": [
+        "MarketMonitor"
+      ]
+    }
+  ],
+  "send_email": [
+    {
+      "name": "EMAIL"
+    }
+  ],
+  "vars": {
+    "EMAIL_TO": "YOUR_VERIFIED_EMAIL",
+    "ALERTS_ENABLED": "false"
+  },
+  "triggers": {
+    "crons": []
+  }
+}

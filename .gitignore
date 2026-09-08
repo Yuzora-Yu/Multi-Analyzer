@@ -6,3 +6,7 @@
 __pycache__/
 monitor-config.json
 *.log
+
+node_modules/
+.wrangler/
+.dev.vars
