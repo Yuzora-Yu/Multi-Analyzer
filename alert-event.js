@@ -19,7 +19,7 @@ function eventFor(a, asset, position, feed = {}) {
     ...(a.entryModel==='pullback-v1'?['研究段階の候補です。過去検証でプラスの期待値は未確認です。ランクや出来高バッジを勝率と解釈しないでください。']:[]),
     `判定時刻: ${new Date(a.generatedAt).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo', hour12: false })} JST`,
     `公開チャートを開く:\n${url}`,
-    feed.snapshot ? `共通判定ID: ${feed.snapshot} / エンジン ${feed.version}\nリンク先は通知時点の保存記録です。直近24判定を保持し、期限切れの場合は表示しません。` : '通知は判定時点の記録です。リンク先は現在の相場を表示します。',
+    feed.snapshot ? `共通判定ID: ${feed.snapshot} / エンジン ${feed.version}\nリンク先は通知時点の保存記録です。各銘柄の送信済み直近100通知を保持し、保存対象外の場合は表示しません。` : '通知は判定時点の記録です。リンク先は現在の相場を表示します。',
     feed.note || 'USDT参考市場の分析。USDブローカーとは価格が異なります。スコアは勝率ではありません。'];
   return { key, title, url, text: lines.join('\n\n') };
 }

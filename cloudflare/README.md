@@ -9,7 +9,7 @@ PCの常時起動は不要。有料プランへの変更は行っていません
 
 - GET `/api/monitor`: 稼働状態。更新停止・データエラーを表示。
 - GET `/api/snapshot?asset=gold|btc`: 最新の共通OHLCVと設定。
-- GET `/api/snapshot?asset=gold|btc&id=...`: 通知時点の保存記録。各銘柄24件保持。
+- GET `/api/snapshot?asset=gold|btc&id=...`: 通知時点の保存記録。各銘柄24判定＋送信済み100通知を保持。
 - 認証POST `/run?asset=...&dry=true`: 配信なし分析。
 - 認証POST `/start?asset=...`: 初回30秒後、その後1分間隔の永続アラーム。
 - 認証POST `/test-email`: 固定宛先へ検証メール。

@@ -27,7 +27,7 @@ export class MarketMonitor extends DurableObject {
     await this.ctx.storage.setAlarm(Date.now()+60000);
     await this.tick(asset);
   }
-  async snapshot(id){return this.ctx.storage.get(id ? 'snapshot:'+id : 'snapshot');}
+  async snapshot(id){return (await this.ctx.storage.get(id ? 'snapshot:'+id : 'snapshot')) || (id ? this.ctx.storage.get('alert:'+id) : undefined);}
   async status(){ const status=await this.ctx.storage.get('status') || {state:'NOT_STARTED',updatedAt:0}; return {...status,nextRunAt:await this.ctx.storage.getAlarm()}; }
   async tick(asset, dryRun=false){
     if(!ASSETS[asset]) throw new Error('Invalid asset');
@@ -74,6 +74,10 @@ export class MarketMonitor extends DurableObject {
       if(!dryRun){
         if(!state.baseline){state.baseline=true;if(event)state.delivered[event.key]=now;}
         else if(event && !state.delivered[event.key] && this.env.ALERTS_ENABLED==='true'){
+          await this.ctx.storage.put('alert:'+id,snapshot);
+          state.alertIds=state.alertIds||[];
+          if(!state.alertIds.includes(id))state.alertIds.push(id);
+          while(state.alertIds.length>100)await this.ctx.storage.delete('alert:'+state.alertIds.shift());
           await this.env.EMAIL.send({from:'alerts@yu-zora.com',to:this.env.EMAIL_TO,subject:event.title,text:event.text,html:'<div style="white-space:pre-wrap">'+escapeHtml(event.text)+'</div><p><a href="'+event.url+'">公開チャートを開く</a></p>'});
           state.delivered[event.key]=now;status.emailAcceptedAt=now;
           if(exit)state.paperPosition=null;
