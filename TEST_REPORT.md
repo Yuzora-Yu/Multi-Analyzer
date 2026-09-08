@@ -5,6 +5,9 @@
 - Cloudflare本番とローカルで同じ保存データから再計算し、金・BTCともNO_TRADEが一致。version 4.3.1 / pullback-v1 / 出来高あり。
 - 390×844のスマホ表示とPC表示、詳細パネル、コンソールエラーなしを確認。
 - 実データ比較はRESEARCH_V43.mdとvalidation-v43.json。収益上の優位性は未確認。
+- GitHub Pages 283c3fc のデプロイ成功・公開画面の共通IDを確認。
+- 通知リンクで保存判定を再現し、現在の推奨ではない表示を確認。
+- 共通判定移行のテストメールはCloudflareでemailAccepted=true。受信箱での到着確認とは区別。
 - 本番Worker版: 0b5caa9c-759a-4e74-8346-58e86e627960。
 
 以下は過去バージョンの履歴です。

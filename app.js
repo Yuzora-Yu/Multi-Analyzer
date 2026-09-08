@@ -102,6 +102,7 @@
   }
 
   function getPosition() {
+    if(INITIAL_PARAMS.has('snapshot'))return null;
     const direction = $('positionDirection').value;
     const entry = inputNumber('positionEntry');
     const stop = inputNumber('positionStop');
@@ -194,7 +195,7 @@
       if(state.tf==='15m'){
         await refreshSnapshot();
         if(loadId!==state.loadId)return;
-        setLoading(false);if(!INITIAL_PARAMS.has('snapshot'))connectRealtime();
+        setLoading(false);setConnection('live',INITIAL_PARAMS.has('snapshot')?'保存判定の再生':'確定足取得済み');if(!INITIAL_PARAMS.has('snapshot'))connectRealtime();
         state.snapshotTimer=setInterval(()=>refreshSnapshot().catch(e=>{setConnection('error',e.message);}),30000);
         return;
       }
@@ -543,7 +544,7 @@
   function renderDecision() {
     const a = state.analysis;
     const badge = $('signalBadge');
-    badge.textContent = stateLabel(a.state);
+    badge.textContent = (INITIAL_PARAMS.has('snapshot')?'記録: ':'')+stateLabel(a.state);
     const sheetSummary = $('sheetSummary');
     sheetSummary.textContent = stateLabel(a.state);
     sheetSummary.style.color = a.state.includes('LONG') ? 'var(--green)' : a.state.includes('SHORT') ? 'var(--red)' : a.state.startsWith('WATCH') ? 'var(--orange)' : 'var(--muted)';
@@ -632,6 +633,7 @@
     const cls = stale ? 'wait' : exit ? 'exit' : a.actionable ? (a.direction === 'LONG' ? 'buy' : 'sell') : 'wait';
     $('actionCompass').className = `action-compass ${cls}`;
     $('actionHeadline').textContent = stale ? '— 更新停止・判断待機' : exit ? `× ${(getPosition()||state.snapshot?.settings.position)?.direction === 'LONG' ? '買い' : '売り'}ポジション クローズ推奨${!getPosition()?'（前回候補を保有中なら）':''}` : `${cls === 'buy' ? '▲' : cls === 'sell' ? '▼' : '—'} ${stateLabel(a.state)}`;
+    if(INITIAL_PARAMS.has('snapshot'))$('actionHeadline').textContent='保存記録｜'+$('actionHeadline').textContent;
     $('actionTargets').textContent = stale ? '価格が復旧するまで新規シグナルを停止します' : exit ? pos.reasons.join(' / ') : a.actionable && p ? `目標 ${fmt(p.tp1)} → ${fmt(p.tp2)} ｜ SL ${fmt(p.stop)} ｜ 基準 ${fmt(p.entry)}` : a.vetoes[0] || a.message;
     $('sourceNotice').textContent = state.offlineCsv ? 'CSV検証 / 実相場ではありません・通知しません' : `分析・目標: ${currentInstrument().symbol} (${currentInstrument().market}) / ブローカーのUSD価格とは異なります`;
     if (exit && !stale) { $('sheetSummary').textContent = '× クローズ推奨'; $('sheetSummary').style.color = '#c69cff'; }
