@@ -6,15 +6,11 @@
 
   const INSTRUMENTS = {
     gold: {
-      name: 'GOLD', symbol: 'XAUUSDT', market: 'futures', stream: 'xauusdt', digits: 2,
+      name: 'Gold / USD', symbol: 'XAUUSDT', market: 'futures', stream: 'xauusdt', digits: 2,
       sourceLabel: 'BINANCE USDⓈ-M', accent: '#e6b85c', up: '#43d49d', down: '#ff6b78'
     },
-    silver: {
-      name: 'SILVER', symbol: 'XAGUSDT', market: 'futures', stream: 'xagusdt', digits: 4,
-      sourceLabel: 'BINANCE USDⓈ-M', accent: '#bfc8d8', up: '#43d49d', down: '#ff6b78'
-    },
     btc: {
-      name: 'BTC', symbol: 'BTCUSDT', market: 'spot', stream: 'btcusdt', digits: 2,
+      name: 'BTC / USD', symbol: 'BTCUSDT', market: 'spot', stream: 'btcusdt', digits: 2,
       sourceLabel: 'BINANCE SPOT', accent: '#f7931a', up: '#43d49d', down: '#ff6b78'
     }
   };
@@ -24,16 +20,23 @@
     '1h': { minutes: 60, api: '1h', label: '1H', limit: 1000 },
     '4h': { minutes: 240, api: '4h', label: '4H', limit: 700 },
   };
-  const STORAGE_KEY = 'multiAnalyzerUltimate.v3';
+  const STORAGE_KEY = 'multiAnalyzerUltimate.v4.usd';
   const POSITION_KEY = 'multiAnalyzerUltimate.position';
+  const STATIC_HOST = location.hostname.endsWith('.github.io');
+  const INITIAL_PARAMS = new URLSearchParams(location.search);
 
   const state = {
-    instrumentId: 'gold',
-    tf: '15m',
+    instrumentId: INITIAL_PARAMS.get('asset') === 'btc' ? 'btc' : 'gold',
+    tf: ['5m', '15m', '1h'].includes(INITIAL_PARAMS.get('tf')) ? INITIAL_PARAMS.get('tf') : '15m',
     data: { exec: [], m15: [], h1: [], h4: [] },
     analysis: null,
     preview: null,
     livePrice: null,
+    feedAt: 0,
+    loadId: 0,
+    reference: null,
+    zoneSeries: [],
+    analysisKey: null,
     ws: null,
     reconnectTimer: null,
     pollTimer: null,
@@ -58,23 +61,23 @@
 
   const $ = id => document.getElementById(id);
   const qsa = selector => [...document.querySelectorAll(selector)];
-  const fmt = (value, digits = currentInstrument().digits) => Number.isFinite(Number(value))
+  const fmt = (value, digits = currentInstrument().digits) => value != null && Number.isFinite(Number(value))
     ? Number(value).toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits })
     : '—';
-  const pct = value => Number.isFinite(Number(value)) ? `${Number(value).toFixed(1)}%` : '—';
+  const pct = value => value != null && Number.isFinite(Number(value)) ? `${Number(value).toFixed(1)}%` : '—';
   const esc = value => String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
 
   function currentInstrument() { return INSTRUMENTS[state.instrumentId]; }
   function currentTf() { return TF[state.tf]; }
 
   function loadSettings() {
-    const defaults = { ...Core.DEFAULTS, accountEquity: 1_000_000, riskPct: 0.5, feeBpsPerSide: 2, spreadBps: 1.8, slippageBps: 1.2, minNetRR: 1.8, maxLeverage: 3, blackout: false };
+    const defaults = { ...Core.DEFAULTS, accountEquity: 1000, riskPct: 0.5, feeBpsPerSide: 2, spreadBps: 1.8, slippageBps: 1.2, minNetRR: 1.8, maxLeverage: 3, blackout: false };
     try { return { ...defaults, ...JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}') }; }
     catch { return defaults; }
   }
 
   function loadPosition() {
-    try { return JSON.parse(localStorage.getItem(POSITION_KEY) || '{}'); }
+    try { return JSON.parse(localStorage.getItem(`${POSITION_KEY}.${state.instrumentId}`) || '{}'); }
     catch { return {}; }
   }
 
@@ -89,8 +92,8 @@
       entry: inputNumber('positionEntry'),
       stop: inputNumber('positionStop'),
     };
-    if (!p.direction || !Number.isFinite(p.entry)) localStorage.removeItem(POSITION_KEY);
-    else localStorage.setItem(POSITION_KEY, JSON.stringify(p));
+    if (!p.direction || !Number.isFinite(p.entry)) localStorage.removeItem(`${POSITION_KEY}.${state.instrumentId}`);
+    else localStorage.setItem(`${POSITION_KEY}.${state.instrumentId}`,  JSON.stringify(p));
     analyzeAndRender();
   }
 
@@ -129,12 +132,11 @@
     } : row));
   }
 
-  async function fetchKlines(tfKey, limit) {
-    const cfg = currentInstrument();
+  async function fetchKlines(tfKey, limit, cfg = currentInstrument()) {
     const interval = TF[tfKey].api;
     const params = new URLSearchParams({ market: cfg.market, symbol: cfg.symbol, interval, limit: String(limit) });
     const urls = [
-      `/api/klines?${params}`,
+      ...(STATIC_HOST ? [] : [`/api/klines?${params}`]),
       cfg.market === 'futures'
         ? `https://fapi.binance.com/fapi/v1/klines?symbol=${cfg.symbol}&interval=${interval}&limit=${limit}`
         : `https://api.binance.com/api/v3/klines?symbol=${cfg.symbol}&interval=${interval}&limit=${limit}`
@@ -152,6 +154,30 @@
 
   async function loadAllData() {
     stopRealtime();
+    const loadId = ++state.loadId;
+    state.analysisKey = null;
+    state.data = { exec: [], m15: [], h1: [], h4: [] };
+    state.analysis = null;
+    state.livePrice = null;
+    state.reference = null;
+    state.feedAt = 0;
+    $('actionHeadline').textContent = 'データ取得中・判断待機';
+    $('actionCompass').className = 'action-compass wait';
+    $('actionTargets').textContent = '価格と分析を更新中';
+    $('sheetSummary').textContent = '判断待機';
+    $('signalBadge').textContent = '判断待機';
+    $('positionAction').textContent = '判断待機';
+    $('positionReasons').innerHTML = '<li>データ取得後に判定します。</li>';
+    $('positionUrgency').textContent = '—';
+    $('unrealizedR').textContent = '—';
+    $('livePrice').textContent = '—';
+    $('positionLivePrice').textContent = '—';
+    $('symbolName').textContent = currentInstrument().name;
+    $('symbolCode').textContent = currentInstrument().symbol;
+    $('chartTitle').textContent = `${currentInstrument().name} / ${currentTf().label}`;
+    $('sourceNotice').textContent = `分析対象: ${currentInstrument().symbol} / USDT建て参考市場`;
+    $('referenceQuote').textContent = 'USD参考価格を取得中';
+    refreshServices();
     state.offlineCsv = false;
     state.micro = { bid: null, ask: null, spreadBps: null, bookImbalance: 0, markPrice: null, indexPrice: null, basisBps: 0, fundingRate: 0, nextFundingTime: null };
     setLoading(true);
@@ -164,12 +190,15 @@
         execKey === '1h' ? Promise.resolve(null) : fetchKlines('1h', TF['1h'].limit),
         fetchKlines('4h', TF['4h'].limit),
       ]);
+      if (loadId !== state.loadId) return;
+      state.feedAt = Date.now();
       state.data.exec = exec;
       state.data.m15 = m15 || exec;
       state.data.h1 = h1 || exec;
       state.data.h4 = h4;
       state.livePrice = exec.at(-1)?.close ?? null;
       await refreshMicroData();
+      if (loadId !== state.loadId) return;
       state.lastConfirmedClose = Core.filterClosedCandles(exec, currentTf().minutes, Date.now()).at(-1)?.close ?? null;
       analyzeAndRender();
       renderChart();
@@ -179,9 +208,11 @@
       clearInterval(state.microTimer);
       state.microTimer = setInterval(refreshMicroData, 10000);
     } catch (error) {
+      if (loadId !== state.loadId) return;
       console.error(error);
-      setLoading(true, `データ取得失敗: ${error.message}。server.pyで起動してください。`);
+      setLoading(true, `データ取得失敗: ${error.message}。${STATIC_HOST ? '公開データへの接続を確認してください。利用地域・提供元の制限がある場合はPC版またはCSVをご利用ください。' : 'server.pyで起動してください。'}`);
       setConnection('error', '取得失敗');
+      $('actionHeadline').textContent = '— データ取得失敗・判断待機';
     }
   }
 
@@ -190,6 +221,8 @@
       ...state.settings,
       spreadBps: Number.isFinite(state.micro.spreadBps) ? Math.max(state.settings.spreadBps, state.micro.spreadBps) : state.settings.spreadBps,
       executionMinutes: currentTf().minutes,
+      market: currentInstrument().market,
+      feedStale: !state.offlineCsv && Date.now() - state.feedAt > 45000,
       minBars: Math.min(220, Math.max(80, state.data.exec.length - 5)),
       now: state.offlineCsv && state.data.exec.length
         ? state.data.exec.at(-1).time + currentTf().minutes * 60_000 + 1500
@@ -203,11 +236,15 @@
   function analyzeAndRender() {
     if (!state.data.exec.length) return;
     try {
+      let key = `${state.instrumentId}:${state.tf}:${Core.filterClosedCandles(state.data.exec, currentTf().minutes, analysisSettings().now).at(-1)?.time}`;
       state.analysis = Core.analyzeMarket({ ...state.data, micro: state.micro }, analysisSettings());
+      key += `:${state.analysis.state}:${state.analysis.vetoes.join()}`;
       const forming = state.data.exec.at(-1);
       const previewNow = forming ? forming.time + currentTf().minutes * 60_000 + 1500 : Date.now();
       state.preview = Core.analyzeMarket({ ...state.data, micro: state.micro }, analysisSettings({ now: previewNow, position: null }));
       renderAll();
+      renderCompass();
+      if (state.analysisKey !== key) { state.analysisKey = key; renderChart(); }
     } catch (error) {
       console.error('Analysis error', error);
       setConnection('error', '分析エラー');
@@ -217,9 +254,10 @@
   async function refreshMicroData() {
     if (state.offlineCsv) return;
     const cfg = currentInstrument();
+    const loadId = state.loadId;
     const params = new URLSearchParams({ market: cfg.market, symbol: cfg.symbol });
     const tickerUrls = [
-      `/api/ticker?${params}`,
+      ...(STATIC_HOST ? [] : [`/api/ticker?${params}`]),
       cfg.market === 'futures'
         ? `https://fapi.binance.com/fapi/v1/ticker/bookTicker?symbol=${cfg.symbol}`
         : `https://api.binance.com/api/v3/ticker/bookTicker?symbol=${cfg.symbol}`
@@ -228,6 +266,7 @@
     for (const url of tickerUrls) {
       try { ticker = await fetchJson(url, 7000); if (ticker) break; } catch { /* try next */ }
     }
+    if (loadId !== state.loadId) return;
     if (ticker) {
       const bid = Number(ticker.bidPrice), ask = Number(ticker.askPrice);
       const bidQty = Number(ticker.bidQty), askQty = Number(ticker.askQty);
@@ -238,12 +277,13 @@
     }
     if (cfg.market === 'futures') {
       const premiumUrls = [
-        `/api/premium-index?${params}`,
+        ...(STATIC_HOST ? [] : [`/api/premium-index?${params}`]),
         `https://fapi.binance.com/fapi/v1/premiumIndex?symbol=${cfg.symbol}`
       ];
       for (const url of premiumUrls) {
         try {
           const p = await fetchJson(url, 7000);
+          if (loadId !== state.loadId) return;
           const mark = Number(p.markPrice), index = Number(p.indexPrice);
           state.micro.markPrice = mark; state.micro.indexPrice = index;
           state.micro.basisBps = index > 0 ? (mark - index) / index * 10000 : 0;
@@ -266,10 +306,15 @@
       const ws = new WebSocket(url);
       state.ws = ws;
       ws.onopen = () => {
+        if (state.ws !== ws) return;
         setConnection('live', 'リアルタイム');
         clearInterval(state.pollTimer);
       };
+      let lastAnalysis = 0;
       ws.onmessage = event => {
+        if (state.ws !== ws) return;
+        state.feedAt = Date.now();
+        setConnection('live', 'リアルタイム');
         try {
           const payload = JSON.parse(event.data);
           const k = payload.k;
@@ -281,8 +326,8 @@
           state.livePrice = candle.close;
           updateLiveHeader();
           updateLiveCandle(candle);
-          analyzeAndRender();
-          if (k.x) refreshHigherTimeframes();
+          if (k.x || Date.now() - lastAnalysis > 1000) { lastAnalysis = Date.now(); analyzeAndRender(); }
+          if (k.x) { renderChart(); refreshHigherTimeframes(); }
         } catch (error) { console.warn('WebSocket message error', error); }
       };
       ws.onerror = () => setConnection('pending', '接続再試行');
@@ -313,11 +358,16 @@
     clearInterval(state.pollTimer);
     state.pollTimer = setInterval(async () => {
       try {
+        const loadId = state.loadId;
         const rows = await fetchKlines(state.tf, 4);
+        if (loadId !== state.loadId) return;
+        state.feedAt = Date.now();
+        setConnection('live', '15秒ポーリング');
         for (const c of rows) upsertCandle(state.data.exec, c);
         state.livePrice = rows.at(-1)?.close ?? state.livePrice;
         analyzeAndRender();
         renderChart();
+        await refreshHigherTimeframes();
       } catch { setConnection('error', '再接続待ち'); }
     }, 15000);
   }
@@ -325,11 +375,10 @@
   async function refreshHigherTimeframes() {
     if (state.offlineCsv) return;
     try {
-      const tasks = [];
-      tasks.push(fetchKlines('15m', 260).then(v => { state.data.m15 = v; }));
-      tasks.push(fetchKlines('1h', 300).then(v => { state.data.h1 = v; }));
-      tasks.push(fetchKlines('4h', 300).then(v => { state.data.h4 = v; }));
-      await Promise.all(tasks);
+      const loadId = state.loadId, cfg = currentInstrument();
+      const [m15, h1, h4] = await Promise.all([fetchKlines('15m', 300, cfg), fetchKlines('1h', 300, cfg), fetchKlines('4h', 300, cfg)]);
+      if (loadId !== state.loadId) return;
+      Object.assign(state.data, { m15, h1, h4 });
       analyzeAndRender();
     } catch (error) { console.warn('HTF refresh failed', error); }
   }
@@ -404,23 +453,29 @@
   function renderChart() {
     initChart();
     if (!state.chart || !state.analysis?.exec?.series) return;
-    const candles = state.analysis.exec.candles;
-    const visible = candles.slice(-500);
+    const candles = state.data.exec;
+    const visible = candles.slice(-140);
     const offset = candles.length - visible.length;
     state.candleSeries.setData(visible.map(c => ({ time: toChartTime(c.time), open: c.open, high: c.high, low: c.low, close: c.close })));
-    state.ema20Series.setData(lineData(visible, state.analysis.exec.series.ema20.slice(offset)));
-    state.ema50Series.setData(lineData(visible, state.analysis.exec.series.ema50.slice(offset)));
-    state.vwapSeries.setData(lineData(visible, state.analysis.exec.series.vwap96.slice(offset)));
+    state.ema20Series.setData(lineData(state.analysis.exec.candles.slice(offset), state.analysis.exec.series.ema20.slice(offset)));
+    state.ema50Series.setData(lineData(state.analysis.exec.candles.slice(offset), state.analysis.exec.series.ema50.slice(offset)));
+    state.vwapSeries.setData(lineData(state.analysis.exec.candles.slice(offset), state.analysis.exec.series.vwap96.slice(offset)));
 
     const markers = [];
-    for (const s of state.analysis.exec.swings.highs.slice(-12)) if (s.index >= offset) markers.push({ time: toChartTime(s.time), position: 'aboveBar', color: '#ff6b78', shape: 'arrowDown', text: 'SH' });
-    for (const s of state.analysis.exec.swings.lows.slice(-12)) if (s.index >= offset) markers.push({ time: toChartTime(s.time), position: 'belowBar', color: '#43d49d', shape: 'arrowUp', text: 'SL' });
+    let lastMarkerTime = 0;
+    for (const e of (state.analysis.exec.smc?.events || []).slice(-12)) {
+      if (e.time - lastMarkerTime < currentTf().minutes * 60000 * 3) continue;
+      lastMarkerTime = e.time;
+      if (e.time < visible[0].time) continue;
+      markers.push({ time: toChartTime(e.time), position: e.side === 'bull' ? 'belowBar' : 'aboveBar', color: e.side === 'bull' ? '#43d49d' : '#ff6b78', shape: e.side === 'bull' ? 'arrowUp' : 'arrowDown', text: e.type });
+    }
+    if (state.analysis.actionable) markers.push({ time: toChartTime(state.analysis.exec.candles.at(-1).time), position: state.analysis.direction === 'LONG' ? 'belowBar' : 'aboveBar', color: '#e6b85c', shape: 'circle', text: state.analysis.direction === 'LONG' ? '買い候補' : '売り候補' });
     markers.sort((a, b) => a.time - b.time);
     state.candleSeries.setMarkers(markers);
 
     for (const line of state.priceLines) state.candleSeries.removePriceLine(line);
     state.priceLines = [];
-    if (state.analysis.plan) {
+    if (state.analysis.actionable && state.analysis.plan) {
       const levels = [
         ['ENTRY', state.analysis.plan.entry, '#e6b85c', 1],
         ['STOP', state.analysis.plan.stop, '#ff6b78', 2],
@@ -432,6 +487,7 @@
         state.priceLines.push(state.candleSeries.createPriceLine({ price, color, lineWidth: 1, lineStyle: style, axisLabelVisible: true, title }));
       }
     }
+    renderZones();
     if (!state.chartFitted) {
       state.chart.timeScale().fitContent();
       state.chartFitted = true;
@@ -485,7 +541,7 @@
     $('qualityValue').textContent = `${Math.round(a.exec.quality.score)} / 100`;
   }
 
-  function stateLabel(stateName) { return stateName.replaceAll('_', ' '); }
+  function stateLabel(stateName) { return ({ NO_TRADE: '待機', WATCH_LONG: '買い監視', WATCH_SHORT: '売り監視', READY_LONG: '買い候補', STRONG_LONG: '買い条件合致', READY_SHORT: '売り候補', STRONG_SHORT: '売り条件合致' })[stateName] || stateName; }
 
   function renderDecision() {
     const a = state.analysis;
@@ -535,8 +591,8 @@
       ['entryValue', p?.entry], ['stopValue', p?.stop], ['tp1Value', p?.tp1], ['tp2Value', p?.tp2], ['tp3Value', p?.tp3]
     ]) $(id).textContent = fmt(val);
     $('rrValue').textContent = p?.netRR != null ? `${p.netRR} R` : '—';
-    $('quantityValue').textContent = p?.quantity != null ? fmt(p.quantity, 4) : '—';
-    $('riskBudgetValue').textContent = p?.riskBudget != null ? `¥${Math.round(p.riskBudget).toLocaleString('ja-JP')}` : '—';
+    $('quantityValue').textContent = p?.quantity != null ? `${fmt(p.quantity, 4)} ${state.instrumentId === 'gold' ? 'oz' : 'BTC'}` : '—';
+    $('riskBudgetValue').textContent = p?.riskBudget != null ? `$${fmt(p.riskBudget, 2)}` : '—';
     const notes = [];
     if (p) notes.push(`${p.orderType === 'CLOSE_CONFIRM' ? '確定足確認' : 'リテスト指値候補'}。無効化: ${p.invalidation}。`);
     if (a.vetoes.length) notes.push(`見送り: ${a.vetoes.slice(0, 2).join(' / ')}`);
@@ -548,6 +604,12 @@
   function renderPosition() {
     const p = state.analysis.positionDecision;
     const box = $('positionDecision');
+    if (!state.offlineCsv && Date.now() - state.feedAt > 45000) {
+      box.className = 'position-decision hold';
+      $('positionAction').textContent = '更新停止・判断待機'; $('positionUrgency').textContent = '—';
+      $('positionReasons').innerHTML = '<li>ライブ価格を再取得するまで保有判断を停止します。</li>';
+      return;
+    }
     if (!p) {
       box.className = 'position-decision hold';
       $('positionAction').textContent = 'NO POSITION';
@@ -564,6 +626,64 @@
     $('unrealizedR').textContent = `${p.unrealizedR >= 0 ? '+' : ''}${p.unrealizedR} R`;
     $('positionLivePrice').textContent = fmt(p.livePrice);
     $('positionReasons').innerHTML = p.reasons.map(r => `<li>${esc(r)}</li>`).join('');
+  }
+
+  function renderCompass() {
+    const a = state.analysis, p = a.plan, pos = a.positionDecision;
+    const stale = !state.offlineCsv && Date.now() - state.feedAt > 45000;
+    const exit = pos?.action.startsWith('EXIT');
+    const cls = stale ? 'wait' : exit ? 'exit' : a.actionable ? (a.direction === 'LONG' ? 'buy' : 'sell') : 'wait';
+    $('actionCompass').className = `action-compass ${cls}`;
+    $('actionHeadline').textContent = stale ? '— 更新停止・判断待機' : exit ? `× ${getPosition()?.direction === 'LONG' ? '買い' : '売り'}ポジション クローズ推奨` : `${cls === 'buy' ? '▲' : cls === 'sell' ? '▼' : '—'} ${stateLabel(a.state)}`;
+    $('actionTargets').textContent = stale ? '価格が復旧するまで新規シグナルを停止します' : exit ? pos.reasons.join(' / ') : a.actionable && p ? `目標 ${fmt(p.tp1)} → ${fmt(p.tp2)} ｜ SL ${fmt(p.stop)} ｜ 基準 ${fmt(p.entry)}` : a.vetoes[0] || a.message;
+    $('sourceNotice').textContent = state.offlineCsv ? 'CSV検証 / 実相場ではありません・通知しません' : `分析・目標: ${currentInstrument().symbol} (${currentInstrument().market}) / ブローカーのUSD価格とは異なります`;
+    if (exit && !stale) { $('sheetSummary').textContent = '× クローズ推奨'; $('sheetSummary').style.color = '#c69cff'; }
+    const m = a.exec.smc;
+    if (!m) return;
+    $('smcDetails').innerHTML = `<div class="smc-tags"><span>${esc(m.location)} / EQ ${fmt(m.equilibrium)}</span><span>推定POC ${fmt(m.poc)}</span></div>` +
+      m.zones.slice(-6).reverse().map(z => `<p class="smc-zone ${z.side}">${esc(z.type)} ${z.side === 'bull' ? '需要帯' : '供給帯'} ${fmt(z.low)} – ${fmt(z.high)}</p>`).join('') +
+      `<p class="dialog-note">${m.liquidity.map(l => `${l.type} ${fmt(l.price)}`).join(' / ') || '未消化の等値流動性なし'}<br>POCはOHLCV近似。実際の約定分布・機関注文を観測した値ではありません。</p>`;
+  }
+
+  function renderZones() {
+    for (const series of state.zoneSeries) state.chart.removeSeries(series);
+    state.zoneSeries = [];
+    const m = state.analysis.exec.smc;
+    if (!m) return;
+    const end = toChartTime(state.data.exec.at(-1).time);
+    const earliest = toChartTime(state.data.exec.slice(-140)[0].time);
+    for (const z of m.zones.slice(-6)) {
+      const color = z.side === 'bull' ? '#43d49d55' : '#ff6b7855';
+      for (const price of [z.low, z.high]) {
+        const series = state.chart.addLineSeries({ color, lineWidth: 2, lineStyle: z.type === 'FVG' ? 2 : 0, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false, autoscaleInfoProvider: () => null });
+        const start = Math.max(earliest, toChartTime(z.time));
+        series.setData(start < end ? [{ time: start, value: price }, { time: end, value: price }] : [{ time: start, value: price }]);
+        state.zoneSeries.push(series);
+      }
+    }
+  }
+
+  async function refreshServices() {
+    const id = state.instrumentId;
+    const results = await Promise.allSettled([
+      fetchJson(STATIC_HOST ? `https://api.gold-api.com/price/${id === 'gold' ? 'XAU' : 'BTC'}` : `/api/reference?asset=${id}`),
+      STATIC_HOST ? Promise.resolve({ staticHost: true }) : fetchJson('/api/monitor')
+    ]);
+    if (id !== state.instrumentId) return;
+    if (results[0].status === 'fulfilled') {
+      const q = results[0].value;
+      const old = !q.updatedAt || Date.now() - Date.parse(q.updatedAt) > 120000;
+      $('referenceQuote').textContent = `USD参考値 $${fmt(q.price)} / Gold API ${old ? '更新遅延' : new Date(q.updatedAt).toLocaleTimeString('ja-JP')}（分析には混用しません）`;
+    } else $('referenceQuote').textContent = 'USD参考値: 取得できません（分析はUSDT建て）';
+    if (results[1].status === 'fulfilled') {
+      const m = results[1].value;
+      if (m.staticHost) {
+        $('monitorStatus').textContent = '公開チャート表示モード / メール監視はPC側サーバーで動作します。ここから送信状態は確認できません。';
+        return;
+      }
+      const fresh = m.updatedAt && Date.now() - m.updatedAt < 60000;
+      $('monitorStatus').textContent = `${fresh ? '● サーバー監視稼働中' : '○ サーバー監視停止'} / ${m.channels?.join('・') || '通知先未設定'} / ${m.summary || 'python server.py --monitor で起動'}${m.error ? ' / ' + m.error : ''}`;
+    } else $('monitorStatus').textContent = '監視APIに接続できません。server.pyで起動してください。';
   }
 
   function renderTfRow(prefix, tf) {
@@ -618,6 +738,8 @@
       const candles = Core.parseCSV(text);
       if (candles.length < 80) throw new Error('80本以上のデータが必要です');
       stopRealtime();
+      state.loadId++;
+      state.analysisKey = null;
       state.offlineCsv = true;
       state.micro = { bid: null, ask: null, spreadBps: null, bookImbalance: 0, markPrice: null, indexPrice: null, basisBps: 0, fundingRate: 0, nextFundingTime: null };
       const minutes = Core.inferIntervalMinutes(candles) || currentTf().minutes;
@@ -756,6 +878,8 @@
     qsa('.instrument-tab').forEach(button => button.addEventListener('click', () => {
       if (button.dataset.instrument === state.instrumentId) return;
       state.instrumentId = button.dataset.instrument;
+      $('positionDirection').value = ''; $('positionEntry').value = ''; $('positionStop').value = '';
+      restorePositionInputs();
       qsa('.instrument-tab').forEach(b => b.classList.toggle('active', b === button));
       destroyChart();
       loadAllData();
@@ -782,7 +906,7 @@
       $('positionDirection').value = '';
       $('positionEntry').value = '';
       $('positionStop').value = '';
-      localStorage.removeItem(POSITION_KEY);
+      localStorage.removeItem(`${POSITION_KEY}.${state.instrumentId}`);
       analyzeAndRender();
     });
     window.addEventListener('beforeunload', stopRealtime);
@@ -796,6 +920,7 @@
     if (state.chart) state.chart.remove();
     state.chart = state.candleSeries = state.ema20Series = state.ema50Series = state.vwapSeries = null;
     state.priceLines = [];
+    state.zoneSeries = [];
     state.chartSize = { width: 0, height: 0 };
     state.chartFitted = false;
   }
@@ -813,12 +938,22 @@
   }
 
   function init() {
+    qsa('.instrument-tab').forEach(b => b.classList.toggle('active', b.dataset.instrument === state.instrumentId));
+    qsa('.timeframes button').forEach(b => b.classList.toggle('active', b.dataset.tf === state.tf));
     bindEvents();
     restorePositionInputs();
     setInsightTab('signal');
     syncInsightLayout();
     startClock();
     loadAllData();
+    refreshServices();
+    setInterval(refreshServices, 30000);
+    setInterval(() => {
+      if (!state.offlineCsv && state.feedAt && Date.now() - state.feedAt > 45000) {
+        setConnection('error', '価格更新停止'); analyzeAndRender();
+        if (!state.pollTimer) startPolling();
+      }
+    }, 5000);
   }
 
   window.addEventListener('DOMContentLoaded', init);

@@ -1,5 +1,5 @@
 'use strict';
-importScripts('strategy-core.js');
+importScripts('smc-core.js', 'strategy-core.js');
 self.onmessage = event => {
   try {
     const result = self.MultiAnalyzerCore.backtest(event.data.data, event.data.settings);

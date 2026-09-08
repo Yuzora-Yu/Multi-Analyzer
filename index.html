@@ -2,16 +2,17 @@
 <html lang="ja">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="color-scheme" content="dark">
   <meta name="theme-color" content="#07090c">
-  <meta name="description" content="GOLD・SILVER・BTCのリアルタイム多時間足分析、売買候補、撤退判断、リスク管理、バックテスト">
+  <meta name="description" content="Gold/USD・BTC/USDのリアルタイム多時間足分析、売買候補、撤退判断、リスク管理、バックテスト">
   <title>Multi-Analyzer Ultimate</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css">
   <script defer src="https://unpkg.com/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js"></script>
+  <script defer src="smc-core.js"></script>
   <script defer src="strategy-core.js"></script>
   <script defer src="app.js"></script>
 </head>
@@ -27,9 +28,8 @@
       </div>
 
       <nav class="instrument-tabs" aria-label="銘柄">
-        <button class="instrument-tab active" data-instrument="gold" type="button">GOLD</button>
-        <button class="instrument-tab" data-instrument="silver" type="button">SILVER</button>
-        <button class="instrument-tab" data-instrument="btc" type="button">BTC</button>
+        <button class="instrument-tab active" data-instrument="gold" type="button">GOLD / USD</button>
+        <button class="instrument-tab" data-instrument="btc" type="button">BTC / USD</button>
       </nav>
 
 
@@ -88,7 +88,13 @@
               <div><span>QUALITY</span><strong id="qualityValue">—</strong></div>
             </div>
 
-            <div class="chart-risk-note">確定足シグナル / 形成中足はプレビューのみ / PAPER TRADE</div>
+            <div class="action-compass wait" id="actionCompass" role="status">
+              <div class="compass-legend"><span>緑 ▲ 買い</span><span>赤 ▼ 売り</span><span>紫 × クローズ</span><span>灰 — 待機</span></div>
+              <strong id="actionHeadline">データ取得中・判断待機</strong>
+              <div id="actionTargets">確定足の条件がそろうと目標とSLを表示</div>
+              <small id="sourceNotice">分析足: USDT建て参考市場 / USDの取引価格とは異なります</small>
+              <small id="referenceQuote">USD参考価格を確認中</small>
+            </div>
           </div>
 
           <aside class="insight-panel sheet-collapsed" id="insightPanel" aria-label="分析情報">
@@ -116,7 +122,7 @@
                   <div class="signal-hero">
                     <div class="signal-badge no-trade" id="signalBadge">NO TRADE</div>
                     <div class="confidence-ring" id="confidenceRing" style="--value:0">
-                      <div><strong id="confidenceValue">0</strong><span>CONF</span></div>
+                      <div><strong id="confidenceValue">0</strong><span>SCORE</span></div>
                     </div>
                   </div>
 
@@ -182,6 +188,8 @@
               </section>
 
               <section class="insight-page detail-page" data-insight-page="detail">
+                <article class="detail-section"><h2>SMC マップ</h2><p class="dialog-note">BOS / CHoCH / Sweepは確定時刻に表示。帯は推定領域です。</p><div id="smcDetails">分析待ち</div></article>
+                <article class="detail-section"><h2>通知・常時監視</h2><p id="monitorStatus">監視状態を確認中</p><p class="dialog-note">Discord / メールはサーバー設定後に動作。ブラウザを閉じてもサーバーが稼働していれば15秒間隔で監視します。</p><a href="SETUP.md" target="_blank" rel="noopener">接続と通知の設定手順 ↗</a></article>
                 <article class="detail-section timeframe-panel">
                   <div class="section-heading"><div><span class="eyebrow">MULTI TIMEFRAME</span><h2>方向マトリクス</h2></div></div>
                   <div class="tf-matrix">
@@ -242,7 +250,7 @@
     <form method="dialog" class="settings-form" id="settingsForm">
       <div class="dialog-header"><div><span class="eyebrow">RISK & EXECUTION</span><h2>分析設定</h2></div><button class="icon-button" value="cancel" aria-label="閉じる">×</button></div>
       <div class="settings-grid">
-        <label>口座資金<input id="settingEquity" type="number" min="1" step="1000"></label>
+        <label>口座資金（USD / USDT）<input id="settingEquity" type="number" min="1" step="100"></label>
         <label>1回の許容損失（%）<input id="settingRiskPct" type="number" min="0.05" max="5" step="0.05"></label>
         <label>片道手数料（bps）<input id="settingFee" type="number" min="0" max="100" step="0.1"></label>
         <label>想定スプレッド（bps）<input id="settingSpread" type="number" min="0" max="100" step="0.1"></label>

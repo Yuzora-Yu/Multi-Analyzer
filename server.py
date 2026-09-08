@@ -10,6 +10,8 @@ import json
 import mimetypes
 import os
 import ssl
+import subprocess
+import sys
 import time
 import urllib.error
 import urllib.parse
@@ -22,7 +24,7 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parent
 ALLOWED_MARKETS = {"spot", "futures"}
-ALLOWED_SYMBOLS = {"XAUUSDT", "XAGUSDT", "BTCUSDT", "PAXGUSDT"}
+ALLOWED_SYMBOLS = {"XAUUSDT", "BTCUSDT"}
 ALLOWED_INTERVALS = {"1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "6h", "8h", "12h", "1d", "1w"}
 CACHE: dict[str, tuple[float, bytes, str]] = {}
 CACHE_LOCK = Lock()
@@ -95,9 +97,19 @@ class Handler(SimpleHTTPRequestHandler):
         if parsed.path.startswith("/api/"):
             self._handle_api(parsed)
             return
+        allowed = {"/", "/index.html", "/app.js", "/strategy-core.js", "/smc-core.js", "/styles.css", "/backtest-worker.js", "/sample-data.csv", "/SETUP.md", "/README.md", "/RESEARCH.md"}
+        if parsed.path not in allowed:
+            self._error(HTTPStatus.NOT_FOUND, "Not found")
+            return
         if parsed.path == "/":
             self.path = "/index.html"
         super().do_GET()
+
+    def do_HEAD(self) -> None:  # noqa: N802
+        # Do not inherit filesystem access that bypasses the GET allowlist.
+        self.send_response(HTTPStatus.METHOD_NOT_ALLOWED)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
 
     def _send(self, status: int, body: bytes, content_type: str = "application/json; charset=utf-8") -> None:
         self.send_response(status)
@@ -113,7 +125,23 @@ class Handler(SimpleHTTPRequestHandler):
     def _handle_api(self, parsed: urllib.parse.ParseResult) -> None:
         try:
             if parsed.path == "/api/health":
-                self._send(HTTPStatus.OK, _json_bytes({"ok": True, "version": "3.1.0", "time": int(time.time() * 1000)}))
+                self._send(HTTPStatus.OK, _json_bytes({"ok": True, "version": "4.0.0", "time": int(time.time() * 1000)}))
+                return
+            if parsed.path == "/api/monitor":
+                try:
+                    payload = json.loads((ROOT / '.runtime' / 'monitor.json').read_text(encoding='utf-8'))
+                except (OSError, ValueError):
+                    payload = {"updatedAt": None, "channels": [], "summary": "監視は起動されていません"}
+                self._send(HTTPStatus.OK, _json_bytes(payload))
+                return
+            if parsed.path == "/api/reference":
+                asset = urllib.parse.parse_qs(parsed.query).get('asset', [''])[0]
+                if asset not in {'gold', 'btc'}:
+                    self._error(HTTPStatus.BAD_REQUEST, "Unsupported asset")
+                    return
+                symbol = 'XAU' if asset == 'gold' else 'BTC'
+                body, content_type = _fetch_upstream('https://api.gold-api.com/price/' + symbol)
+                self._send(HTTPStatus.OK, body, content_type)
                 return
             query = urllib.parse.parse_qs(parsed.query)
             market = query.get("market", ["futures"])[0].lower()
@@ -157,18 +185,32 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Serve Multi-Analyzer Ultimate locally")
     parser.add_argument("--host", default="127.0.0.1", help="Bind host (default: 127.0.0.1)")
     parser.add_argument("--port", type=int, default=8000, help="Bind port (default: 8000)")
+    parser.add_argument("--monitor", action="store_true", help="Run server-side 15-second alert monitor (Node 20+)")
     args = parser.parse_args()
+    from alert_delivery import load_local_config
+    try:
+        load_local_config()
+    except (ValueError, OSError):
+        print('Local email configuration is invalid. Fix .runtime/email-config.json.')
+        return
     os.chdir(ROOT)
     mimetypes.add_type("application/javascript", ".js")
     server = ThreadingHTTPServer((args.host, args.port), Handler)
     print(f"Multi-Analyzer Ultimate: http://{args.host}:{args.port}/")
     print("Public market data only. No API key and no order endpoint.")
+    monitor = None
+    if args.monitor:
+        env = {**os.environ, 'MA_BASE_URL': f'http://127.0.0.1:{args.port}', 'MA_PYTHON': sys.executable}
+        monitor = subprocess.Popen(['node', str(ROOT / 'monitor.js')], env=env, creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         print("\nStopping server...")
     finally:
         server.server_close()
+        if monitor is not None:
+            monitor.terminate()
+            monitor.wait(timeout=10)
 
 
 if __name__ == "__main__":

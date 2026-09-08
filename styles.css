@@ -320,3 +320,28 @@ button { color: inherit; -webkit-tap-highlight-color: transparent; }
   .market-hud > div:nth-child(n+4) { display:none; }
   .market-hud { grid-template-columns:repeat(3,1fr); }
 }
+
+/* Always-visible decision strip, independent of the mobile details sheet. */
+.action-compass { position:absolute; z-index:5; left:12px; right:80px; bottom:28px; padding:12px 16px; border:1px solid #435165; border-left:4px solid #8896aa; border-radius:12px; background:rgba(10,15,23,.96); box-shadow:0 6px 24px #0005; pointer-events:none; }
+.action-compass strong { display:block; margin:5px 0; font-size:21px; }
+.action-compass #actionTargets { font-size:12px; line-height:1.6; }
+.action-compass small { display:block; color:#a9b7c9; font-size:10px; line-height:1.6; }
+.action-compass.buy { border-color:#43d49d; } .action-compass.buy strong { color:#43d49d; }
+.action-compass.sell { border-color:#ff6b78; } .action-compass.sell strong { color:#ff6b78; }
+.action-compass.exit { border-color:#c69cff; } .action-compass.exit strong { color:#c69cff; }
+.compass-legend { display:flex; gap:14px; font-size:10px; flex-wrap:wrap; color:#b9c3d1; }
+.compass-legend span:nth-child(1) { color:#43d49d; } .compass-legend span:nth-child(2) { color:#ff6b78; } .compass-legend span:nth-child(3) { color:#c69cff; }
+.smc-zone { border-left:3px solid; padding:8px; background:#ffffff05; font-size:12px; }
+.smc-zone.bull { border-color:#43d49d; } .smc-zone.bear { border-color:#ff6b78; }
+.smc-tags { display:flex; gap:8px; flex-wrap:wrap; font-size:11px; color:#c5b0eb; }
+.detail-section a { color:#80c9ff; font-size:12px; }
+@media(max-width:760px) {
+ .action-compass { left:8px; right:64px; bottom:64px; padding:8px 10px; }
+ .action-compass strong { font-size:16px; }
+ .action-compass #actionTargets { font-size:11px; }
+ .action-compass small { font-size:9px; }
+ .compass-legend { gap:8px; font-size:9px; }
+ .market-hud { display:none; }
+ .header-actions .connection-pill, .header-actions #reloadButton { display:none; }
+ .sheet-summary small { display:none; }
+}

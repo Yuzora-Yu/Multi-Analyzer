@@ -1,0 +1,8 @@
+
+.runtime/
+.env
+.env.*
+!.env.example
+__pycache__/
+monitor-config.json
+*.log

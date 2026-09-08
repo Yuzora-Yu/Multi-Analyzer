@@ -1,0 +1,13 @@
+{
+  "settings": {
+    "accountEquity": 1000,
+    "riskPct": 0.5,
+    "maxLeverage": 3,
+    "minNetRR": 1.8,
+    "feeBpsPerSide": 2,
+    "spreadBps": 1.8,
+    "slippageBps": 1.2,
+    "blackout": false
+  },
+  "positions": { "gold": null, "btc": null }
+}

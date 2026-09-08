@@ -9,13 +9,14 @@
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
   'use strict';
 
-  const VERSION = '3.0.0';
+  const VERSION = '4.0.0';
+  const SMC = typeof module === 'object' && module.exports ? require('./smc-core.js') : globalThis.MultiAnalyzerSMC;
   const MINUTE = 60_000;
   const DEFAULTS = Object.freeze({
     executionMinutes: 15,
     minBars: 220,
     riskPct: 0.5,
-    accountEquity: 1_000_000,
+    accountEquity: 1000,
     feeBpsPerSide: 2.0,
     spreadBps: 1.8,
     slippageBps: 1.2,
@@ -102,7 +103,7 @@
 
   function filterClosedCandles(candles, intervalMinutes, now = Date.now()) {
     const duration = intervalMinutes * MINUTE;
-    return normalizeCandles(candles).filter(c => c.time + duration <= now + 1000);
+    return normalizeCandles(candles).filter(c => c.time + duration <= now);
   }
 
   function dataQuality(candles, intervalMinutes, now = Date.now()) {
@@ -128,7 +129,7 @@
     let valid = 0;
     const queue = [];
     for (let i = 0; i < values.length; i++) {
-      const v = Number(values[i]);
+      const v = values[i] == null ? NaN : Number(values[i]);
       queue.push(Number.isFinite(v) ? v : null);
       if (Number.isFinite(v)) { sum += v; valid += 1; }
       if (queue.length > period) {
@@ -146,7 +147,7 @@
     let seed = [];
     let prev = null;
     for (let i = 0; i < values.length; i++) {
-      const v = Number(values[i]);
+      const v = values[i] == null ? NaN : Number(values[i]);
       if (!Number.isFinite(v)) continue;
       if (prev == null) {
         seed.push(v);
@@ -177,7 +178,7 @@
     let sum = 0;
     let prev = null;
     for (let i = 0; i < values.length; i++) {
-      const v = Number(values[i]);
+      const v = values[i] == null ? NaN : Number(values[i]);
       if (!Number.isFinite(v)) continue;
       if (i < period) {
         sum += v;
@@ -290,7 +291,7 @@
     for (let i = 0; i < candles.length; i++) {
       const d = new Date(candles[i].time);
       const thisKey = anchor === 'week'
-        ? `${d.getUTCFullYear()}-${Math.floor((Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) - Date.UTC(d.getUTCFullYear(), 0, 1)) / 604800000)}`
+        ? String(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() - (d.getUTCDay() + 6) % 7))
         : `${d.getUTCFullYear()}-${d.getUTCMonth()}-${d.getUTCDate()}`;
       if (thisKey !== key) { key = thisKey; pv = 0; vol = 0; }
       const typical = (candles[i].high + candles[i].low + candles[i].close) / 3;
@@ -363,11 +364,15 @@
     };
   }
 
+  const sessionFormatters = new Map();
   function sessionInfo(time) {
     const d = new Date(time);
-    const parts = (zone) => Object.fromEntries(new Intl.DateTimeFormat('en-US', {
-      timeZone: zone, hour12: false, weekday: 'short', hour: '2-digit', minute: '2-digit'
-    }).formatToParts(d).filter(p => p.type !== 'literal').map(p => [p.type, p.value]));
+    const parts = (zone) => {
+      if (!sessionFormatters.has(zone)) sessionFormatters.set(zone, new Intl.DateTimeFormat('en-US', {
+        timeZone: zone, hour12: false, weekday: 'short', hour: '2-digit', minute: '2-digit'
+      }));
+      return Object.fromEntries(sessionFormatters.get(zone).formatToParts(d).filter(p => p.type !== 'literal').map(p => [p.type, p.value]));
+    };
     const lon = parts('Europe/London');
     const ny = parts('America/New_York');
     const tokyo = parts('Asia/Tokyo');
@@ -426,7 +431,7 @@
   function analyzeTimeframe(rawCandles, intervalMinutes, now = Date.now()) {
     const candles = filterClosedCandles(rawCandles, intervalMinutes, now);
     const quality = dataQuality(candles, intervalMinutes, now);
-    if (candles.length < 60) return { candles, quality, ready: false, reason: 'INSUFFICIENT_DATA' };
+    if (candles.length < 60) return { candles, quality, ready: false, reason: 'INSUFFICIENT_DATA', values: {}, structure: {}, pattern: {}, swings: { highs: [], lows: [] } };
     const close = candles.map(c => c.close);
     const volume = candles.map(c => c.volume);
     const ema20 = ema(close, 20), ema50 = ema(close, 50), ema200 = ema(close, 200);
@@ -442,6 +447,7 @@
     const swings = confirmedSwings(candles, 3, 3);
     const structure = detectStructure(candles, swings);
     const pattern = candlePattern(candles);
+    const smc = SMC.analyze(candles, atr14, swings, rsi14);
     const i = candles.length - 1;
     const last = candles[i];
     const atrNow = atr14[i] || mean(trueRange(candles).slice(-14)) || 0;
@@ -472,7 +478,7 @@
       vwap: vwap96[i], dayVwap: dayVwap[i], weekVwap: weekVwap[i], volZ: volZ[i],
       extensionATR, nearReference, emaSlope,
     };
-    return { candles, quality, ready: candles.length >= 60, intervalMinutes, trend, regime, structure, pattern, swings, values, series: { ema20, ema50, ema200, atr14, rsi14, macd: macdData, bb, dmi: dmiData, vwap96, dayVwap, weekVwap, volZ } };
+    return { candles, quality, ready: candles.length >= 60, intervalMinutes, trend, regime, structure, pattern, swings, smc, values, series: { ema20, ema50, ema200, atr14, rsi14, macd: macdData, bb, dmi: dmiData, vwap96, dayVwap, weekVwap, volZ } };
   }
 
   function addScore(bucket, key, longPts, shortPts, text) {
@@ -531,8 +537,9 @@
     if (!position || !position.direction || !Number.isFinite(position.entry)) return null;
     const dir = String(position.direction).toUpperCase();
     const entry = finite(position.entry, NaN);
-    const stop = finite(position.stop, NaN);
-    const price = finite(livePrice, signal.exec.values.close);
+    const stop = position.stop == null ? NaN : finite(position.stop, NaN);
+    const price = livePrice == null ? signal.exec.values.close : finite(livePrice, signal.exec.values.close);
+    if (!['LONG', 'SHORT'].includes(dir) || !Number.isFinite(price)) return null;
     const opposite = dir === 'LONG' ? signal.shortScore : signal.longScore;
     const same = dir === 'LONG' ? signal.longScore : signal.shortScore;
     const rDist = Number.isFinite(stop) ? Math.abs(entry - stop) : Math.max(signal.exec.values.atr, entry * 0.005);
@@ -583,8 +590,10 @@
     if (exec.quality.gaps > 3) vetoes.push('時間足データに複数の欠損があります');
     if (settings.blackout) vetoes.push('重要指標・手動ブラックアウト中');
     const sess = sessionInfo(exec.candles.at(-1)?.time || now);
-    if (sess.rollover) vetoes.push('NYロールオーバー周辺');
+    if (settings.market !== 'spot' && sess.rollover) vetoes.push('NYロールオーバー周辺');
 
+    if (!h1.ready || !h4.ready || h1.quality.stale || h4.quality.stale) vetoes.push('上位足が不足または更新停止');
+    if (settings.feedStale) vetoes.push('ライブ価格の更新が停止');
     const h1Trend = h1.trend || 'neutral';
     const h4Trend = h4.trend || 'neutral';
     let htfBias = 'neutral';
@@ -598,6 +607,12 @@
     addScore(score, 'EXEC_TREND', exec.trend === 'bull' ? 8 : 0, exec.trend === 'bear' ? 8 : 0, `執行足 ${exec.trend}`);
 
     const st = exec.structure;
+    const smc = exec.smc;
+    if (smc) {
+      addScore(score, 'SMC_ZONE', smc.bullRetest ? 6 : 0, smc.bearRetest ? 6 : 0, 'FVG / OB 再訪・終値反発');
+      addScore(score, 'SMC_LOCATION', smc.location === 'discount' ? 2 : 0, smc.location === 'premium' ? 2 : 0, `レンジ位置 ${smc.location}`);
+      addScore(score, 'DIVERGENCE', smc.bullDivergence ? 2 : 0, smc.bearDivergence ? 2 : 0, '確定スイング RSI ダイバージェンス');
+    }
     addScore(score, 'STRUCTURE',
       (st.trend === 'bull' ? 7 : 0) + (['BULL_BOS', 'BULL_CHOCH'].includes(st.event) ? 7 : 0),
       (st.trend === 'bear' ? 7 : 0) + (['BEAR_BOS', 'BEAR_CHOCH'].includes(st.event) ? 7 : 0),
@@ -644,8 +659,8 @@
     const direction = score.long >= score.short ? 'LONG' : 'SHORT';
     const best = Math.max(score.long, score.short);
     const trigger = direction === 'LONG'
-      ? (st.bullSweep || ['BULL_BOS', 'BULL_CHOCH'].includes(st.event) || p.bullReject || p.bullEngulf)
-      : (st.bearSweep || ['BEAR_BOS', 'BEAR_CHOCH'].includes(st.event) || p.bearReject || p.bearEngulf);
+      ? (smc?.bullRetest || st.bullSweep || ['BULL_BOS', 'BULL_CHOCH'].includes(st.event) || p.bullReject || p.bullEngulf)
+      : (smc?.bearRetest || st.bearSweep || ['BEAR_BOS', 'BEAR_CHOCH'].includes(st.event) || p.bearReject || p.bearEngulf);
     if (direction === 'LONG' && v.extensionATR > settings.maxExtensionATR) vetoes.push('上方向に伸び切り、LONG追随不可');
     if (direction === 'SHORT' && v.extensionATR < -settings.maxExtensionATR) vetoes.push('下方向に伸び切り、SHORT追随不可');
     if (diff < settings.scoreDiffMin) vetoes.push(`LONG/SHORT優位差が${settings.scoreDiffMin}点未満`);
@@ -676,7 +691,7 @@
       longScore: score.long, shortScore: score.short, scoreDiff: diff, confidence: clamp(best - vetoes.length * 8, 0, 100),
       htfBias, session: sess, regime: exec.regime, exec, m15, h1, h4, micro,
       components: score.components, vetoes: [...new Set(vetoes)], warnings: [...new Set(warnings)],
-      plan: state === 'NO_TRADE' ? plan : plan,
+      plan,
       actionable: ['READY_LONG', 'STRONG_LONG', 'READY_SHORT', 'STRONG_SHORT'].includes(state),
       disclaimer: '研究・ペーパートレード用のルールベース表示です。自動発注や利益保証はありません。',
     };
