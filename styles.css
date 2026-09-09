@@ -352,3 +352,13 @@ button { color: inherit; -webkit-tap-highlight-color: transparent; }
 .flow-summary small {flex-basis:100%;color:#95a6b8;font-size:10px;line-height:1.5;}
 
 #currentSnapshotLink {display:block;padding:10px 14px;color:#e6b85c;font-size:11px;}
+
+.history-control { display:flex; align-items:center; gap:5px; color:var(--muted); font-size:10px; white-space:nowrap; }
+.history-control select { background:#090d12; color:#e6b85c; border:1px solid #263140; border-radius:6px; padding:5px; }
+@media(max-width:760px) {
+ .chart-stage { grid-template-rows:94px minmax(0,1fr); }
+ .chart-toolbar { flex-wrap:wrap; overflow:visible; }
+ .timeframes { order:3; }
+ .history-control { order:4; margin-left:auto; }
+ #historyCount { display:none; }
+}

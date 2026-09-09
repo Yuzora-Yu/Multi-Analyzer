@@ -17,11 +17,13 @@
     }
   };
   const TF = {
+    '1m': { minutes: 1, api: '1m', label: '1m', limit: 1000 },
     '5m': { minutes: 5, api: '5m', label: '5m', limit: 1000 },
     '15m': { minutes: 15, api: '15m', label: '15m', limit: 1000 },
     '1h': { minutes: 60, api: '1h', label: '1H', limit: 1000 },
-    '4h': { minutes: 240, api: '4h', label: '4H', limit: 700 },
+    '4h': { minutes: 240, api: '4h', label: '4H', limit: 1000 },
   };
+  TF['1d'] = { minutes: 1440, api: 'D', label: '日足', limit: 1000 };
   const STORAGE_KEY = 'multiAnalyzerUltimate.v4.usd';
   const POSITION_KEY = 'multiAnalyzerUltimate.position';
   const STATIC_HOST = location.hostname.endsWith('.github.io');
@@ -29,7 +31,7 @@
 
   const state = {
     instrumentId: INITIAL_PARAMS.get('asset') === 'btc' ? 'btc' : 'gold',
-    tf: ['5m', '15m', '1h'].includes(INITIAL_PARAMS.get('tf')) ? INITIAL_PARAMS.get('tf') : '15m',
+    tf: Object.hasOwn(TF, INITIAL_PARAMS.get('tf')) ? INITIAL_PARAMS.get('tf') : '15m',
     data: { exec: [], m15: [], h1: [], h4: [] },
     analysis: null,
     snapshot: null,
@@ -163,6 +165,7 @@
     stopRealtime();
     const loadId = ++state.loadId;
     state.analysisKey = null;
+    state.chartFitted = false;
     state.data = { exec: [], m15: [], h1: [], h4: [] };
     state.analysis = null;
     state.snapshot = null;
@@ -263,6 +266,10 @@
       const forming = state.data.exec.at(-1);
       const previewNow = forming ? forming.time + currentTf().minutes * 60_000 + 1500 : Date.now();
       state.preview = state.snapshot ? null : Core.analyzeMarket({ ...state.data, micro: state.micro }, analysisSettings({ now: previewNow, position: null }));
+      if(currentTf().minutes>=240 && !state.snapshot){
+        state.analysis.actionable=false;state.analysis.state='NO_TRADE';
+        state.analysis.vetoes.unshift('長期足の構造観察用：売買モデルは15分足で検証中');
+      }
       renderAll();
       renderCompass();
       if (state.analysisKey !== key) { state.analysisKey = key; renderChart(); }
@@ -288,7 +295,7 @@
       state.ws = ws;
       ws.onopen = () => {
         if (state.ws !== ws) return;
-        ws.send(JSON.stringify({op:'subscribe',args:['kline.'+currentTf().minutes+'.'+cfg.symbol]}));
+        ws.send(JSON.stringify({op:'subscribe',args:['kline.'+(currentTf().minutes===1440?'D':currentTf().minutes)+'.'+cfg.symbol]}));
         setConnection('live', '価格ライブ・判定は確定足');
         clearInterval(state.pollTimer);
       };
@@ -427,7 +434,7 @@
     state.volumeSeries=state.chart.addHistogramSeries({priceFormat:{type:'volume'},priceScaleId:'volume',priceLineVisible:false,lastValueVisible:false});
     state.volumeSeries.priceScale().applyOptions({scaleMargins:{top:.87,bottom:0}});
     const canvas=document.createElement('canvas');canvas.className='flow-overlay';container.appendChild(canvas);state.flowCanvas=canvas;
-    const redraw=()=>requestAnimationFrame(()=>{if(state.analysis?.exec?.flow)window.MultiAnalyzerOverlay.draw(canvas,state.chart,state.candleSeries,state.analysis.exec.candles,state.analysis.exec.flow);});
+    const redraw=()=>requestAnimationFrame(()=>{if(canvas.isConnected && state.chart && state.analysis?.exec?.flow)window.MultiAnalyzerOverlay.draw(canvas,state.chart,state.candleSeries,state.analysis.exec.candles,state.analysis.exec.flow);});
     state.redrawFlow=redraw;
     state.chart.timeScale().subscribeVisibleLogicalRangeChange(redraw);
     container.addEventListener('pointermove',redraw);container.addEventListener('wheel',redraw,{passive:true});
@@ -445,7 +452,8 @@
     initChart();
     if (!state.chart || !state.analysis?.exec?.series) return;
     const candles = INITIAL_PARAMS.has('snapshot') && state.snapshot ? state.analysis.exec.candles : state.data.exec;
-    const visible = candles.slice(-140);
+    const visible = candles;
+    $('historyCount').textContent = candles.length + '本';
     const offset = candles.length - visible.length;
     state.candleSeries.setData(visible.map(c => ({ time: toChartTime(c.time), open: c.open, high: c.high, low: c.low, close: c.close })));
     state.ema20Series.setData(lineData(state.analysis.exec.candles.slice(offset), state.analysis.exec.series.ema20.slice(offset)));
@@ -487,9 +495,16 @@
     renderZones();
     state.redrawFlow?.();
     if (!state.chartFitted) {
-      state.chart.timeScale().fitContent();
+      applyChartRange();
       state.chartFitted = true;
     }
+  }
+
+  function applyChartRange() {
+    if(!state.chart)return;
+    const count=Number($('chartRange').value), n=state.data.exec.length;
+    if(!count)state.chart.timeScale().fitContent();
+    else state.chart.timeScale().setVisibleLogicalRange({from:Math.max(0,n-count),to:n+3});
   }
 
   function updateLiveCandle(candle) {
@@ -889,6 +904,7 @@
       destroyChart();
       loadAllData();
     }));
+    $('chartRange').addEventListener('change',applyChartRange);
     qsa('.timeframes button').forEach(button => button.addEventListener('click', () => {
       if (button.dataset.tf === state.tf) return;
       state.tf = button.dataset.tf;
@@ -922,6 +938,8 @@
     state.chartResizeObserver = null;
     cancelAnimationFrame(state.chartResizeFrame);
     state.chartResizeFrame = 0;
+    if(state.redrawFlow){$('chartContainer').removeEventListener('pointermove',state.redrawFlow);$('chartContainer').removeEventListener('wheel',state.redrawFlow);}
+    state.flowCanvas?.remove();state.flowCanvas=null;state.redrawFlow=null;
     if (state.chart) state.chart.remove();
     state.chart = state.candleSeries = state.ema20Series = state.ema50Series = state.vwapSeries = null;
     state.priceLines = [];

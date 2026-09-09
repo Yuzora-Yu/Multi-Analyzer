@@ -12,12 +12,12 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css">
   <script defer src="https://unpkg.com/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js"></script>
-  <script defer src="market-feed.js?v=4.3.1"></script>
+  <script defer src="market-feed.js?v=4.3.1-ui3"></script>
   <script defer src="smc-core.js"></script>
-  <script defer src="chart-overlays.js?v=4.3.1"></script>
+  <script defer src="chart-overlays.js?v=4.3.1-ui3"></script>
   <script defer src="flow-core.js?v=4.3.1"></script>
   <script defer src="strategy-core.js?v=4.3.1"></script>
-  <script defer src="app.js?v=4.3.1-ui2"></script>
+  <script defer src="app.js?v=4.3.1-ui3"></script>
 </head>
 <body>
   <div class="app-shell">
@@ -58,11 +58,15 @@
           </div>
 
           <div class="timeframes" role="group" aria-label="執行時間足">
+            <button data-tf="1m" type="button">1m</button>
             <button data-tf="5m" type="button">5m</button>
             <button data-tf="15m" class="active" type="button">15m</button>
             <button data-tf="1h" type="button">1H</button>
+            <button data-tf="4h" type="button">4H</button>
+            <button data-tf="1d" type="button">日足</button>
           </div>
 
+          <label class="history-control">表示 <select id="chartRange" aria-label="チャート表示本数"><option value="140">140本</option><option value="300" selected>300本</option><option value="0">全履歴</option></select><span id="historyCount"></span></label>
           <div class="legend" aria-label="チャート凡例">
             <span class="ema20">EMA20</span><span class="ema50">EMA50</span><span class="vwap">VWAP</span>
           </div>

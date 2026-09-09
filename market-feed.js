@@ -2,8 +2,8 @@
   'use strict';
   const instruments={gold:{symbol:'XAUUSDT',category:'linear',market:'futures'},btc:{symbol:'BTCUSDT',category:'spot',market:'spot'}};
   function url(asset,minutes,limit=300,end){
-    const cfg=instruments[asset];if(!cfg||![5,15,60,240].includes(minutes))throw new Error('Invalid market');
-    return 'https://api.bybit.com/v5/market/kline?'+new URLSearchParams({category:cfg.category,symbol:cfg.symbol,interval:String(minutes),limit:String(limit),...(end?{end:String(end)}:{})});
+    const cfg=instruments[asset];if(!cfg||![1,5,15,60,240,1440].includes(minutes))throw new Error('Invalid market');
+    return 'https://api.bybit.com/v5/market/kline?'+new URLSearchParams({category:cfg.category,symbol:cfg.symbol,interval:minutes===1440?'D':String(minutes),limit:String(limit),...(end?{end:String(end)}:{})});
   }
   function parse(raw){
     if(raw.retCode!==0||!Array.isArray(raw.result?.list))throw new Error('Invalid Bybit candles');

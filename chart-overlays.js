@@ -9,7 +9,7 @@ window.MultiAnalyzerOverlay={
     ctx.save();ctx.beginPath();ctx.rect(0,0,right,bottom);ctx.clip();
     const x=t=>chart.timeScale().timeToCoordinate(Math.floor(t/1000)),y=p=>series.priceToCoordinate(p);
     const periods=flow.periods;
-    for(let i=Math.max(144,candles.length-150);i<candles.length;i++){
+    for(let i=144;i<candles.length;i++){
       const xx=x(candles[i].time),prev=x(candles[i-1].time);if(xx==null||prev==null)continue;
       const direction=flow.history[i]?.ribbon||0;
       for(let k=0;k<periods.length-1;k++){
