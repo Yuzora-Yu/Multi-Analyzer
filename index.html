@@ -17,7 +17,8 @@
   <script defer src="chart-overlays.js?v=4.3.1-ui3"></script>
   <script defer src="flow-core.js?v=4.3.1"></script>
   <script defer src="strategy-core.js?v=4.3.1"></script>
-  <script defer src="app.js?v=4.3.1-ui3"></script>
+  <script defer src="review-pack.js?v=4.3.1-ui4"></script>
+  <script defer src="app.js?v=4.3.1-ui4"></script>
 </head>
 <body>
   <div class="app-shell">
@@ -44,6 +45,11 @@
       </div>
     </header>
 
+    <nav class="workspace-modes" aria-label="分析画面と保存">
+      <button id="focusMode" class="ghost-button" type="button" aria-pressed="false">チャート集中</button>
+      <button id="reviewOpen" class="primary-button" type="button">時間足比較・AI保存</button>
+      <span>15分＝共通判定 ／ 1分・5分＝タイミング ／ 1H・4H・日足＝環境</span>
+    </nav>
     <main class="terminal-main">
       <section class="chart-stage panel" aria-label="マーケット分析画面">
         <div class="chart-toolbar">
@@ -256,6 +262,18 @@
     </main>
   </div>
 
+  <dialog id="reviewDialog" class="review-dialog" data-view="compare" aria-labelledby="reviewTitle">
+    <header class="review-header"><div><span class="eyebrow">RESEARCH WORKSPACE</span><h2 id="reviewTitle">比較・検証・AI相談</h2></div><button id="reviewClose" class="icon-button" aria-label="比較画面を閉じる">×</button></header>
+    <div class="review-controls">
+      <button class="ghost-button" data-review-view="compare" aria-pressed="true">6時間足を比較</button><button class="ghost-button" data-review-view="evidence" aria-pressed="false">根拠・アラート</button>
+      <label><input id="reviewBoth" type="checkbox">Gold＋BTCをまとめる</label>
+      <button id="reviewRefresh" class="ghost-button">更新して固定</button><button id="reviewCancel" class="ghost-button">取得を中止</button>
+    </div>
+    <p id="reviewStatus" role="status" aria-live="polite">取得準備中</p>
+    <div id="reviewGrid" class="review-grid"></div>
+    <footer class="review-footer"><button id="reviewSave" class="primary-button" aria-label="全画像・データをZIPにする" disabled>全画像ZIP作成</button><a id="reviewDownload" class="primary-button" aria-label="ZIPをダウンロード" hidden>ZIP保存</a><button id="reviewCopy" class="ghost-button" aria-label="AI相談文をコピー" disabled>相談文コピー</button></footer>
+    <textarea id="reviewPrompt" aria-label="AI相談文" hidden readonly></textarea>
+  </dialog>
   <dialog id="settingsDialog" class="settings-dialog">
     <form method="dialog" class="settings-form" id="settingsForm">
       <div class="dialog-header"><div><span class="eyebrow">RISK & EXECUTION</span><h2>分析設定</h2></div><button class="icon-button" value="cancel" aria-label="閉じる">×</button></div>

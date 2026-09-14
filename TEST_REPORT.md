@@ -29,3 +29,12 @@
 未実施: 実端末スマホからWi-Fi接続（レスポンシブ表示は実ブラウザで確認）、Discord/Email実送信、長期運用、収益性評価、外出先HTTPS公開。
 
 デモのテスト保有は消去済み。自動発注機能なし。v4.1ではメール本文の推奨内容・公開リンクとGmail認証未設定時の送信抑止も検証。
+
+
+## UI4 / 2026-09-14
+- JavaScript 33 tests pass; Python 7 tests pass; syntax checks and git diff whitespace check pass.
+- New tests validate ZIP central-directory offsets/CRC/binary/UTF-8, exact common 15m input, forming-candle exclusion, partial fetch errors, cancellation before fetch, and next-open outcome/missing-bar handling.
+- Python standard zipfile also opened the generated ZIP and passed CRC validation.
+- Actual in-app Chromium browser: 1280x800 desktop and 390x844 mobile. Checked normal chart, focus mode, 6-timeframe comparison, evidence view, both-asset 12-chart generation, 15-file ZIP preparation/download action, and AI prompt clipboard success. No new browser script errors on the final local server.
+- First research run: 8 distinct canonical observations (4 per asset), no fetch errors; 12 timeframe datasets additionally gzip-saved. No performance inference or production model change.
+- Export uses standardized review drawings, not DOM screenshots. Safari/iOS device-level download handling remains unverified.

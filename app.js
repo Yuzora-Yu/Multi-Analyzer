@@ -476,6 +476,13 @@
     }
     if (state.analysis.actionable) markers.push({ time: toChartTime(state.analysis.exec.candles.at(-1).time), position: state.analysis.direction === 'LONG' ? 'belowBar' : 'aboveBar', color: '#e6b85c', shape: 'circle', text: state.analysis.direction === 'LONG' ? '買い候補' : '売り候補' });
     markers.sort((a, b) => a.time - b.time);
+    // Preserve every marker, but space labels so small screens remain readable.
+    const labelBars = Math.max(3, Math.ceil((Number($('chartRange').value) || visible.length) * 65 / Math.max(240, state.chartSize.width)));
+    let lastLabel = Infinity;
+    for (let i = markers.length - 1; i >= 0; i--) {
+      if (lastLabel - markers[i].time < labelBars * currentTf().minutes * 60) markers[i].text = '';
+      else lastLabel = markers[i].time;
+    }
     state.candleSeries.setMarkers(markers);
 
     for (const line of state.priceLines) state.candleSeries.removePriceLine(line);
@@ -904,7 +911,7 @@
       destroyChart();
       loadAllData();
     }));
-    $('chartRange').addEventListener('change',applyChartRange);
+    $('chartRange').addEventListener('change',()=>{renderChart();applyChartRange();});
     qsa('.timeframes button').forEach(button => button.addEventListener('click', () => {
       if (button.dataset.tf === state.tf) return;
       state.tf = button.dataset.tf;
@@ -961,6 +968,8 @@
   }
 
   function init() {
+    if (window.matchMedia('(max-width: 760px)').matches) $('chartRange').value = '140';
+    window.MultiAnalyzerReview.init({getAsset:()=>state.instrumentId,getArchiveId:()=>INITIAL_PARAMS.get('snapshot'),onLayout:scheduleChartResize});
     qsa('.instrument-tab').forEach(b => b.classList.toggle('active', b.dataset.instrument === state.instrumentId));
     qsa('.timeframes button').forEach(b => b.classList.toggle('active', b.dataset.tf === state.tf));
     bindEvents();
