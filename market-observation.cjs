@@ -20,17 +20,33 @@ function quoteMetrics(t){
   const bid=value('bid1Price'),ask=value('ask1Price');
   return {bid,ask,spreadBps:bid>0&&ask>=bid?(ask-bid)/((ask+bid)/2)*10000:null,mark:value('markPrice'),index:value('indexPrice'),fundingRate:value('fundingRate'),nextFundingTime:value('nextFundingTime'),openInterest:value('openInterest')};
 }
+function sampleQuality(sample,{requestedAt,receivedAt,serverTime=null}){
+  const valid=sample?.count>0&&Number.isFinite(sample.start)&&Number.isFinite(sample.end)&&sample.end>=sample.start;
+  const server=serverTime!=null&&Number.isFinite(Number(serverTime))?Number(serverTime):null;
+  return {requestedAt,receivedAt,serverTime:server,availableAt:receivedAt,
+    requestDurationMs:receivedAt-requestedAt,
+    observedSpanMs:valid?sample.end-sample.start:null,
+    lastTradeAgeAtReceiptMs:valid?receivedAt-sample.end:null,
+    lastTradeAgeAtServerMs:valid&&server!==null?server-sample.end:null,
+    futureTradeTimestamp:valid&&(sample.end>receivedAt||(server!==null&&sample.end>server)),
+    fullCandleCoverage:false,continuousOrderFlow:false,
+    comparableAcrossAssets:false,
+    reason:'Count-limited snapshot. Timestamp span does not prove complete interval coverage. Use receivedAt for causal joins; do not infer trader identity.'};
+}
 async function capture(){
   const observation={observedAt:Date.now(),assets:{},errors:[],purpose:'Analysis-only. Not used by live alerts.'};
   for(const [asset,cfg] of Object.entries(Feed.instruments)){
     const query=new URLSearchParams({category:cfg.category,symbol:cfg.symbol});
-    async function get(endpoint,extra=''){const response=await fetch(`https://api.bybit.com/v5/market/${endpoint}?${query}${extra}`,{signal:AbortSignal.timeout(12000)});if(!response.ok)throw Error('HTTP '+response.status);const raw=await response.json();if(raw.retCode!==0||!Array.isArray(raw.result?.list))throw Error('Invalid Bybit result');return raw;}
+    const timings={};
+    async function get(endpoint,extra=''){const requestedAt=Date.now();const response=await fetch(`https://api.bybit.com/v5/market/${endpoint}?${query}${extra}`,{signal:AbortSignal.timeout(12000)});if(!response.ok)throw Error('HTTP '+response.status);const raw=await response.json();if(raw.retCode!==0||!Array.isArray(raw.result?.list))throw Error('Invalid Bybit result');timings[endpoint]={requestedAt,receivedAt:Date.now(),serverTime:raw.time??null};return raw;}
     const result=await Promise.allSettled([get('recent-trade','&limit='+(cfg.category==='spot'?60:1000)),get('tickers')]);
     const item={symbol:cfg.symbol,category:cfg.category};
     if(result[0].status==='fulfilled'){item.tradeResponse=result[0].value;item.sample=summarizeTrades(item.tradeResponse.result.list,cfg.symbol);}else observation.errors.push({asset,type:'trades',error:result[0].reason.message});
     if(result[1].status==='fulfilled'){item.quoteResponse=result[1].value;const t=item.quoteResponse.result.list.find(r=>r.symbol===cfg.symbol);if(t)item.quote=quoteMetrics(t);else observation.errors.push({asset,type:'quote',error:'symbol missing'});}else observation.errors.push({asset,type:'quote',error:result[1].reason.message});
+    item.timings=timings;
+    if(item.sample)item.quality=sampleQuality(item.sample,timings['recent-trade']);
     item.receivedAt=Date.now();observation.assets[asset]=item;
   }
   return observation;
 }
-module.exports={capture,summarizeTrades,quoteMetrics};
+module.exports={capture,summarizeTrades,quoteMetrics,sampleQuality};

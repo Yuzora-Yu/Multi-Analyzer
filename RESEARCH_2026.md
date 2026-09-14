@@ -2,7 +2,7 @@
 
 ## Goal and current evidence
 
-Optimize cost-adjusted expectancy, loss severity and decision clarity, rather than the largest historical win rate. There is no demonstrated profitable edge in the current P model. The new forward cohort currently contains only 10 observations, with no resolved two-hour outcomes. These are overlapping observations, not 10 independent trades. No signal thresholds were changed in this update.
+Optimize cost-adjusted expectancy, loss severity and decision clarity, rather than the largest historical win rate. There is no demonstrated profitable edge in the current P model. The new forward cohort began with 10 observations and no resolved two-hour outcomes; current counts are recorded in the private summary on each run. These are overlapping observations, not independent trades. No signal thresholds were changed in this update.
 
 ## Sources checked and implications
 
@@ -15,6 +15,12 @@ Optimize cost-adjusted expectancy, loss severity and decision clarity, rather th
 `node research-observer.cjs --multiframe` now also saves `.runtime/hourly-observation/cohort-v1/microstructure/*.json.gz`. The first successful sample contained 1,000 Gold executions across 438.99 seconds and 60 BTC executions across 31.76 seconds. This difference demonstrates why sample imbalance cannot be compared as if it covered a common minute. Hourly polling leaves gaps and is unsuitable for continuous footprint reconstruction. All these records remain outside Git and outside the live signal engine.
 
 ## Predeclared next comparisons
+
+### Sampling-quality follow-up
+
+Each endpoint now records request start, receipt and exchange response times separately. Trade quality records the observed span, age of the last execution and future-timestamp anomalies. The receipt time is the earliest locally available feature time: a request-start timestamp must not make later data appear available earlier. Even a long timestamp span does not establish complete candle coverage. Missing server time remains unknown. These quality flags are descriptive, not new trading thresholds.
+
+[Bybit public WebSocket trades](https://bybit-exchange.github.io/docs/v5/websocket/public/trade) provides streaming executions, with up to 1,024 trades per futures/spot message. A future continuous collector would need disconnect/gap tracking, deduplication, storage limits and aligned time windows before a footprint or CVD feature could be evaluated. Hourly REST sampling does not meet that requirement; no continuous collection is claimed here.
 
 1. EXIT reversal versus waiting for a subsequent structure break and failed retest. Preserve the previously registered EXIT study separately; do not relabel its history as this cohort's prospective data.
 2. P candidates with and without upper-timeframe alignment, split by asset, session and volatility regime. Keep non-signal control observations and report coverage/missing periods.
