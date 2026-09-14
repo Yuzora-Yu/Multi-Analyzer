@@ -28,3 +28,8 @@ test('review uses exact canonical 15m input, excludes forming bars, and records 
 });
 
 test('cancelled capture makes no network request',async(t)=>{t.mock.method(global,'fetch',()=>{throw Error('unexpected network');});const c=new AbortController();c.abort();await assert.rejects(R.collect(['gold'],{signal:c.signal}),{name:'AbortError'});});
+test('overview marks stale signals and missing timeframes without manufacturing alignment',()=>{
+ const pack={assets:[{asset:'gold',snapshot:{id:'x',settings:{now:1000}},signal:{state:'READY_LONG',actionable:true,vetoes:[],plan:{netRR:2}}}],records:[]};
+ const current=R.overview(pack,1000)[0],old=R.overview(pack,1000+21*60000)[0];
+ assert.equal(current.actionable,true);assert.equal(old.actionable,false);assert.equal(old.stale,true);assert.equal(old.frames.length,6);assert.ok(old.frames.every(f=>f.missing&&f.structure===null&&f.volume===null));assert.equal(pack.assets[0].signal.actionable,true);
+});

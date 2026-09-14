@@ -34,6 +34,10 @@
 .review-controls label { display:flex; align-items:center; gap:8px; min-height:44px; font-size:13px; }
 #reviewStatus { font-size:13px; line-height:1.7; padding:0 16px; color:#a8bacd; }
 .review-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; padding:0 16px 20px; }
+.review-overview{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,310px),1fr));gap:12px;padding:0 16px 16px}
+.review-overview article{padding:14px;border:1px solid #4c422e;border-radius:12px;background:#131923}
+.review-overview h3{margin:0 0 8px;color:var(--gold);font-size:17px}.review-overview p{font-size:12px;line-height:1.7;color:#b9c7d5;margin:0 0 10px}
+.review-overview table{width:100%;border-collapse:collapse;font-size:13px;text-align:center}.review-overview th{font-weight:500;color:#9cb0c3}.review-overview td,.review-overview th{padding:8px 2px;border-bottom:1px solid #29313e}.review-overview td:first-child{color:var(--gold);font-weight:700}
 .review-card,.review-evidence { min-width:0; border:1px solid var(--border); border-radius:12px; overflow:hidden; }
 .review-grid h3 { margin:12px 16px; color:var(--gold); font-size:16px; }
 .review-grid canvas { width:100%; height:auto; display:block; }

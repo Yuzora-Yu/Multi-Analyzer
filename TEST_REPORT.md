@@ -38,3 +38,10 @@
 - Actual in-app Chromium browser: 1280x800 desktop and 390x844 mobile. Checked normal chart, focus mode, 6-timeframe comparison, evidence view, both-asset 12-chart generation, 15-file ZIP preparation/download action, and AI prompt clipboard success. No new browser script errors on the final local server.
 - First research run: 8 distinct canonical observations (4 per asset), no fetch errors; 12 timeframe datasets additionally gzip-saved. No performance inference or production model change.
 - Export uses standardized review drawings, not DOM screenshots. Safari/iOS device-level download handling remains unverified.
+
+
+## UI5 / 2026-09-14
+- 36 JavaScript tests and all syntax checks pass. Added actual-trade validation/deduplication, unknown/crossed quote handling, and stale/missing overview tests.
+- Actual browser: mobile confirmation table is readable; desktop1280 viewport has no horizontal overflow (dialog clientWidth=scrollWidth1238). Both-asset export prepares16 files including overview.png; download action works.
+- Live public-data research capture succeeded: Gold1000 trades over438.99s and BTC60 trades over31.76s; quote capture succeeded. Raw samples and coverage saved privately, not used for alerts.
+- Source review and prospective comparison plan recorded in RESEARCH_2026.md. PBO implementation is not claimed. Signal engine unchanged.

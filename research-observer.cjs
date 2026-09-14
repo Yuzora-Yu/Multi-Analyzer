@@ -63,6 +63,12 @@ async function run(){
       const file=path.join(target,`${pack.capturedAt}.json.gz`);fs.writeFileSync(file,require('node:zlib').gzipSync(JSON.stringify(capture)),{flag:'wx'});summary.multiframe={records:capture.records.length,file:path.basename(file),errors:pack.errors};
     }catch(e){summary.multiframe={error:e.message};}
   }
+  if(process.argv.includes('--multiframe')){
+    const observation=await require('./market-observation.cjs').capture();
+    const target=path.join(DIR,'microstructure');fs.mkdirSync(target,{recursive:true});
+    const file=`${observation.observedAt}.json.gz`;fs.writeFileSync(path.join(target,file),require('node:zlib').gzipSync(JSON.stringify(observation)),{flag:'wx'});
+    summary.microstructure={file,errors:observation.errors,samples:Object.fromEntries(Object.entries(observation.assets).map(([asset,x])=>[asset,{count:x.sample?.count,durationSeconds:x.sample?.durationSeconds,spreadBps:x.quote?.spreadBps}]))};
+  }
   fs.writeFileSync(path.join(DIR,'summary.json'),JSON.stringify(summary,null,2));console.log(JSON.stringify(summary));
 }
 if(require.main===module)run().catch(e=>{console.error(e.message);process.exitCode=1;});

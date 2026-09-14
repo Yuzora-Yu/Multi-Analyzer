@@ -1,0 +1,27 @@
+# Research log — Gold / BTC, 2026-09-14
+
+## Goal and current evidence
+
+Optimize cost-adjusted expectancy, loss severity and decision clarity, rather than the largest historical win rate. There is no demonstrated profitable edge in the current P model. The new forward cohort currently contains only 10 observations, with no resolved two-hour outcomes. These are overlapping observations, not 10 independent trades. No signal thresholds were changed in this update.
+
+## Sources checked and implications
+
+- [Bybit recent public trades](https://bybit-exchange.github.io/docs/v5/market/recent-trade): each execution includes the taker side, size, price and ID. Spot returns at most 60 recent trades; other supported categories allow 1,000. Therefore a snapshot of BTC spot and Gold perpetual is not a matching time window. Store raw executions, IDs, timestamps, sample duration and rejected records. Do not infer full-candle delta, continuous CVD or trader identity from this sample.
+- [Bybit tickers](https://bybit-exchange.github.io/docs/v5/market/tickers): best bid/ask and derivative market fields provide execution-environment observations. Store quote spread and available funding/index/mark/open-interest fields without replacing missing fields with zero. Bybit's quote spread is not XM's execution cost.
+- [Bailey et al., The Probability of Backtest Overfitting — author institution abstract](https://scholarworks.wmich.edu/math_pubs/42/): ordinary holdout alone can be unreliable when selecting investment backtests; the paper discusses PBO and CSCV. This review checked the abstract, not the paywalled full text. PBO/CSCV are not implemented or claimed as passed here. Maintain a registry of all tried rules, including failures, before future model selection.
+
+## Research-only collection added
+
+`node research-observer.cjs --multiframe` now also saves `.runtime/hourly-observation/cohort-v1/microstructure/*.json.gz`. The first successful sample contained 1,000 Gold executions across 438.99 seconds and 60 BTC executions across 31.76 seconds. This difference demonstrates why sample imbalance cannot be compared as if it covered a common minute. Hourly polling leaves gaps and is unsuitable for continuous footprint reconstruction. All these records remain outside Git and outside the live signal engine.
+
+## Predeclared next comparisons
+
+1. EXIT reversal versus waiting for a subsequent structure break and failed retest. Preserve the previously registered EXIT study separately; do not relabel its history as this cohort's prospective data.
+2. P candidates with and without upper-timeframe alignment, split by asset, session and volatility regime. Keep non-signal control observations and report coverage/missing periods.
+3. Assess whether quote conditions and sampled trade imbalance add information only after matching observation time and sampling coverage. These samples occur at retrieval time, not retrospectively at the frozen 15m candle close. Never join later trade data as a feature available at an earlier signal.
+
+Before a production change: freeze definitions and trial counts; exclude overlapping outcome windows; use untouched chronological periods; examine costs at multiple assumptions, expectancy, drawdown and sample size; investigate stability by asset and market regime. Thirty observations is only a starting point for evaluation, not proof or an adoption threshold. Where data is inadequate, retain the current model and continue analysis. No paid sources, orders or automatic threshold optimization are introduced.
+
+## Clarity improvements
+
+The review workspace now starts with a per-asset six-timeframe table and reasons for waiting. Snapshots older than 20 minutes are explicitly treated as past records in that table. The ZIP includes `overview.png` in addition to the individual charts and evidence. Directional agreement remains a description, not a new confidence score or entry rule.
