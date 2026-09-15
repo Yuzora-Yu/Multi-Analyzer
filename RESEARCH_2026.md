@@ -1,5 +1,13 @@
 # Research log — Gold / BTC, 2026-09-14
 
+## 2026-09-15: collection coverage amendment
+
+Hourly scheduling can drift across five 15-minute boundaries. Fetching only the latest four snapshots then misses a candle. The collector now compares saved IDs with the server's latest 24-bar retention window and retrieves missing snapshots, newest first. Initial collection remains four bars; gaps older than retention cannot be recovered by this change. Existing snapshots and their first observation times remain immutable. Recovered records receive their actual receipt time, never the historical candle-close time. This amends collection coverage, not the original study's entry rules or its frozen private specification.
+
+Boundary-drift, repeat-run and retention-limit fixtures cover the recovery behavior. Late recovery is research reconstruction, not evidence that a real-time alert or executable entry existed at candle close.
+
+The [author-hosted PBO paper](https://www.davidhbailey.com/dhbpapers/backtest-prob.pdf) is now accessible; its abstract was checked directly. This reinforces recording tried strategies and separating selection from evaluation. No PBO estimate or validated profitable edge is claimed. Bybit's official recent-trade limits were rechecked: 60 for spot and 1,000 for other categories, so the existing sampling comparability restrictions remain necessary.
+
 ## Goal and current evidence
 
 Optimize cost-adjusted expectancy, loss severity and decision clarity, rather than the largest historical win rate. There is no demonstrated profitable edge in the current P model. The new forward cohort began with 10 observations and no resolved two-hour outcomes; current counts are recorded in the private summary on each run. These are overlapping observations, not independent trades. No signal thresholds were changed in this update.
