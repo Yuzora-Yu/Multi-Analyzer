@@ -40,9 +40,12 @@
       if(votes>=PARAMETERS.votes){direction=structure;lastSwitch=i;switched=true;votes=0;pending=0;events.push({time:b.time,type:'TURN',direction});}
       let pullback=0;
       const intact=ready&&(direction>0?lines[21][i]>lines[55][i]&&lines[55][i]>lines[144][i]&&ribbon>0:lines[21][i]<lines[55][i]&&lines[55][i]<lines[144][i]&&ribbon<0);
+      let touched=null,reclaim=null;
+      if(i>4&&direction!==0&&ready){
+        touched=[1,2,3,4].some(k=>direction>0?c[i-k].low<=lines[21][i-k]&&c[i-k].close<lines[13][i-k]:c[i-k].high>=lines[21][i-k]&&c[i-k].close>lines[13][i-k]);
+        reclaim=direction>0?c[i-1].close<=lines[13][i-1]&&b.close>lines[13][i]&&b.close>b.open:c[i-1].close>=lines[13][i-1]&&b.close<lines[13][i]&&b.close<b.open;
+      }
       if(i>4&&direction!==0&&!switched&&intact){
-        const touched=[1,2,3,4].some(k=>direction>0?c[i-k].low<=lines[21][i-k]&&c[i-k].close<lines[13][i-k]:c[i-k].high>=lines[21][i-k]&&c[i-k].close>lines[13][i-k]);
-        const reclaim=direction>0?c[i-1].close<=lines[13][i-1]&&b.close>lines[13][i]&&b.close>b.open:c[i-1].close>=lines[13][i-1]&&b.close<lines[13][i]&&b.close<b.open;
         if(touched&&reclaim&&volumeRatio>=1)pullback=direction;
       }
       const badge=volumeRatio>=PARAMETERS.strongVolume&&Math.abs(b.close-b.open)>=a*PARAMETERS.displacementATR?'VR':volumeRatio>=PARAMETERS.volume?'V':null;
@@ -52,7 +55,8 @@
       cvd=delta==null?0:cvd+delta;
       const exitLong=i>=2&&ready&&c[i-2].close>=lines[13][i-2]&&c[i-1].close<lines[13][i-1]&&b.close<lines[13][i];
       const exitShort=i>=2&&ready&&c[i-2].close<=lines[13][i-2]&&c[i-1].close>lines[13][i-1]&&b.close>lines[13][i];
-      history.push({time:b.time,direction,structure,ribbon,widthATR,aligned,switched,votes,requiredVotes:PARAMETERS.votes,volumeRatio,badge,pullback,absorption,delta,cvd:delta==null?null:cvd,exitLong,exitShort});
+      history.push({time:b.time,direction,structure,ribbon,widthATR,aligned,switched,votes,requiredVotes:PARAMETERS.votes,volumeRatio,badge,pullback,absorption,delta,cvd:delta==null?null:cvd,exitLong,exitShort,
+        setup:{ready,continuation:ready&&direction!==0&&!switched,intact:ready?intact:null,touched,reclaim,volume:volumeRatio==null?null:volumeRatio>=1,ema13:lines[13][i],ema21:lines[21][i]}});
     }
     return {parameters:PARAMETERS,periods:PERIODS,lines,history,events,latest:history.at(-1)||null,profile:profile(c)};
   }

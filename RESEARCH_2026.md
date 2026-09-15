@@ -39,3 +39,11 @@ Before a production change: freeze definitions and trial counts; exclude overlap
 ## Clarity improvements
 
 The review workspace now starts with a per-asset six-timeframe table and reasons for waiting. Snapshots older than 20 minutes are explicitly treated as past records in that table. The ZIP includes `overview.png` in addition to the individual charts and evidence. Directional agreement remains a description, not a new confidence score or entry rule.
+
+## UI6: explain the next condition, using shared engine facts
+
+The review workspace now exposes a collapsible decision checklist with continuation, EMA21 pullback, EMA13 reclaim, ribbon integrity, volume, confirmed H1 alignment and ADX. Current EMA13/21 levels, the final engine vetoes, EXIT caution and the reference plan are shown together. Missing fields remain unknown. These are diagnostic facts emitted by the same flow calculation; no counting rule or new trade trigger is introduced.
+
+The AI export now includes decision.png and decision.json, and the copied consultation text includes the same checklist. Both-asset export contains 18 files. Expanded/collapsed state survives the periodic freshness refresh. Mobile touch targets and wrapping were checked at 390px, and desktop layout was checked at 1280px.
+
+Validation: 41 automated tests pass, including future-bar invariance of the diagnostic fields and missing/stale-data handling. A one-off comparison of all 204 stored snapshots against commit 41aa5e0 found identical existing flow histories after excluding the added diagnostic object. Production signal thresholds are unchanged. This improves decision clarity, not demonstrated profitability.

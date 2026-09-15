@@ -75,16 +75,41 @@
     const [out,ctx]=canvas(y+30);ctx.drawImage(c,0,0);return out;
   }
   function planText(p){return `参考プラン（未成立時は発注候補ではありません）：${p.direction} entry ${num(p.entry)} / SL ${num(p.stop)} / TP1 ${num(p.tp1)} / TP2 ${num(p.tp2)} / TP3 ${num(p.tp3)} / net RR ${num(p.netRR)}`;}
+  function decision(a,now=Date.now()){
+    const s=a.signal,e=s.exec,f=e?.flow?.latest,d=f?.setup,settings=a.snapshot.settings;
+    const stale=now-settings.now>20*60000;
+    const item=(label,value,detail)=>({label,status:value==null?'不明':value?'成立':'未成立',detail});
+    const checks=[item('トレンド継続',d?.continuation,'保持方向があり、今回の足で転換していない'),
+      item('押し・戻り',d?.touched,'直近4本でEMA21に接触し、EMA13の反対側で終値確定'),
+      item('EMA13再突破',d?.reclaim,'前足から終値で再突破し、方向に沿った実体で確定'),
+      item('リボン維持',d?.intact,'EMA21・55・144の並びと向き'),
+      item('出来高',d?.volume,`${num(f?.volumeRatio)}倍 / 過去21本平均の1倍以上`),
+      item('確定H1一致',f?.hourlyAligned,'H1と15分の保持方向が一致'),
+      item('ADX',Number.isFinite(e?.values?.adx)?e.values.adx>=20:null,`${num(e?.values?.adx)} / 20以上`)];
+    return {id:a.snapshot.id,stale,direction:f?.direction>0?'押し目買い':f?.direction<0?'戻り売り':'方向待ち',
+      checks,levels:{ema13:d?.ema13??null,ema21:d?.ema21??null},
+      exit:f?.exitLong?'買い保有の撤退注意':f?.exitShort?'売り保有の撤退注意':null,
+      verdict:stale?'記録が古いため更新':s.actionable?'共通条件成立・研究用候補':'共通判定は待機',
+      note:'各条件は同じ確定足で評価。成立数は勝率ではありません。EMA価格は次の足で変動し、価格への到達だけではサインになりません。',
+      vetoes:s.vetoes,plan:s.plan??null};
+  }
+  function decisionText(d){return [`${d.verdict} / ${d.direction}`,d.exit||'今回の足に黄EXITなし',
+    `観察水準 EMA13 ${num(d.levels.ema13)} / EMA21 ${num(d.levels.ema21)}`,
+    ...d.checks.map(c=>`${c.status}：${c.label} — ${c.detail}`),
+    ...d.vetoes.map(v=>`最終判定の未成立条件：${v}`),d.plan?planText(d.plan):'参考プランなし',d.note];}
+  function decisionImage(pack){const [c,x]=canvas(2600);let y=42;x.font='bold 27px sans-serif';x.fillStyle='#e6b85c';x.fillText('次に確認する条件・価格',30,y);y+=40;x.font='18px sans-serif';
+    for(const a of pack.assets){x.fillStyle='#e6b85c';y=lines(x,`${a.asset.toUpperCase()} / ${a.snapshot.id} / ${jst(a.snapshot.settings.now)}`,30,y,1210);x.fillStyle='#dbe7f2';for(const t of decisionText(decision(a,pack.capturedAt)))y=lines(x,t,30,y,1210,27)+6;y+=25;}
+    const [out,ctx]=canvas(y+25);ctx.drawImage(c,0,0);return out;}
   function overview(pack,now=Date.now()){
     return pack.assets.map(a=>({asset:a.asset,id:a.snapshot.id,cutoff:a.snapshot.settings.now,
       stale:now-a.snapshot.settings.now>20*60000,state:a.signal.state,actionable:a.signal.actionable&&now-a.snapshot.settings.now<=20*60000,
-      reasons:a.signal.vetoes,netRR:a.signal.plan?.netRR??null,
+      reasons:a.signal.vetoes,netRR:a.signal.plan?.netRR??null,decision:decision(a,now),
       frames:frames.map(([tf])=>{const r=pack.records.find(r=>r.asset===a.asset&&r.tf===tf),f=r?.analysis.flow?.latest;return{tf,missing:!r,structure:f?.structure??null,ribbon:f?.ribbon??null,adx:r?.analysis.values?.adx??null,volume:f?.volumeRatio??null};})}));
   }
   function overviewImage(pack){const items=overview(pack,pack.capturedAt),[c,x]=canvas(160+items.length*460);x.fillStyle='#e6b85c';x.font='bold 28px sans-serif';x.fillText('確認一覧 — 確定足の構造と待機理由',30,42);x.font='18px sans-serif';let y=83;
     for(const a of items){x.fillStyle='#dbe7f2';y=lines(x,`${a.asset.toUpperCase()} | ${a.state} | ${a.stale?'保存時に20分超経過':'取得時点の記録'} | 基準 ${jst(a.cutoff)}`,30,y,1200);y=lines(x,`コスト後RR ${num(a.netRR)} / ${a.reasons.join(' / ')||'研究用候補の条件成立'}`,30,y,1200);y+=10;x.fillStyle='#92adc1';x.fillText('時間足         構造         リボン          ADX          出来高倍率',30,y);y+=30;for(const f of a.frames){x.fillStyle='#dbe7f2';x.fillText(f.missing?`${f.tf} — 取得不能`:`${f.tf.padEnd(5)}          ${f.structure==null?'?':dir(f.structure)}              ${f.ribbon==null?'?':dir(f.ribbon)}              ${num(f.adx)}             ${num(f.volume)}x`,30,y);y+=30;}y+=28;}
     x.fillStyle='#e6b85c';lines(x,'方向の一致は勝率ではありません。15分以外は環境比較用。保存後の現在相場は公開ページで更新してください。',30,y,1200);return c;}
-  function prompt(pack){return `添付はMulti-Analyzerの確定足レビューです。利益が出るとの前提を置かず、データ鮮度、欠損、上位足構造、EMAリボン、出来高近似、コスト、反証条件から検討してください。EXITを即逆張りと解釈しないでください。\n比較対象：${pack.assets.map(a=>a.asset).join(', ')}。取得開始 ${jst(pack.capturedAt)}。各銘柄の基準時刻・設定・保存判定IDは manifest.json と画像に記載。時間足ごとの終値時刻は異なります。\n1. 現状は待機/押し目/戻り/撤退注意のどれか、根拠と不成立条件\n2. 15分共通判定と1分/5分のタイミング、1時間/4時間/日足の環境は整合するか\n3. 参考SL/TPに対するコストと損益比、飛び乗りを避ける確認水準\n4. この1例から勝率を推定せず、今後記録すべき比較仮説\n画像は直近180本、JSONは全取得確定足を含みます。POCは直近96本の近似で、全世界の約定ではありません。\nhttps://yuzora-yu.github.io/Multi-Analyzer/\n${pack.assets.map(a=>`https://yuzora-yu.github.io/Multi-Analyzer/?asset=${a.asset}&snapshot=${a.snapshot.id}`).join('\n')}\n保存画像は過去の基準時刻の記録であり、現在価格ではありません。`;} 
+  function prompt(pack){return pack.assets.map(a=>a.asset.toUpperCase()+'\n'+decisionText(decision(a,pack.capturedAt)).join('\n')).join('\n\n')+'\n\n'+`添付はMulti-Analyzerの確定足レビューです。利益が出るとの前提を置かず、データ鮮度、欠損、上位足構造、EMAリボン、出来高近似、コスト、反証条件から検討してください。EXITを即逆張りと解釈しないでください。\n比較対象：${pack.assets.map(a=>a.asset).join(', ')}。取得開始 ${jst(pack.capturedAt)}。各銘柄の基準時刻・設定・保存判定IDは manifest.json と画像に記載。時間足ごとの終値時刻は異なります。\n1. 現状は待機/押し目/戻り/撤退注意のどれか、根拠と不成立条件\n2. 15分共通判定と1分/5分のタイミング、1時間/4時間/日足の環境は整合するか\n3. 参考SL/TPに対するコストと損益比、飛び乗りを避ける確認水準\n4. この1例から勝率を推定せず、今後記録すべき比較仮説\n画像は直近180本、JSONは全取得確定足を含みます。POCは直近96本の近似で、全世界の約定ではありません。\nhttps://yuzora-yu.github.io/Multi-Analyzer/\n${pack.assets.map(a=>`https://yuzora-yu.github.io/Multi-Analyzer/?asset=${a.asset}&snapshot=${a.snapshot.id}`).join('\n')}\n保存画像は過去の基準時刻の記録であり、現在価格ではありません。`;}
   async function collect(assets,{signal,archivedId,onProgress=()=>{}}={}){
     const Core=globalThis.MultiAnalyzerCore,Feed=globalThis.MultiAnalyzerFeed,pack={schema:1,capturedAt:Date.now(),version:Core.VERSION,assets:[],records:[],errors:[],policy};
     async function get(url){const r=await fetch(url,{signal:AbortSignal.any([signal||new AbortController().signal,AbortSignal.timeout(15000)])});if(!r.ok)throw Error(`HTTP ${r.status}`);return r.json();}
@@ -110,7 +135,7 @@
     const $=id=>document.getElementById(id);let pack=null,controller=null,downloadUrl=null;
     const dialog=$('reviewDialog'),grid=$('reviewGrid'),status=$('reviewStatus');
     const summary=document.createElement('section');summary.className='review-overview';summary.setAttribute('aria-label','確認一覧');grid.before(summary);
-    function renderOverview(){summary.replaceChildren();if(!pack)return;for(const a of overview(pack)){const card=document.createElement('article'),h=document.createElement('h3');h.textContent=`${a.asset.toUpperCase()} — ${a.stale?'過去の記録':a.actionable?'研究用候補':'待機'}`;const note=document.createElement('p');note.textContent=`基準 ${jst(a.cutoff)} / コスト後RR ${num(a.netRR)}。${a.stale?'20分以上経過。現在の判断には更新が必要です。':a.reasons.join(' / ')||'条件成立。収益上の優位性は未確認。'}`;card.append(h,note);const table=document.createElement('table'),head=table.createTHead().insertRow();for(const name of ['時間足','構造','リボン','ADX','出来高']){const th=document.createElement('th');th.scope='col';th.textContent=name;head.append(th);}const body=table.createTBody();for(const f of a.frames){const row=body.insertRow();for(const value of [f.tf,f.missing?'欠測':f.structure==null?'?':dir(f.structure),f.ribbon==null?'?':dir(f.ribbon),num(f.adx),num(f.volume)+'x'])row.insertCell().textContent=value;}card.append(table);summary.append(card);}}
+    function renderOverview(){const expanded=new Map([...summary.querySelectorAll('details[data-asset]')].map(d=>[d.dataset.asset,d.open]));summary.replaceChildren();if(!pack)return;for(const a of overview(pack)){const card=document.createElement('article'),h=document.createElement('h3');h.textContent=`${a.asset.toUpperCase()} — ${a.stale?'過去の記録':a.actionable?'研究用候補':'待機'}`;const note=document.createElement('p');note.textContent=`基準 ${jst(a.cutoff)} / コスト後RR ${num(a.netRR)}。${a.stale?'20分以上経過。現在の判断には更新が必要です。':a.reasons.join(' / ')||'条件成立。収益上の優位性は未確認。'}`;card.append(h,note);const table=document.createElement('table'),head=table.createTHead().insertRow();for(const name of ['時間足','構造','リボン','ADX','出来高']){const th=document.createElement('th');th.scope='col';th.textContent=name;head.append(th);}const body=table.createTBody();for(const f of a.frames){const row=body.insertRow();for(const value of [f.tf,f.missing?'欠測':f.structure==null?'?':dir(f.structure),f.ribbon==null?'?':dir(f.ribbon),num(f.adx),num(f.volume)+'x'])row.insertCell().textContent=value;}card.append(table);const detail=document.createElement('details');detail.className='review-decision';detail.dataset.asset=a.asset;detail.open=expanded.get(a.asset)??true;const title=document.createElement('summary');title.textContent='次に確認する条件・価格';detail.append(title);for(const text of decisionText(a.decision)){const p=document.createElement('p');p.textContent=text;p.dataset.status=text.startsWith('成立：')?'pass':text.startsWith('未成立：')?'wait':'info';detail.append(p);}card.append(detail);summary.append(card);}}
     setInterval(()=>{if(dialog.open&&pack)renderOverview();},30000);
     function setView(mode){dialog.dataset.view=mode;for(const b of dialog.querySelectorAll('[data-review-view]'))b.setAttribute('aria-pressed',String(b.dataset.reviewView===mode));}
     async function refresh(){
@@ -142,11 +167,12 @@
           files.push({name:i<saved.records.length?`${saved.records[i].asset}-${saved.records[i].tf}.png`:'alerts-and-plans.png',data:new Uint8Array(await blob.arrayBuffer())});
         }
         files.push({name:'consult-ai.txt',data:prompt(saved)},{name:'manifest.json',data:JSON.stringify(saved,null,2)});
+        files.push({name:'decision.json',data:JSON.stringify(saved.assets.map(a=>decision(a,saved.capturedAt)),null,2)});const decisionBlob=await new Promise(resolve=>decisionImage(saved).toBlob(resolve,'image/png'));if(!decisionBlob)throw Error('条件画像の変換失敗');files.push({name:'decision.png',data:new Uint8Array(await decisionBlob.arrayBuffer())});
         const overviewBlob=await new Promise(resolve=>overviewImage(saved).toBlob(resolve,'image/png'));if(!overviewBlob)throw Error('一覧画像の変換失敗');files.push({name:'overview.png',data:new Uint8Array(await overviewBlob.arrayBuffer())});
         if(downloadUrl)URL.revokeObjectURL(downloadUrl);downloadUrl=URL.createObjectURL(zip(files));const link=$('reviewDownload');link.href=downloadUrl;link.download=`multi-analyzer-${new Date(saved.capturedAt).toISOString().replace(/[:.]/g,'-')}.zip`;link.hidden=false;
         status.textContent=`保存の準備完了（${files.length}ファイル）。「ZIP保存」を押してください。AIには展開したPNGと相談文を添付できます。${saved.errors.length?'未取得の時間足はmanifestに記録しました。':''}`;
       }catch(e){status.textContent='保存失敗：'+e.message;}finally{button.disabled=false;$('reviewRefresh').disabled=false;$('reviewBoth').disabled=Boolean(getArchiveId());}
     });
   }
-  return{init,collect,zip,crc32,closed,frames,policy,facts,prompt,overview};
+  return{init,collect,zip,crc32,closed,frames,policy,facts,prompt,overview,decision,decisionText};
 });

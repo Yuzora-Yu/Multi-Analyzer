@@ -409,3 +409,4 @@ button { color: inherit; -webkit-tap-highlight-color: transparent; }
  .chart-focus .action-compass small,.chart-focus .compass-legend{display:none}
  .chart-focus .action-compass{bottom:28px;padding:8px 12px}
 }
+.review-decision{margin-top:14px;border-top:1px solid #394456;padding-top:12px}.review-decision summary{cursor:pointer;min-height:44px;font-weight:700;color:var(--gold);padding:8px 0}.review-decision p{padding:8px 10px;border-left:3px solid #596d85;background:#0b1018;border-radius:4px;overflow-wrap:anywhere}.review-decision p[data-status=pass]{border-color:#43d49d}.review-decision p[data-status=wait]{border-color:#e6b85c}
