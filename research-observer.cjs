@@ -78,6 +78,11 @@ async function run(){
     const file=`${observation.observedAt}.json.gz`;fs.writeFileSync(path.join(target,file),require('node:zlib').gzipSync(JSON.stringify(observation)),{flag:'wx'});
     summary.microstructure={file,errors:observation.errors,samples:Object.fromEntries(Object.entries(observation.assets).map(([asset,x])=>[asset,{count:x.sample?.count,durationSeconds:x.sample?.durationSeconds,spreadBps:x.quote?.spreadBps}]))};
   }
+  const nearMissSpec=path.join(DIR,'near-miss-spec-v1.json');
+  if(fs.existsSync(nearMissSpec)){
+    const nearMiss=require('./research-near-miss.cjs').run({quiet:true});
+    summary.nearMiss={version:1,rows:nearMiss.rows,file:'near-miss-report-v1.json',generatedAt:nearMiss.generatedAt};
+  }
   fs.writeFileSync(path.join(DIR,'summary.json'),JSON.stringify(summary,null,2));console.log(JSON.stringify(summary));
 }
 if(require.main===module)run().catch(e=>{console.error(e.message);process.exitCode=1;});
