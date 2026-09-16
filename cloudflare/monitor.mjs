@@ -40,7 +40,7 @@ export class MarketMonitor extends DurableObject {
     let state=await this.ctx.storage.get('state') || {delivered:{},baseline:false,cache:{},day,count:0};
     if(state.feed!=='bybit-v1'){state={delivered:{},baseline:false,cache:{},day,count:0,feed:'bybit-v1',archives:[]};}
     if(state.day!==day){state.day=day;state.count=0;}
-    const status={updatedAt:now,state:'DATA_ERROR',source:'Bybit',symbol:ASSETS[asset],pollMinutes:1,requestsToday:state.count,emailEnabled:this.env.ALERTS_ENABLED==='true',dryRun};
+    const status={updatedAt:now,state:'DATA_ERROR',source:'Bybit',symbol:ASSETS[asset],pollMinutes:1,requestsToday:state.count,emailEnabled:this.env.ALERTS_ENABLED==='true',dryRun,lastEmail:state.lastEmail||null};
     try {
       const series={};
       for(const [interval,minutes] of Object.entries(INTERVALS)){
@@ -79,7 +79,9 @@ export class MarketMonitor extends DurableObject {
           if(!state.alertIds.includes(id))state.alertIds.push(id);
           while(state.alertIds.length>100)await this.ctx.storage.delete('alert:'+state.alertIds.shift());
           await this.env.EMAIL.send({from:'alerts@yu-zora.com',to:this.env.EMAIL_TO,subject:event.title,text:event.text,html:'<div style="white-space:pre-wrap">'+escapeHtml(event.text)+'</div><p><a href="'+event.url+'">公開チャートを開く</a></p>'});
-          state.delivered[event.key]=now;status.emailAcceptedAt=now;
+          state.delivered[event.key]=now;
+          state.lastEmail={acceptedAt:now,asset,snapshotId:id,title:event.title};
+          status.emailAcceptedAt=now;status.lastEmail=state.lastEmail;
           if(exit)state.paperPosition=null;
           else state.paperPosition={direction:analysis.direction,entry:analysis.plan.entry,stop:analysis.plan.stop,openedAt:snapshot.settings.now,referenceOnly:true};
         }
