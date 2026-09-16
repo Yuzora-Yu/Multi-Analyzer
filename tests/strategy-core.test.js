@@ -107,6 +107,28 @@ test('position guard exits immediately when stop is touched', () => {
   assert.equal(result.positionDecision.urgency, 100);
 });
 
+test('position guard honors the matching confirmed yellow EXIT', () => {
+  const base = {
+    generatedAt: 2_000_000,
+    state: 'NO_TRADE',
+    longScore: 40,
+    shortScore: 60,
+    htfBias: 'neutral',
+    exec: {
+      values: { close: 100, atr: 2 },
+      structure: { event: null },
+      flow: { latest: { exitLong: false, exitShort: true } },
+    },
+  };
+  const short = Core.positionDecision({ direction: 'SHORT', entry: 100, stop: 110 }, base, 99);
+  assert.equal(short.action, 'EXIT_SHORT');
+  assert.equal(short.urgency, 88);
+  assert.ok(short.reasons.some(x => x.includes('黄EXIT')));
+
+  const long = Core.positionDecision({ direction: 'LONG', entry: 100, stop: 90 }, base, 101);
+  assert.equal(long.action, 'HOLD_LONG');
+});
+
 test('same-bar stop and target collision is resolved stop-first', () => {
   const rows = [
     candle(0 + MIN, 100, 101, 99, 100),

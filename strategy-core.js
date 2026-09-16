@@ -9,7 +9,7 @@
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
   'use strict';
 
-  const VERSION = '4.3.1';
+  const VERSION = '4.3.2';
   const SMC = typeof module === 'object' && module.exports ? require('./smc-core.js') : globalThis.MultiAnalyzerSMC;
   const Flow = typeof module === 'object' && module.exports ? require('./flow-core.js') : globalThis.MultiAnalyzerFlow;
   const MINUTE = 60_000;
@@ -558,10 +558,13 @@
       ? ['BEAR_CHOCH', 'BEAR_BOS'].includes(signal.exec.structure.event)
       : ['BULL_CHOCH', 'BULL_BOS'].includes(signal.exec.structure.event);
     const htfFlip = dir === 'LONG' ? signal.htfBias === 'bear' : signal.htfBias === 'bull';
+    const flow = signal.exec.flow?.latest;
+    const flowExit = dir === 'LONG' ? flow?.exitLong : flow?.exitShort;
     let action = dir === 'LONG' ? 'HOLD_LONG' : 'HOLD_SHORT';
     let urgency = 25;
     const reasons = [];
     if (stopHit) { action = dir === 'LONG' ? 'EXIT_LONG' : 'EXIT_SHORT'; urgency = 100; reasons.push('ストップ水準に到達'); }
+    else if (flowExit) { action = dir === 'LONG' ? 'EXIT_LONG' : 'EXIT_SHORT'; urgency = 88; reasons.push('黄EXIT条件が確定'); }
     else if(position.referenceOnly && signal.generatedAt-position.openedAt>=48*900000){action=dir==='LONG'?'EXIT_LONG':'EXIT_SHORT';urgency=70;reasons.push('前回候補から12時間経過・保有継続を見直し');}
     else if (oppositeReady && structureFlip) { action = dir === 'LONG' ? 'EXIT_LONG' : 'EXIT_SHORT'; urgency = 92; reasons.push('反対方向の確定シグナルと構造転換'); }
     else if (htfFlip && opposite >= same + 8) { action = dir === 'LONG' ? 'EXIT_LONG' : 'EXIT_SHORT'; urgency = 82; reasons.push('上位足の方向が反転'); }

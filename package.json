@@ -1,6 +1,6 @@
 {
   "name": "multi-analyzer-ultimate",
-  "version": "4.3.1",
+  "version": "4.3.2",
   "private": true,
   "description": "Rule-based multi-timeframe market analysis and paper-trading dashboard",
   "scripts": {
