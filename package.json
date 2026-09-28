@@ -5,8 +5,10 @@
   "description": "Rule-based multi-timeframe market analysis and paper-trading dashboard",
   "scripts": {
     "test": "node --test tests/*.test.js",
-    "check": "node --check app.js && node --check strategy-core.js && node --check smc-core.js && node --check monitor.js && node --check backtest-worker.js && node --check alert-event.js && node --check cloudflare/monitor.mjs && node --check flow-core.js && node --check market-feed.js && node --check chart-overlays.js && node --check research-validation.js && node --check review-pack.js && node --check research-observer.cjs && node --check research-near-miss.cjs && node --check market-observation.cjs",
-    "observe:research": "node research-observer.cjs"
+    "check": "node --check app.js && node --check strategy-core.js && node --check smc-core.js && node --check monitor.js && node --check backtest-worker.js && node --check alert-event.js && node --check cloudflare/monitor.mjs && node --check flow-core.js && node --check market-feed.js && node --check chart-overlays.js && node --check research-validation.js && node --check review-pack.js && node --check research-observer.cjs && node --check research-near-miss.cjs && node --check market-observation.cjs && node --check research-audit.cjs && node --check research-forward.cjs",
+    "observe:research": "node research-observer.cjs",
+    "audit:research": "node research-audit.cjs",
+    "freeze:research": "node research-forward.cjs"
   },
   "engines": {
     "node": ">=20"
