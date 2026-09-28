@@ -2,7 +2,7 @@ const test=require('node:test'),assert=require('node:assert/strict');
 const R=require('../review-pack');
 test('decision breakdown preserves missing data, stale state and final vetoes',()=>{
  const a={snapshot:{id:'fixture',settings:{now:1000}},signal:{actionable:false,state:'NO_TRADE',vetoes:['コスト条件未成立'],exec:{flow:{latest:{direction:-1,hourlyAligned:false,volumeRatio:null,setup:{continuation:true,touched:true,reclaim:false,intact:true,volume:null,ema13:100,ema21:102}}},values:{adx:25}}}};
- const d=R.decision(a,1000);assert.equal(d.checks.find(c=>c.label==='出来高').status,'不明');assert.equal(d.checks.find(c=>c.label==='EMA13再突破').status,'未成立');assert.equal(d.direction,'戻り売り');assert.equal(d.verdict,'共通判定は待機');assert.deepEqual(d.vetoes,['コスト条件未成立']);assert.match(R.decision(a,1300000).verdict,/古い/);
+ const d=R.decision(a,1000);assert.equal(d.checks.find(c=>c.label==='出来高').status,'不明');assert.equal(d.checks.find(c=>c.label==='EMA13再突破').status,'未成立');assert.equal(d.direction,'戻り売り');assert.equal(d.verdict,'新規候補の条件待ち（検証中）');assert.deepEqual(d.vetoes,['コスト条件未成立']);assert.match(R.decision(a,1300000).verdict,/古い/);
 });
 test('setup explanation remains causal when future bars are appended',()=>{
  const Core=require('../strategy-core');

@@ -57,3 +57,9 @@ The review workspace now exposes a collapsible decision checklist with continuat
 The AI export now includes decision.png and decision.json, and the copied consultation text includes the same checklist. Both-asset export contains 18 files. Expanded/collapsed state survives the periodic freshness refresh. Mobile touch targets and wrapping were checked at 390px, and desktop layout was checked at 1280px.
 
 Validation: 41 automated tests pass, including future-bar invariance of the diagnostic fields and missing/stale-data handling. A one-off comparison of all 204 stored snapshots against commit 41aa5e0 found identical existing flow histories after excluding the added diagnostic object. Production signal thresholds are unchanged. This improves decision clarity, not demonstrated profitability.
+
+## UI7: current environment versus saved decision
+
+Live reviews now freeze non-15m frames at capture start, while canonical 15m signals remain exactly the saved inputs and settings. Archived reviews retain the historical cutoff for every frame. Schema 2 records each frame cutoff, decisionCutoff and timeBasis; images and AI text explicitly distinguish post-decision observations. These later observations must never be used as past prediction features.
+
+Presentation-only veto explanations list actual failed or unknown setup checks. Original signals, thresholds, veto arrays, notifications and engine version are unchanged. The UI identifies candidate conditions as experimental, not a position-management verdict. Regression tests cover latest minute closure, historical isolation and canonical signal equality.

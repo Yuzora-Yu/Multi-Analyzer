@@ -615,7 +615,7 @@
     $('riskBudgetValue').textContent = p?.riskBudget != null ? `$${fmt(p.riskBudget, 2)}` : '—';
     const notes = [];
     if (p) notes.push(`${p.orderType === 'CLOSE_CONFIRM' ? '確定足確認' : 'リテスト指値候補'}。無効化: ${p.invalidation}。`);
-    if (a.vetoes.length) notes.push(`見送り: ${a.vetoes.slice(0, 2).join(' / ')}`);
+    if (a.vetoes.length) notes.push(`見送り: ${window.MultiAnalyzerReview.reasons(a).slice(0, 2).join(' / ')}`);
     else if (a.actionable) notes.push('新規候補。実際のスプレッドと注文可能数量を確認してからペーパートレードで検証してください。');
     else notes.push('方向優位はあっても、確定トリガーまたは最低スコア未達です。');
     $('planNote').textContent = notes.join(' ');
@@ -656,7 +656,7 @@
     $('actionCompass').className = `action-compass ${cls}`;
     $('actionHeadline').textContent = stale ? '— 更新停止・判断待機' : exit ? `× ${(getPosition()||state.snapshot?.settings.position)?.direction === 'LONG' ? '買い' : '売り'}ポジション クローズ推奨${!getPosition()?'（前回候補を保有中なら）':''}` : `${cls === 'buy' ? '▲' : cls === 'sell' ? '▼' : '—'} ${stateLabel(a.state)}`;
     if(INITIAL_PARAMS.has('snapshot'))$('actionHeadline').textContent='保存記録｜'+$('actionHeadline').textContent;
-    $('actionTargets').textContent = stale ? '価格が復旧するまで新規シグナルを停止します' : exit ? pos.reasons.join(' / ') : a.actionable && p ? `目標 ${fmt(p.tp1)} → ${fmt(p.tp2)} ｜ SL ${fmt(p.stop)} ｜ 基準 ${fmt(p.entry)}` : a.vetoes[0] || a.message;
+    $('actionTargets').textContent = stale ? '価格が復旧するまで新規シグナルを停止します' : exit ? pos.reasons.join(' / ') : a.actionable && p ? `目標 ${fmt(p.tp1)} → ${fmt(p.tp2)} ｜ SL ${fmt(p.stop)} ｜ 基準 ${fmt(p.entry)}` : window.MultiAnalyzerReview.reasons(a)[0] || a.message;
     $('sourceNotice').textContent = state.offlineCsv ? 'CSV検証 / 実相場ではありません・通知しません' : `分析・目標: ${currentInstrument().symbol} (${currentInstrument().market}) / ブローカーのUSD価格とは異なります`;
     if (exit && !stale) { $('sheetSummary').textContent = '× クローズ推奨'; $('sheetSummary').style.color = '#c69cff'; }
     $('currentSnapshotLink').href='?asset='+state.instrumentId+'&tf=15m';
@@ -727,7 +727,7 @@
 
   function reasonItems() {
     const a = state.analysis;
-    if (state.lastReasonTab === 'veto') return a.vetoes.length ? a.vetoes.map(text => ({ text, cls: 'veto' })) : [{ text: 'hard vetoなし', cls: '' }];
+    if (state.lastReasonTab === 'veto') return a.vetoes.length ? window.MultiAnalyzerReview.reasons(a).map(text => ({ text, cls: 'veto' })) : [{ text: 'hard vetoなし', cls: '' }];
     if (state.lastReasonTab === 'warning') return a.warnings.length ? a.warnings.map(text => ({ text, cls: 'warning' })) : [{ text: '追加注意なし', cls: '' }];
     return a.components
       .filter(x => x.long > 0 || x.short > 0)

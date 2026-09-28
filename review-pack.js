@@ -39,9 +39,10 @@
     `${r.tf} / ${r.rows.length}確定足 / 最終確定 ${jst(r.rows.at(-1).time+r.minutes*60000)}`,
     `構造 ${dir(f.structure)}　リボン ${dir(f.ribbon)}　保持方向 ${dir(f.direction)}　ADX ${num(v.adx)}　出来高 ${num(f.volumeRatio)}倍`,
     `POC ${num(p?.poc)}　VAH ${num(p?.vah)}　VAL ${num(p?.val)}　ATR ${num(v.atr)}`,
-    `品質：${r.analysis.ready?'計算可能':'履歴不足'} / 欠損 ${r.analysis.quality?.gaps??'不明'} / ${r.analysis.quality?.stale?'基準時刻に対して遅延':'基準時刻まで確定'}。取得時の基準時刻からの経過 ${Math.max(0,Math.round((r.capturedAt-r.cutoff)/60000))}分。`,
+    `時間基準：${r.timeBasis==='latest-closed'?'取得開始時点の最新確定足（15分判定後の情報を含みます）':'保存した15分判定の時点'} / 観測 ${jst(r.capturedAt)} / 判定基準 ${jst(r.decisionCutoff??r.cutoff)}`,
+    `品質：${r.analysis.ready?'計算可能':'履歴不足'} / 欠損 ${r.analysis.quality?.gaps??'不明'} / ${r.analysis.quality?.stale?'基準時刻に対して遅延':'取得基準まで確定'}。取得時の取得基準からの経過 ${Math.max(0,Math.round((r.capturedAt-r.cutoff)/60000))}分。`,
     r.tf==='15m'?`共通判定 ${r.signal.state} / ${r.signal.direction} / ${r.snapshotId}`:'環境・執行タイミングの比較用。独立したメール通知や売買推奨はありません。',
-    ...(r.tf==='15m'?r.signal.vetoes:[])
+    ...(r.tf==='15m'?reasons(r.signal):[])
   ];}
   function chartImage(r){
     const [c,x]=canvas(1600),bars=r.rows.slice(-180),flow=r.analysis.flow,off=r.rows.length-bars.length;
@@ -71,10 +72,20 @@
   function evidenceImage(pack){
     const [c,x]=canvas(2400);x.font='bold 27px sans-serif';x.fillStyle='#e6b85c';x.fillText('判定・アラート・AI相談用メモ',30,45);x.font='18px sans-serif';x.fillStyle='#dbe7f2';let y=85;
     for(const t of [jst(pack.capturedAt),...pack.assets.map(a=>`${a.asset}: ${a.snapshot.id} / 基準 ${jst(a.snapshot.settings.now)}`),...policy,...pack.errors.map(e=>`未取得 ${e.asset}/${e.tf}: ${e.error}`)])y=lines(x,t,30,y,1210,26)+8;
-    for(const a of pack.assets){const s=a.signal,p=s.plan;y=lines(x,`${a.asset.toUpperCase()} ${s.state} | ${s.actionable?'研究用候補':'待機'} | ${s.vetoes.join(' / ')}`,30,y+12,1210,26);if(p)y=lines(x,planText(p),30,y,1210,26);y=lines(x,`共通設定 ${JSON.stringify(a.snapshot.settings)}`,30,y,1210,24);}
+    for(const a of pack.assets){const s=a.signal,p=s.plan;y=lines(x,`${a.asset.toUpperCase()} ${s.state} | ${s.actionable?'研究用候補':'待機'} | ${reasons(s).join(' / ')}`,30,y+12,1210,26);if(p)y=lines(x,planText(p),30,y,1210,26);y=lines(x,`共通設定 ${JSON.stringify(a.snapshot.settings)}`,30,y,1210,24);}
     const [out,ctx]=canvas(y+30);ctx.drawImage(c,0,0);return out;
   }
   function planText(p){return `参考プラン（未成立時は発注候補ではありません）：${p.direction} entry ${num(p.entry)} / SL ${num(p.stop)} / TP1 ${num(p.tp1)} / TP2 ${num(p.tp2)} / TP3 ${num(p.tp3)} / net RR ${num(p.netRR)}`;}
+  // Presentation only: preserve canonical vetoes and all trading decisions.
+  function reasons(signal){
+    const f=signal.exec?.flow?.latest,d=f?.setup;
+    return (signal.vetoes||[]).map(v=>{
+      if(v!=='押し目・EMA13奪還・出来高・H1一致の成立待ち')return v;
+      if(!d)return '新規候補の条件待ち（詳細データ不足）';
+      const missing=[['トレンド継続',d.continuation],['押し・戻り',d.touched],['EMA13再突破',d.reclaim],['リボン維持',d.intact],['出来高',d.volume],['確定H1一致',f.hourlyAligned]].filter(([,ok])=>ok!==true).map(([name,ok])=>name+(ok==null?'（不明）':''));
+      return missing.length?'未成立：'+missing.join('・'):'新規候補の条件待ち（共通判定を参照）';
+    });
+  }
   function decision(a,now=Date.now()){
     const s=a.signal,e=s.exec,f=e?.flow?.latest,d=f?.setup,settings=a.snapshot.settings;
     const stale=now-settings.now>20*60000;
@@ -89,9 +100,9 @@
     return {id:a.snapshot.id,stale,direction:f?.direction>0?'押し目買い':f?.direction<0?'戻り売り':'方向待ち',
       checks,levels:{ema13:d?.ema13??null,ema21:d?.ema21??null},
       exit:f?.exitLong?'買い保有の撤退注意':f?.exitShort?'売り保有の撤退注意':null,
-      verdict:stale?'記録が古いため更新':s.actionable?'共通条件成立・研究用候補':'共通判定は待機',
-      note:'各条件は同じ確定足で評価。成立数は勝率ではありません。EMA価格は次の足で変動し、価格への到達だけではサインになりません。',
-      vetoes:s.vetoes,plan:s.plan??null};
+      verdict:stale?'記録が古いため更新':s.actionable?'共通条件成立・研究用候補':'新規候補の条件待ち（検証中）',
+      note:'新規候補の条件表示であり、保有の継続・決済判断ではありません。精度は検証中です。各条件は同じ15分確定足で評価。成立数は勝率ではありません。EMA価格は次の足で変動し、価格への到達だけではサインになりません。',
+      vetoes:reasons(s),plan:s.plan??null};
   }
   function decisionText(d){return [`${d.verdict} / ${d.direction}`,d.exit||'今回の足に黄EXITなし',
     `観察水準 EMA13 ${num(d.levels.ema13)} / EMA21 ${num(d.levels.ema21)}`,
@@ -103,28 +114,29 @@
   function overview(pack,now=Date.now()){
     return pack.assets.map(a=>({asset:a.asset,id:a.snapshot.id,cutoff:a.snapshot.settings.now,
       stale:now-a.snapshot.settings.now>20*60000,state:a.signal.state,actionable:a.signal.actionable&&now-a.snapshot.settings.now<=20*60000,
-      reasons:a.signal.vetoes,netRR:a.signal.plan?.netRR??null,decision:decision(a,now),
-      frames:frames.map(([tf])=>{const r=pack.records.find(r=>r.asset===a.asset&&r.tf===tf),f=r?.analysis.flow?.latest;return{tf,missing:!r,structure:f?.structure??null,ribbon:f?.ribbon??null,adx:r?.analysis.values?.adx??null,volume:f?.volumeRatio??null};})}));
+      reasons:reasons(a.signal),netRR:a.signal.plan?.netRR??null,decision:decision(a,now),
+      frames:frames.map(([tf])=>{const r=pack.records.find(r=>r.asset===a.asset&&r.tf===tf),f=r?.analysis.flow?.latest;return{tf,closedAt:r?.rows?.at(-1)?.time!=null?r.rows.at(-1).time+r.minutes*60000:null,missing:!r,structure:f?.structure??null,ribbon:f?.ribbon??null,adx:r?.analysis.values?.adx??null,volume:f?.volumeRatio??null};})}));
   }
   function overviewImage(pack){const items=overview(pack,pack.capturedAt),[c,x]=canvas(160+items.length*460);x.fillStyle='#e6b85c';x.font='bold 28px sans-serif';x.fillText('確認一覧 — 確定足の構造と待機理由',30,42);x.font='18px sans-serif';let y=83;
     for(const a of items){x.fillStyle='#dbe7f2';y=lines(x,`${a.asset.toUpperCase()} | ${a.state} | ${a.stale?'保存時に20分超経過':'取得時点の記録'} | 基準 ${jst(a.cutoff)}`,30,y,1200);y=lines(x,`コスト後RR ${num(a.netRR)} / ${a.reasons.join(' / ')||'研究用候補の条件成立'}`,30,y,1200);y+=10;x.fillStyle='#92adc1';x.fillText('時間足         構造         リボン          ADX          出来高倍率',30,y);y+=30;for(const f of a.frames){x.fillStyle='#dbe7f2';x.fillText(f.missing?`${f.tf} — 取得不能`:`${f.tf.padEnd(5)}          ${f.structure==null?'?':dir(f.structure)}              ${f.ribbon==null?'?':dir(f.ribbon)}              ${num(f.adx)}             ${num(f.volume)}x`,30,y);y+=30;}y+=28;}
     x.fillStyle='#e6b85c';lines(x,'方向の一致は勝率ではありません。15分以外は環境比較用。保存後の現在相場は公開ページで更新してください。',30,y,1200);return c;}
-  function prompt(pack){return pack.assets.map(a=>a.asset.toUpperCase()+'\n'+decisionText(decision(a,pack.capturedAt)).join('\n')).join('\n\n')+'\n\n'+`添付はMulti-Analyzerの確定足レビューです。利益が出るとの前提を置かず、データ鮮度、欠損、上位足構造、EMAリボン、出来高近似、コスト、反証条件から検討してください。EXITを即逆張りと解釈しないでください。\n比較対象：${pack.assets.map(a=>a.asset).join(', ')}。取得開始 ${jst(pack.capturedAt)}。各銘柄の基準時刻・設定・保存判定IDは manifest.json と画像に記載。時間足ごとの終値時刻は異なります。\n1. 現状は待機/押し目/戻り/撤退注意のどれか、根拠と不成立条件\n2. 15分共通判定と1分/5分のタイミング、1時間/4時間/日足の環境は整合するか\n3. 参考SL/TPに対するコストと損益比、飛び乗りを避ける確認水準\n4. この1例から勝率を推定せず、今後記録すべき比較仮説\n画像は直近180本、JSONは全取得確定足を含みます。POCは直近96本の近似で、全世界の約定ではありません。\nhttps://yuzora-yu.github.io/Multi-Analyzer/\n${pack.assets.map(a=>`https://yuzora-yu.github.io/Multi-Analyzer/?asset=${a.asset}&snapshot=${a.snapshot.id}`).join('\n')}\n保存画像は過去の基準時刻の記録であり、現在価格ではありません。`;}
+  function prompt(pack){return pack.assets.map(a=>a.asset.toUpperCase()+'\n'+decisionText(decision(a,pack.capturedAt)).join('\n')).join('\n\n')+'\n\n'+`添付はMulti-Analyzerの確定足レビューです。利益が出るとの前提を置かず、データ鮮度、欠損、上位足構造、EMAリボン、出来高近似、コスト、反証条件から検討してください。EXITを即逆張りと解釈しないでください。\n比較対象：${pack.assets.map(a=>a.asset).join(', ')}。取得開始 ${jst(pack.capturedAt)}。各銘柄の基準時刻・設定・保存判定IDは manifest.json と画像に記載。通常表示の15分以外は取得開始時点の最新確定足で、15分判定後の情報を含みます。過去判定の評価材料に遡及混入しないでください。過去保存表示は当時の時刻を維持します。時間足ごとの終値時刻は異なります。\n1. 現状は待機/押し目/戻り/撤退注意のどれか、根拠と不成立条件\n2. 15分共通判定と1分/5分のタイミング、1時間/4時間/日足の環境は整合するか\n3. 参考SL/TPに対するコストと損益比、飛び乗りを避ける確認水準\n4. この1例から勝率を推定せず、今後記録すべき比較仮説\n画像は直近180本、JSONは全取得確定足を含みます。POCは直近96本の近似で、全世界の約定ではありません。\nhttps://yuzora-yu.github.io/Multi-Analyzer/\n${pack.assets.map(a=>`https://yuzora-yu.github.io/Multi-Analyzer/?asset=${a.asset}&snapshot=${a.snapshot.id}`).join('\n')}\n保存画像は過去の基準時刻の記録であり、現在価格ではありません。`;}
   async function collect(assets,{signal,archivedId,onProgress=()=>{}}={}){
-    const Core=globalThis.MultiAnalyzerCore,Feed=globalThis.MultiAnalyzerFeed,pack={schema:1,capturedAt:Date.now(),version:Core.VERSION,assets:[],records:[],errors:[],policy};
+    const Core=globalThis.MultiAnalyzerCore,Feed=globalThis.MultiAnalyzerFeed,pack={schema:2,mode:archivedId?'archived':'latest',capturedAt:Date.now(),version:Core.VERSION,assets:[],records:[],errors:[],policy};
     async function get(url){const r=await fetch(url,{signal:AbortSignal.any([signal||new AbortController().signal,AbortSignal.timeout(15000)])});if(!r.ok)throw Error(`HTTP ${r.status}`);return r.json();}
     for(const asset of assets){
       signal?.throwIfAborted();onProgress(`${asset}: 共通判定を取得`);
       let s;try{s=await get(`https://multi-analyzer-monitor.rikai-829.workers.dev/api/snapshot?asset=${asset}${archivedId?'&id='+encodeURIComponent(archivedId):''}`);}catch(e){if(signal?.aborted)throw e;pack.errors.push({asset,tf:'all',error:e.message});continue;}
       if(s.version!==Core.VERSION||!s.bars?.m15||s.asset!==asset)throw Error('共通判定の銘柄・バージョン不一致');
-      const cutoff=s.settings.now,input=Feed.input(s),marketSignal=Core.analyzeMarket(input,s.settings);pack.assets.push({asset,snapshot:s,signal:marketSignal});
+      const decisionCutoff=s.settings.now,input=Feed.input(s),marketSignal=Core.analyzeMarket(input,s.settings);pack.assets.push({asset,snapshot:s,signal:marketSignal});
       for(const [tf,minutes] of frames){
         signal?.throwIfAborted();onProgress(`${asset} ${tf}: 確定足を取得`);
         try{
+          const cutoff=archivedId||tf==='15m'?decisionCutoff:pack.capturedAt;
           const rows=tf==='15m'?input.exec:closed(Core.normalizeCandles(Feed.parse(await get(Feed.url(asset,minutes,1000,cutoff-1)))) ,minutes,cutoff);
           if(!rows.length)throw Error('確定足なし');
           const analysis=tf==='15m'?marketSignal.exec:Core.analyzeTimeframe(rows,minutes,cutoff);
-          pack.records.push({asset,tf,minutes,rows,analysis,signal:tf==='15m'?marketSignal:null,cutoff,capturedAt:pack.capturedAt,snapshotId:s.id,version:Core.VERSION});
+          pack.records.push({asset,tf,minutes,rows,analysis,signal:tf==='15m'?marketSignal:null,cutoff,decisionCutoff,timeBasis:archivedId?'archived-decision':tf==='15m'?'canonical-decision':'latest-closed',capturedAt:pack.capturedAt,snapshotId:s.id,version:Core.VERSION});
         }catch(e){if(signal?.aborted)throw e;pack.errors.push({asset,tf,error:e.message});}
       }
     }
@@ -135,7 +147,7 @@
     const $=id=>document.getElementById(id);let pack=null,controller=null,downloadUrl=null;
     const dialog=$('reviewDialog'),grid=$('reviewGrid'),status=$('reviewStatus');
     const summary=document.createElement('section');summary.className='review-overview';summary.setAttribute('aria-label','確認一覧');grid.before(summary);
-    function renderOverview(){const expanded=new Map([...summary.querySelectorAll('details[data-asset]')].map(d=>[d.dataset.asset,d.open]));summary.replaceChildren();if(!pack)return;for(const a of overview(pack)){const card=document.createElement('article'),h=document.createElement('h3');h.textContent=`${a.asset.toUpperCase()} — ${a.stale?'過去の記録':a.actionable?'研究用候補':'待機'}`;const note=document.createElement('p');note.textContent=`基準 ${jst(a.cutoff)} / コスト後RR ${num(a.netRR)}。${a.stale?'20分以上経過。現在の判断には更新が必要です。':a.reasons.join(' / ')||'条件成立。収益上の優位性は未確認。'}`;card.append(h,note);const table=document.createElement('table'),head=table.createTHead().insertRow();for(const name of ['時間足','構造','リボン','ADX','出来高']){const th=document.createElement('th');th.scope='col';th.textContent=name;head.append(th);}const body=table.createTBody();for(const f of a.frames){const row=body.insertRow();for(const value of [f.tf,f.missing?'欠測':f.structure==null?'?':dir(f.structure),f.ribbon==null?'?':dir(f.ribbon),num(f.adx),num(f.volume)+'x'])row.insertCell().textContent=value;}card.append(table);const detail=document.createElement('details');detail.className='review-decision';detail.dataset.asset=a.asset;detail.open=expanded.get(a.asset)??true;const title=document.createElement('summary');title.textContent='次に確認する条件・価格';detail.append(title);for(const text of decisionText(a.decision)){const p=document.createElement('p');p.textContent=text;p.dataset.status=text.startsWith('成立：')?'pass':text.startsWith('未成立：')?'wait':'info';detail.append(p);}card.append(detail);summary.append(card);}}
+    function renderOverview(){const expanded=new Map([...summary.querySelectorAll('details[data-asset]')].map(d=>[d.dataset.asset,d.open]));summary.replaceChildren();if(!pack)return;for(const a of overview(pack)){const card=document.createElement('article'),h=document.createElement('h3');h.textContent=`${a.asset.toUpperCase()} — ${a.stale?'過去の記録':a.actionable?'研究用候補':'待機'}`;const note=document.createElement('p');note.textContent=`基準 ${jst(a.cutoff)} / コスト後RR ${num(a.netRR)}。${a.stale?'20分以上経過。現在の判断には更新が必要です。':a.reasons.join(' / ')||'条件成立。収益上の優位性は未確認。'}`;card.append(h,note);const table=document.createElement('table'),head=table.createTHead().insertRow();for(const name of ['時間足','最終確定(JST)','構造','リボン','ADX','出来高']){const th=document.createElement('th');th.scope='col';th.textContent=name;head.append(th);}const body=table.createTBody();for(const f of a.frames){const row=body.insertRow();for(const value of [f.tf,f.closedAt?new Date(f.closedAt).toLocaleTimeString('ja-JP',{timeZone:'Asia/Tokyo',hour12:false}):'—',f.missing?'欠測':f.structure==null?'?':dir(f.structure),f.ribbon==null?'?':dir(f.ribbon),num(f.adx),num(f.volume)+'x'])row.insertCell().textContent=value;}card.append(table);const detail=document.createElement('details');detail.className='review-decision';detail.dataset.asset=a.asset;detail.open=expanded.get(a.asset)??true;const title=document.createElement('summary');title.textContent='次に確認する条件・価格';detail.append(title);for(const text of decisionText(a.decision)){const p=document.createElement('p');p.textContent=text;p.dataset.status=text.startsWith('成立：')?'pass':text.startsWith('未成立：')?'wait':'info';detail.append(p);}card.append(detail);summary.append(card);}}
     setInterval(()=>{if(dialog.open&&pack)renderOverview();},30000);
     function setView(mode){dialog.dataset.view=mode;for(const b of dialog.querySelectorAll('[data-review-view]'))b.setAttribute('aria-pressed',String(b.dataset.reviewView===mode));}
     async function refresh(){
@@ -146,7 +158,7 @@
         if(current!==controller)return;pack=result;renderOverview();
         for(const r of pack.records){const article=document.createElement('article');article.className='review-card';const h=document.createElement('h3');h.textContent=`${r.asset.toUpperCase()} / ${r.tf}`;const c=chartImage(r);c.setAttribute('aria-label',facts(r).join('。'));const details=document.createElement('div');details.className='review-facts';for(const text of facts(r)){const p=document.createElement('p');p.textContent=text;details.append(p);}article.append(h,c,details);grid.append(article);}
         const evidence=document.createElement('article');evidence.className='review-evidence';const heading=document.createElement('h3');heading.textContent='アラート条件・共通判定';const text=document.createElement('div');text.className='review-facts';for(const t of [...policy,...pack.assets.flatMap(a=>[`${a.asset.toUpperCase()} / ${a.signal.state}`,a.signal.plan?planText(a.signal.plan):'参考プランなし'])]){const p=document.createElement('p');p.textContent=t;text.append(p);}const image=evidenceImage(pack);image.hidden=true;evidence.append(heading,text,image);grid.append(evidence);
-        status.textContent=`${pack.records.length}時間足を固定表示。${pack.errors.length?'未取得: '+pack.errors.map(e=>e.asset+'/'+e.tf+' '+e.error).join(', '):'全時間足の取得完了。'} 基準 ${pack.assets.map(a=>a.asset+' '+jst(a.snapshot.settings.now)).join(' / ')}。更新するまで固定。`;
+        status.textContent=`${pack.records.length}時間足を固定表示。${pack.errors.length?'未取得: '+pack.errors.map(e=>e.asset+'/'+e.tf+' '+e.error).join(', '):'全時間足の取得完了。'} ${pack.mode==='latest'?'環境足は取得開始 '+jst(pack.capturedAt)+' の最新確定足。':'過去再現。'} 15分判定基準 ${pack.assets.map(a=>a.asset+' '+jst(a.snapshot.settings.now)).join(' / ')}。更新するまで固定。`;
         $('reviewSave').disabled=false;$('reviewCopy').disabled=false;
       }catch(e){if(current===controller)status.textContent=e.name==='AbortError'?'取得を中止しました。':'取得失敗：'+e.message;}
       finally{if(current===controller)controller=null;}
@@ -174,5 +186,5 @@
       }catch(e){status.textContent='保存失敗：'+e.message;}finally{button.disabled=false;$('reviewRefresh').disabled=false;$('reviewBoth').disabled=Boolean(getArchiveId());}
     });
   }
-  return{init,collect,zip,crc32,closed,frames,policy,facts,prompt,overview,decision,decisionText};
+  return{reasons,init,collect,zip,crc32,closed,frames,policy,facts,prompt,overview,decision,decisionText};
 });
