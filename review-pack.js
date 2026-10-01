@@ -77,6 +77,12 @@
   }
   function planText(p){return `参考プラン（未成立時は発注候補ではありません）：${p.direction} entry ${num(p.entry)} / SL ${num(p.stop)} / TP1 ${num(p.tp1)} / TP2 ${num(p.tp2)} / TP3 ${num(p.tp3)} / net RR ${num(p.netRR)}`;}
   // Presentation only: preserve canonical vetoes and all trading decisions.
+  function context(signal,basis){
+    const f=signal.exec?.flow?.latest;
+    const label=v=>v===1?'上向き':v===-1?'下向き':v===0?'中立':'不明';
+    const conflict=f?.direction===1&&f?.ribbon===-1||f?.direction===-1&&f?.ribbon===1;
+    return `${basis}確定足：確定スイング ${label(f?.structure)} / リボン ${label(f?.ribbon)}${conflict?' / 保持方向と不一致':''}（新規候補とは別）`;
+  }
   function reasons(signal){
     const f=signal.exec?.flow?.latest,d=f?.setup;
     return (signal.vetoes||[]).map(v=>{
@@ -97,11 +103,11 @@
       item('出来高',d?.volume,`${num(f?.volumeRatio)}倍 / 過去21本平均の1倍以上`),
       item('確定H1一致',f?.hourlyAligned,'H1と15分の保持方向が一致'),
       item('ADX',Number.isFinite(e?.values?.adx)?e.values.adx>=20:null,`${num(e?.values?.adx)} / 20以上`)];
-    return {id:a.snapshot.id,stale,direction:f?.direction>0?'押し目買い':f?.direction<0?'戻り売り':'方向待ち',
+    return {id:a.snapshot.id,stale,direction:context(s,'15m共通判定'),
       checks,levels:{ema13:d?.ema13??null,ema21:d?.ema21??null},
       exit:f?.exitLong?'買い保有の撤退注意':f?.exitShort?'売り保有の撤退注意':null,
       verdict:stale?'記録が古いため更新':s.actionable?'共通条件成立・研究用候補':'新規候補の条件待ち（検証中）',
-      note:'新規候補の条件表示であり、保有の継続・決済判断ではありません。精度は検証中です。各条件は同じ15分確定足で評価。成立数は勝率ではありません。EMA価格は次の足で変動し、価格への到達だけではサインになりません。',
+      note:'新規候補の条件表示であり、保有の継続・決済判断ではありません。確定スイングと保持方向は転換確認まで以前の向きが残る場合があります。リボンとの不一致は押し目成立を意味しません。精度は検証中です。各条件は同じ15分確定足で評価。成立数は勝率ではありません。EMA価格は次の足で変動し、価格への到達だけではサインになりません。',
       vetoes:reasons(s),plan:s.plan??null};
   }
   function decisionText(d){return [`${d.verdict} / ${d.direction}`,d.exit||'今回の足に黄EXITなし',
@@ -186,5 +192,5 @@
       }catch(e){status.textContent='保存失敗：'+e.message;}finally{button.disabled=false;$('reviewRefresh').disabled=false;$('reviewBoth').disabled=Boolean(getArchiveId());}
     });
   }
-  return{reasons,init,collect,zip,crc32,closed,frames,policy,facts,prompt,overview,decision,decisionText};
+  return{context,reasons,init,collect,zip,crc32,closed,frames,policy,facts,prompt,overview,decision,decisionText};
 });

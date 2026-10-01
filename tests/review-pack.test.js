@@ -4,6 +4,15 @@ const R=require('../review-pack');
 const Core=require('../strategy-core');
 const Feed=require('../market-feed');
 
+test('entry wait does not hide bearish structure and missing context stays unknown',()=>{
+ const a={state:'NO_TRADE',exec:{flow:{latest:{structure:-1,ribbon:-1}}}};
+ const before=JSON.stringify(a);
+ assert.match(R.context(a,'1m'),/1m確定足：確定スイング 下向き \/ リボン 下向き/);
+ assert.match(R.context({},'15m共通判定'),/確定スイング 不明 \/ リボン 不明/);
+ assert.match(R.context({exec:{flow:{latest:{direction:1,structure:1,ribbon:-1}}}},'15m'),/保持方向と不一致/);
+ assert.equal(JSON.stringify(a),before);
+});
+
 test('ZIP central directory locates binary and Japanese text entries with valid CRC',async()=>{
   const files=[{name:'chart.png',data:new Uint8Array([137,80,78,71,0,255])},{name:'consult-ai.txt',data:'確定足だけで評価'}];
   const bytes=new Uint8Array(await R.zip(files).arrayBuffer()),v=new DataView(bytes.buffer),end=bytes.length-22;

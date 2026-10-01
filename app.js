@@ -175,6 +175,7 @@
     $('actionHeadline').textContent = 'データ取得中・判断待機';
     $('actionCompass').className = 'action-compass wait';
     $('actionTargets').textContent = '価格と分析を更新中';
+    $('actionContext').textContent = '価格構造を取得中';
     $('sheetSummary').textContent = '判断待機';
     $('signalBadge').textContent = '判断待機';
     $('positionAction').textContent = '判断待機';
@@ -654,7 +655,7 @@
     const exit = pos?.action.startsWith('EXIT');
     const cls = stale ? 'wait' : exit ? 'exit' : a.actionable ? (a.direction === 'LONG' ? 'buy' : 'sell') : 'wait';
     $('actionCompass').className = `action-compass ${cls}`;
-    $('actionHeadline').textContent = stale ? '— 更新停止・判断待機' : exit ? `× ${(getPosition()||state.snapshot?.settings.position)?.direction === 'LONG' ? '買い' : '売り'}ポジション クローズ推奨${!getPosition()?'（前回候補を保有中なら）':''}` : `${cls === 'buy' ? '▲' : cls === 'sell' ? '▼' : '—'} ${stateLabel(a.state)}`;
+    $('actionHeadline').textContent = stale ? '— 更新停止・判断待機' : exit ? `× ${(getPosition()||state.snapshot?.settings.position)?.direction === 'LONG' ? '買い' : '売り'}ポジション クローズ推奨${!getPosition()?'（前回候補を保有中なら）':''}` : `${cls === 'buy' ? '▲' : cls === 'sell' ? '▼' : '—'} ${a.state === 'NO_TRADE' ? '新規候補なし' : stateLabel(a.state)}`;
     if(INITIAL_PARAMS.has('snapshot'))$('actionHeadline').textContent='保存記録｜'+$('actionHeadline').textContent;
     $('actionTargets').textContent = stale ? '価格が復旧するまで新規シグナルを停止します' : exit ? pos.reasons.join(' / ') : a.actionable && p ? `目標 ${fmt(p.tp1)} → ${fmt(p.tp2)} ｜ SL ${fmt(p.stop)} ｜ 基準 ${fmt(p.entry)}` : window.MultiAnalyzerReview.reasons(a)[0] || a.message;
     $('sourceNotice').textContent = state.offlineCsv ? 'CSV検証 / 実相場ではありません・通知しません' : `分析・目標: ${currentInstrument().symbol} (${currentInstrument().market}) / ブローカーのUSD価格とは異なります`;
@@ -665,6 +666,10 @@
       $('livePreviewText').textContent='通知と共通の15分確定足 / 設定は共通固定・ライブ価格は判定と別更新';
     }
     const flow=a.exec.flow, f=flow?.latest;
+    const basis = state.snapshot ? '15m共通判定' : currentTf().label;
+    const closedBar = a.exec.candles.at(-1);
+    const closeAt = closedBar ? closedBar.time + (state.snapshot ? 15 : currentTf().minutes) * 60000 : null;
+    $('actionContext').textContent = stale ? '構造表示を保留（更新停止）' : window.MultiAnalyzerReview.context(a, basis) + (closeAt ? ` / 確定 ${new Date(closeAt).toLocaleTimeString('ja-JP', {timeZone:'Asia/Tokyo', hour:'2-digit', minute:'2-digit'})} JST` : '');
     if(f)$('flowSummary').innerHTML=`<strong>${f.direction>0?'↑ 上向き保持':f.direction<0?'↓ 下向き保持':'— 未確定'}</strong><span>高安構造 ${f.structure>0?'↑':f.structure<0?'↓':'→'} / EMA5対144 ${f.ribbon>0?'↑':f.ribbon<0?'↓':'→'} / 転換票 ${f.votes}/${f.requiredVotes}</span><span>H1一致 ${f.hourlyAligned?'あり':'なし'} ｜ 出来高 ${fmt(f.volumeRatio,2)}倍 ｜ ${f.rank||'—'}${f.badge?' +'+f.badge:''}</span><span>${f.pullbackConfirmed?'P：押し目・奪還・出来高・H1一致':f.absorption?'吸収候補：出来高に対して値幅が小さい（推定）':'P条件待ち'} / ADX ${fmt(a.exec.values.adx,1)} / リボン幅 ${fmt(f.widthATR,2)} ATR</span><small>黄EXIT注意＝EMA13を反対側で2本確定。反転エントリーではありません。S/A/B・V/VRは独自条件の分類で、勝率順位ではありません。POC/VAは直近96本のOHLCV近似。</small>`;
     const m = a.exec.smc;
     if (!m) return;
