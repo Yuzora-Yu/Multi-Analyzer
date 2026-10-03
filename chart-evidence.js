@@ -29,5 +29,19 @@
     }
     return markers;
   }
-  return {markers,hourlyZones,spaceLabels};
+  function context(a){
+    const direction=n=>n===1?'上向き':n===-1?'下向き':n===0?'中立':'不明';
+    const frame=f=>!f?.ready||f.quality?.stale?'不明':`${direction(f.flow?.latest?.structure)}（MA ${f.trend==='bull'?'上':f.trend==='bear'?'下':f.trend==='range'?'横':'不明'}）`;
+    const f=a.exec?.flow?.latest,m=a.exec?.smc;
+    if(!f||a.exec.quality?.stale)return {environment:'データ不足・更新停止',location:'不明',confirmation:'判定を保留',exit:'不明'};
+    const conflict=f.direction!==0&&f.ribbon!==0&&f.direction!==f.ribbon;
+    const event=m?.events?.filter(e=>e.time===f.time).map(e=>`${e.side==='bull'?'買':'売'} ${e.type}`).join(' / ');
+    return {
+      environment:`H4構造 ${frame(a.h4)} / H1構造 ${frame(a.h1)} / 執行足 ${direction(f.structure)}`,
+      location:m?.location==='premium'?'確認済み高安レンジの上半分':m?.location==='discount'?'確認済み高安レンジの下半分':'高安レンジ未確定',
+      confirmation:conflict?'保持方向とリボンが不一致。継続の根拠を再確認':event?`最新確定足：${event}`:'最新確定足に新しい構造イベントなし',
+      exit:f.exitLong?'買いEXIT注意：EMA13下で2本確定':f.exitShort?'売りEXIT注意：EMA13上で2本確定':'最新確定足のEXIT注意なし'
+    };
+  }
+  return {markers,hourlyZones,spaceLabels,context};
 });

@@ -1,4 +1,10 @@
 const test=require('node:test'),assert=require('node:assert/strict'),E=require('../chart-evidence');
+test('SMC context separates upper frames, current events, ribbon conflict and exit',()=>{
+ const frame=n=>({ready:true,quality:{stale:false},flow:{latest:{structure:n}}});
+ const a={h4:frame(-1),h1:frame(0),exec:{...frame(1),flow:{latest:{time:2000,structure:1,direction:-1,ribbon:1,exitShort:true}},smc:{location:'premium',events:[{time:1000,type:'BOS',side:'bull'}]}}};
+ const c=E.context(a);assert.match(c.environment,/H4構造 下向き/);assert.match(c.confirmation,/不一致/);assert.match(c.exit,/売りEXIT/);assert.doesNotMatch(c.confirmation,/BOS/);
+ a.exec.quality.stale=true;assert.equal(E.context(a).confirmation,'判定を保留');
+});
 test('label spacing preserves transition explanations over nearby exit notices without removing markers',()=>{
  const m=[{time:1,text:'リボン ↓'},{time:2,text:'売 EXIT注意'},{time:20,text:'方向転換 売 B'}];
  E.spaceLabels(m,5);assert.equal(m.length,3);assert.equal(m[0].text,'リボン ↓');assert.equal(m[1].text,'');assert.equal(m[2].text,'方向転換 売 B');

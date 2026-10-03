@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=4.3.1-ui6">
+  <link rel="stylesheet" href="styles.css?v=4.3.2-mobile10">
   <script defer src="https://unpkg.com/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js"></script>
   <script defer src="market-feed.js?v=4.3.1-ui3"></script>
   <script defer src="smc-core.js"></script>
@@ -18,8 +18,8 @@
   <script defer src="flow-core.js?v=4.3.1-ui6"></script>
   <script defer src="strategy-core.js?v=4.3.2"></script>
   <script defer src="review-pack.js?v=4.3.2-ui8"></script>
-  <script defer src="chart-evidence.js?v=4.3.2-ui9"></script>
-  <script defer src="app.js?v=4.3.2-ui9"></script>
+  <script defer src="chart-evidence.js?v=4.3.2-mobile10"></script>
+  <script defer src="app.js?v=4.3.2-mobile10"></script>
 </head>
 <body>
   <div class="app-shell">
@@ -73,7 +73,7 @@
             <button data-tf="1d" type="button">日足</button>
           </div>
 
-          <label class="history-control">表示 <select id="chartRange" aria-label="チャート表示本数"><option value="140">140本</option><option value="300" selected>300本</option><option value="0">全履歴</option></select><span id="historyCount"></span></label>
+          <label class="history-control">表示 <select id="chartRange" aria-label="チャート表示本数"><option value="60">60本</option><option value="90">90本</option><option value="140">140本</option><option value="300" selected>300本</option><option value="0">全履歴</option></select><span id="historyCount"></span></label>
           <div class="legend" aria-label="チャート凡例">
             <span class="ema20">EMA20</span><span class="ema50">EMA50</span><span class="vwap">VWAP</span>
           </div>
@@ -87,6 +87,12 @@
 
         <div class="terminal-workspace">
           <div class="chart-area">
+            <div class="chart-touch-tools" aria-label="チャート操作">
+              <button id="chartZoomOut" type="button" aria-label="チャートを縮小">−</button>
+              <button id="chartZoomIn" type="button" aria-label="チャートを拡大">＋</button>
+              <button id="chartReset" type="button">最新へ</button>
+              <span>2本指で拡大・縮小</span>
+            </div>
             <div class="chart-container" id="chartContainer">
               <div class="chart-loading" id="chartLoading"><span class="spinner"></span><span>マーケットデータ取得中</span></div>
             </div>
@@ -158,6 +164,7 @@
                     <div><span class="pulse-dot"></span><strong>判定モード</strong></div>
                     <span id="livePreviewText">価格更新待ち</span>
                   </div>
+                  <div class="smc-context" id="smcContext" aria-live="polite"></div>
                   <div class="flow-summary" id="flowSummary" aria-live="polite"></div>
                   <p class="dialog-note">参考スコアは相場環境の表示です。通知はP条件で判定します。<a href="https://github.com/Yuzora-Yu/Multi-Analyzer/blob/main/RESEARCH_V43.md" target="_blank" rel="noopener">条件と検証結果</a></p>
                   <a id="currentSnapshotLink" href="?tf=15m">現在の共通判定を開く</a>

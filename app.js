@@ -512,6 +512,16 @@
     else state.chart.timeScale().setVisibleLogicalRange({from:Math.max(0,n-count),to:n+3});
   }
 
+  function zoomChart(factor) {
+    if(!state.chart)return;
+    const range=state.chart.timeScale().getVisibleLogicalRange();
+    if(!range)return;
+    const middle=(range.from+range.to)/2;
+    const span=Math.max(12,Math.min(Math.max(30,state.data.exec.length+6),(range.to-range.from)*factor));
+    state.chart.timeScale().setVisibleLogicalRange({from:middle-span/2,to:middle+span/2});
+    state.redrawFlow?.();
+  }
+
   function updateLiveCandle(candle) {
     if (!state.candleSeries) return;
     state.candleSeries.update({ time: toChartTime(candle.time), open: candle.open, high: candle.high, low: candle.low, close: candle.close });
@@ -668,6 +678,8 @@
     const closeAt = closedBar ? closedBar.time + (state.snapshot ? 15 : currentTf().minutes) * 60000 : null;
     $('actionContext').textContent = stale ? '構造表示を保留（更新停止）' : window.MultiAnalyzerReview.context(a, basis) + (closeAt ? ` / 確定 ${new Date(closeAt).toLocaleTimeString('ja-JP', {timeZone:'Asia/Tokyo', hour:'2-digit', minute:'2-digit'})} JST` : '');
     if(f)$('flowSummary').innerHTML=`<strong>${f.direction>0?'↑ 上向き保持':f.direction<0?'↓ 下向き保持':'— 未確定'}</strong><span>高安構造 ${f.structure>0?'↑':f.structure<0?'↓':'→'} / EMA5対144 ${f.ribbon>0?'↑':f.ribbon<0?'↓':'→'} / 転換票 ${f.votes}/${f.requiredVotes}</span><span>H1一致 ${f.hourlyAligned?'あり':'なし'} ｜ 出来高 ${fmt(f.volumeRatio,2)}倍 ｜ ${f.rank||'—'}${f.badge?' +'+f.badge:''}</span><span>${f.pullbackConfirmed?'P：押し目・奪還・出来高・H1一致':f.absorption?'吸収候補：出来高に対して値幅が小さい（推定）':'P条件待ち'} / ADX ${fmt(a.exec.values.adx,1)} / リボン幅 ${fmt(f.widthATR,2)} ATR</span><small>矢印＝確定足のリボン転換／保持方向の転換。H1 OB＝現在有効な推定帯（過去の成立証拠ではありません）。黄EXIT注意＝EMA13を反対側で2本確定。反転エントリーではありません。S/A/B・V/VRは独自条件の分類で、勝率順位ではありません。POC/VAは直近96本のOHLCV近似。</small>`;
+    const context=window.MultiAnalyzerEvidence.context(a);
+    $('smcContext').innerHTML=Object.entries({環境:context.environment,位置:context.location,確認:context.confirmation,撤退注意:context.exit}).map(([label,value])=>`<p><strong>${label}</strong><span>${esc(value)}</span></p>`).join('');
     const m = a.exec.smc;
     if (!m) return;
     $('smcDetails').innerHTML = `<div class="smc-tags"><span>${esc(m.location)} / EQ ${fmt(m.equilibrium)}</span><span>推定POC ${fmt(m.poc)}</span></div>` +
@@ -870,7 +882,7 @@
     state.insightTab = tab;
     qsa('[data-insight-tab]').forEach(button => button.classList.toggle('active', button.dataset.insightTab === tab));
     qsa('[data-insight-page]').forEach(page => page.classList.toggle('active', page.dataset.insightPage === tab));
-    if (window.matchMedia('(max-width: 760px)').matches) {
+    if (window.matchMedia('(max-width: 1024px)').matches) {
       $('insightPanel').classList.remove('sheet-collapsed');
       $('insightToggle').setAttribute('aria-expanded', 'true');
       scheduleChartResize();
@@ -878,7 +890,7 @@
   }
 
   function toggleInsightSheet() {
-    if (!window.matchMedia('(max-width: 760px)').matches) return;
+    if (!window.matchMedia('(max-width: 1024px)').matches) return;
     const panel = $('insightPanel');
     const collapsed = panel.classList.toggle('sheet-collapsed');
     $('insightToggle').setAttribute('aria-expanded', String(!collapsed));
@@ -886,7 +898,7 @@
   }
 
   function syncInsightLayout() {
-    const mobile = window.matchMedia('(max-width: 760px)').matches;
+    const mobile = window.matchMedia('(max-width: 1024px)').matches;
     const panel = $('insightPanel');
     if (mobile) {
       panel.classList.add('sheet-collapsed');
@@ -899,11 +911,18 @@
   }
 
   function bindEvents() {
+    $('chartZoomIn').addEventListener('click',()=>zoomChart(.75));
+    $('chartZoomOut').addEventListener('click',()=>zoomChart(1/.75));
+    $('chartReset').addEventListener('click',()=>{
+      if(!state.chart)return;
+      state.candleSeries.priceScale().applyOptions({autoScale:true});
+      applyChartRange();state.redrawFlow?.();
+    });
     qsa('[data-insight-tab]').forEach(button => button.addEventListener('click', () => setInsightTab(button.dataset.insightTab)));
     $('insightToggle').addEventListener('click', toggleInsightSheet);
     window.addEventListener('resize', scheduleChartResize, { passive: true });
     window.addEventListener('orientationchange', () => setTimeout(scheduleChartResize, 180), { passive: true });
-    window.matchMedia('(max-width: 760px)').addEventListener?.('change', syncInsightLayout);
+    window.matchMedia('(max-width: 1024px)').addEventListener?.('change', syncInsightLayout);
     qsa('.instrument-tab').forEach(button => button.addEventListener('click', () => {
       if (button.dataset.instrument === state.instrumentId) return;
       state.instrumentId = button.dataset.instrument;
@@ -970,7 +989,7 @@
   }
 
   function init() {
-    if (window.matchMedia('(max-width: 760px)').matches) $('chartRange').value = '140';
+    if (window.matchMedia('(max-width: 1024px)').matches) $('chartRange').value = '90';
     window.MultiAnalyzerReview.init({getAsset:()=>state.instrumentId,getArchiveId:()=>INITIAL_PARAMS.get('snapshot'),onLayout:scheduleChartResize});
     qsa('.instrument-tab').forEach(b => b.classList.toggle('active', b.dataset.instrument === state.instrumentId));
     qsa('.timeframes button').forEach(b => b.classList.toggle('active', b.dataset.tf === state.tf));
