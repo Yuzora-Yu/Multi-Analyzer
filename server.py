@@ -99,6 +99,7 @@ class Handler(SimpleHTTPRequestHandler):
             return
         allowed = {"/", "/index.html", "/app.js", "/strategy-core.js", "/smc-core.js", "/flow-core.js", "/market-feed.js", "/chart-overlays.js", "/styles.css", "/backtest-worker.js", "/sample-data.csv", "/SETUP.md", "/README.md", "/RESEARCH.md"}
         allowed.add('/review-pack.js')
+        allowed.add('/chart-evidence.js')
         if parsed.path not in allowed:
             self._error(HTTPStatus.NOT_FOUND, "Not found")
             return

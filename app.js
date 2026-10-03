@@ -462,12 +462,7 @@
     state.vwapSeries.setData(lineData(state.analysis.exec.candles.slice(offset), state.analysis.exec.series.vwap96.slice(offset)));
 
     state.volumeSeries.setData(visible.map(c=>({time:toChartTime(c.time),value:c.volume,color:c.close>=c.open?'#43d49d66':'#ff6b7866'})));
-    const markers = [];
-    for(const f of (state.analysis.exec.flow?.history||[]).slice(-60)){
-      if(f.time<visible[0].time)continue;
-      if(f.pullbackConfirmed)markers.push({time:toChartTime(f.time),position:f.direction>0?'belowBar':'aboveBar',color:'#bf9dff',shape:'circle',text:'P 押し目条件'});
-      if(f.exitLong||f.exitShort)markers.push({time:toChartTime(f.time),position:f.exitLong?'aboveBar':'belowBar',color:'#ffd44a',shape:'circle',text:f.exitLong?'買 EXIT':'売 EXIT'});
-    }
+    const markers = window.MultiAnalyzerEvidence.markers(state.analysis.exec.flow?.history||[],visible[0].time);
     let lastMarkerTime = 0;
     for (const e of (state.analysis.exec.smc?.events || []).slice(-12)) {
       if (e.time - lastMarkerTime < currentTf().minutes * 60000 * 3) continue;
@@ -479,15 +474,17 @@
     markers.sort((a, b) => a.time - b.time);
     // Preserve every marker, but space labels so small screens remain readable.
     const labelBars = Math.max(3, Math.ceil((Number($('chartRange').value) || visible.length) * 65 / Math.max(240, state.chartSize.width)));
-    let lastLabel = Infinity;
-    for (let i = markers.length - 1; i >= 0; i--) {
-      if (lastLabel - markers[i].time < labelBars * currentTf().minutes * 60) markers[i].text = '';
-      else lastLabel = markers[i].time;
-    }
+    window.MultiAnalyzerEvidence.spaceLabels(markers,labelBars*currentTf().minutes*60);
     state.candleSeries.setMarkers(markers);
 
     for (const line of state.priceLines) state.candleSeries.removePriceLine(line);
     state.priceLines = [];
+    const executionClose=state.analysis.exec.candles.at(-1).time+currentTf().minutes*60000;
+    for(const z of window.MultiAnalyzerEvidence.hourlyZones(state.analysis.h1,executionClose)){
+      for(const [edge,price] of [['下端',z.low],['上端',z.high]]){
+        state.priceLines.push(state.candleSeries.createPriceLine({price,color:z.side==='bull'?'#43d49d':'#ed9851',lineWidth:2,lineStyle:2,axisLabelVisible:true,title:`H1 ${z.side==='bull'?'買':'売'}OB ${edge}`}));
+      }
+    }
     if (state.analysis.actionable && state.analysis.plan) {
       const levels = [
         ['ENTRY', state.analysis.plan.entry, '#e6b85c', 1],
@@ -670,7 +667,7 @@
     const closedBar = a.exec.candles.at(-1);
     const closeAt = closedBar ? closedBar.time + (state.snapshot ? 15 : currentTf().minutes) * 60000 : null;
     $('actionContext').textContent = stale ? '構造表示を保留（更新停止）' : window.MultiAnalyzerReview.context(a, basis) + (closeAt ? ` / 確定 ${new Date(closeAt).toLocaleTimeString('ja-JP', {timeZone:'Asia/Tokyo', hour:'2-digit', minute:'2-digit'})} JST` : '');
-    if(f)$('flowSummary').innerHTML=`<strong>${f.direction>0?'↑ 上向き保持':f.direction<0?'↓ 下向き保持':'— 未確定'}</strong><span>高安構造 ${f.structure>0?'↑':f.structure<0?'↓':'→'} / EMA5対144 ${f.ribbon>0?'↑':f.ribbon<0?'↓':'→'} / 転換票 ${f.votes}/${f.requiredVotes}</span><span>H1一致 ${f.hourlyAligned?'あり':'なし'} ｜ 出来高 ${fmt(f.volumeRatio,2)}倍 ｜ ${f.rank||'—'}${f.badge?' +'+f.badge:''}</span><span>${f.pullbackConfirmed?'P：押し目・奪還・出来高・H1一致':f.absorption?'吸収候補：出来高に対して値幅が小さい（推定）':'P条件待ち'} / ADX ${fmt(a.exec.values.adx,1)} / リボン幅 ${fmt(f.widthATR,2)} ATR</span><small>黄EXIT注意＝EMA13を反対側で2本確定。反転エントリーではありません。S/A/B・V/VRは独自条件の分類で、勝率順位ではありません。POC/VAは直近96本のOHLCV近似。</small>`;
+    if(f)$('flowSummary').innerHTML=`<strong>${f.direction>0?'↑ 上向き保持':f.direction<0?'↓ 下向き保持':'— 未確定'}</strong><span>高安構造 ${f.structure>0?'↑':f.structure<0?'↓':'→'} / EMA5対144 ${f.ribbon>0?'↑':f.ribbon<0?'↓':'→'} / 転換票 ${f.votes}/${f.requiredVotes}</span><span>H1一致 ${f.hourlyAligned?'あり':'なし'} ｜ 出来高 ${fmt(f.volumeRatio,2)}倍 ｜ ${f.rank||'—'}${f.badge?' +'+f.badge:''}</span><span>${f.pullbackConfirmed?'P：押し目・奪還・出来高・H1一致':f.absorption?'吸収候補：出来高に対して値幅が小さい（推定）':'P条件待ち'} / ADX ${fmt(a.exec.values.adx,1)} / リボン幅 ${fmt(f.widthATR,2)} ATR</span><small>矢印＝確定足のリボン転換／保持方向の転換。H1 OB＝現在有効な推定帯（過去の成立証拠ではありません）。黄EXIT注意＝EMA13を反対側で2本確定。反転エントリーではありません。S/A/B・V/VRは独自条件の分類で、勝率順位ではありません。POC/VAは直近96本のOHLCV近似。</small>`;
     const m = a.exec.smc;
     if (!m) return;
     $('smcDetails').innerHTML = `<div class="smc-tags"><span>${esc(m.location)} / EQ ${fmt(m.equilibrium)}</span><span>推定POC ${fmt(m.poc)}</span></div>` +
