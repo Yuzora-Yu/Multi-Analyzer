@@ -1,11 +1,20 @@
 'use strict';
 const instruments = {gold:{symbol:'XAUUSDT'},btc:{symbol:'BTCUSDT'}};
 const PUBLIC_PAGE = 'https://yuzora-yu.github.io/Multi-Analyzer/';
+function alertPolicy(asset, now, bar) {
+  const weekend = time => {
+    const day = new Date(Number(time) + 9 * 3600000).getUTCDay();
+    return !Number.isFinite(day) || day === 0 || day === 6;
+  };
+  const blocked = asset === 'gold' && (weekend(now) || (bar != null && weekend(bar)));
+  return { allowed: !blocked, timezone: 'Asia/Tokyo', rule: asset === 'gold' ? 'GOLD_WEEKDAYS_JST' : 'ALWAYS', reason: blocked ? 'GOLD_WEEKEND_JST' : null };
+}
 function eventFor(a, asset, position, feed = {}) {
+  const bar = a.exec.candles.at(-1)?.time;
+  if (!alertPolicy(asset, feed.now ?? a.generatedAt ?? Date.now(), bar).allowed) return null;
   const exit = a.positionDecision?.action.startsWith('EXIT');
   if (!a.actionable && !exit) return null;
   const state = exit ? a.positionDecision.action : a.state;
-  const bar = a.exec.candles.at(-1)?.time;
   const key = exit ? `${asset}:${state}:${position?.entry}:${position?.stop}` : `${asset}:${state}:${bar}`;
   const p = a.plan;
   const side = state.includes('LONG') ? '買い' : '売り';
@@ -24,4 +33,4 @@ function eventFor(a, asset, position, feed = {}) {
   return { key, title, url, text: lines.join('\n\n') };
 }
 
-module.exports = { eventFor };
+module.exports = { eventFor, alertPolicy };

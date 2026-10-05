@@ -40,7 +40,8 @@ export class MarketMonitor extends DurableObject {
     let state=await this.ctx.storage.get('state') || {delivered:{},baseline:false,cache:{},day,count:0};
     if(state.feed!=='bybit-v1'){state={delivered:{},baseline:false,cache:{},day,count:0,feed:'bybit-v1',archives:[]};}
     if(state.day!==day){state.day=day;state.count=0;}
-    const status={updatedAt:now,state:'DATA_ERROR',source:'Bybit',symbol:ASSETS[asset],pollMinutes:1,requestsToday:state.count,emailEnabled:this.env.ALERTS_ENABLED==='true',dryRun,lastEmail:state.lastEmail||null};
+    const policy=Events.alertPolicy(asset,now);
+    const status={updatedAt:now,state:'DATA_ERROR',source:'Bybit',symbol:ASSETS[asset],pollMinutes:1,requestsToday:state.count,emailEnabled:this.env.ALERTS_ENABLED==='true' && policy.allowed,alertSchedule:policy,dryRun,lastEmail:state.lastEmail||null};
     try {
       const series={};
       for(const [interval,minutes] of Object.entries(INTERVALS)){
@@ -70,20 +71,31 @@ export class MarketMonitor extends DurableObject {
       const note='BybitのUSDT参考市場。金は無期限契約、BTCは現物です。出来高は同取引所の取引量で、XMのUSD価格・世界全体の出来高とは異なります。ランク・バッジ・スコアは勝率ではありません。撤退通知は前回の候補を保有している場合の案内で、実際の保有情報は取得していません。通知は15分確定足で確認し、ブローカーのSL注文を代行しません。';
       const position=snapshot.settings.position;
       const exit=analysis.positionDecision?.action.startsWith('EXIT');
-      const event=position && !exit ? null : Events.eventFor(analysis,asset,position,{symbol:ASSETS[asset],note,snapshot:id,version:Core.VERSION,conditionalExit:Boolean(position)});
+      const deliveryPolicy=Events.alertPolicy(asset,now,bar);
+      status.alertSchedule=deliveryPolicy;
+      status.emailEnabled=this.env.ALERTS_ENABLED==='true' && deliveryPolicy.allowed;
+      const event=position && !exit ? null : Events.eventFor(analysis,asset,position,{now,symbol:ASSETS[asset],note,snapshot:id,version:Core.VERSION,conditionalExit:Boolean(position)});
       if(!dryRun){
+        // Keep virtual position tracking current without queuing a weekend exit for Monday.
+        if(exit && !deliveryPolicy.allowed) state.paperPosition=null;
         if(!state.baseline){state.baseline=true;if(event)state.delivered[event.key]=now;}
         else if(event && !state.delivered[event.key] && this.env.ALERTS_ENABLED==='true'){
           await this.ctx.storage.put('alert:'+id,snapshot);
           state.alertIds=state.alertIds||[];
           if(!state.alertIds.includes(id))state.alertIds.push(id);
           while(state.alertIds.length>100)await this.ctx.storage.delete('alert:'+state.alertIds.shift());
+          // Check the clock again: data fetch/storage can straddle Saturday midnight.
+          const sendPolicy=Events.alertPolicy(asset,Date.now(),bar);
+          status.alertSchedule=sendPolicy;
+          status.emailEnabled=this.env.ALERTS_ENABLED==='true' && sendPolicy.allowed;
+          if(sendPolicy.allowed){
           await this.env.EMAIL.send({from:'alerts@yu-zora.com',to:this.env.EMAIL_TO,subject:event.title,text:event.text,html:'<div style="white-space:pre-wrap">'+escapeHtml(event.text)+'</div><p><a href="'+event.url+'">公開チャートを開く</a></p>'});
           state.delivered[event.key]=now;
           state.lastEmail={acceptedAt:now,asset,snapshotId:id,title:event.title};
           status.emailAcceptedAt=now;status.lastEmail=state.lastEmail;
           if(exit)state.paperPosition=null;
           else state.paperPosition={direction:analysis.direction,entry:analysis.plan.entry,stop:analysis.plan.stop,openedAt:snapshot.settings.now,referenceOnly:true};
+          }else if(exit)state.paperPosition=null;
         }
       }
       state.delivered=Object.fromEntries(Object.entries(state.delivered).sort((a,b)=>b[1]-a[1]).slice(0,200));

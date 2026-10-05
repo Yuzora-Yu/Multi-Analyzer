@@ -9,7 +9,7 @@ const DIR = path.join(__dirname, '.runtime');
 const instruments = { gold: { symbol: 'XAUUSDT', market: 'futures' }, btc: { symbol: 'BTCUSDT', market: 'spot' } };
 const PUBLIC_PAGE = 'https://yuzora-yu.github.io/Multi-Analyzer/';
 
-const { eventFor } = require('./alert-event.js');
+const { eventFor, alertPolicy } = require('./alert-event.js');
 
 async function run() {
   fs.mkdirSync(DIR, { recursive: true });
@@ -32,19 +32,20 @@ async function run() {
         const position=config.positions?.[asset];
         const a=Core.analyzeMarket(Feed.input(snapshot),snapshot.settings);
         a.positionDecision=Core.positionDecision(position,a,a.exec.values.close);
-        status.assets[asset]={state:a.state,position:a.positionDecision?.action||null,bar:a.exec.candles.at(-1)?.time,snapshotId:snapshot.id};
-        const event=eventFor(a,asset,position,{symbol:snapshot.symbol,snapshot:snapshot.id,version:snapshot.version,note:'Bybit共通判定。USDT参考市場で、XMのUSD価格とは異なります。'});
+        const bar=a.exec.candles.at(-1)?.time;
+        status.assets[asset]={state:a.state,position:a.positionDecision?.action||null,bar,snapshotId:snapshot.id,alertSchedule:alertPolicy(asset,Date.now(),bar)};
+        const event=eventFor(a,asset,position,{now:Date.now(),symbol:snapshot.symbol,snapshot:snapshot.id,version:snapshot.version,note:'Bybit共通判定。USDT参考市場で、XMのUSD価格とは異なります。'});
         // Baseline on first run: don't broadcast existing historical setups.
         if (!saved.baselines[asset]) { saved.baselines[asset] = true; if (event) for (const ch of channels) saved.delivered[`${ch}:${event.key}`] = Date.now(); }
         if (event) for (const ch of channels) {
           const id = `${ch}:${event.key}`; validKeys.add(id);
-          if (!saved.delivered[id] && !saved.disabled[ch] && !saved.pending[id]) saved.pending[id] = { ...event, channel: ch, due: Date.now(), asset };
+          if (!saved.delivered[id] && !saved.disabled[ch] && !saved.pending[id]) saved.pending[id] = { ...event, channel: ch, due: Date.now(), asset, bar };
         }
       } catch { status.assets[asset] = { state: 'DATA_ERROR' }; status.error = '市場データ取得失敗・該当銘柄の通知停止'; }
     }
     // Never retry a signal after it has disappeared, become stale, or been superseded.
     for (const [id, event] of Object.entries(saved.pending)) {
-      if (!validKeys.has(id)) { delete saved.pending[id]; continue; }
+      if (!validKeys.has(id) || !alertPolicy(event.asset,Date.now(),event.bar).allowed) { delete saved.pending[id]; continue; }
       if (event.due > Date.now()) continue;
       const result = spawnSync(process.env.MA_PYTHON || 'python', [path.join(__dirname, 'alert_delivery.py')], { input: JSON.stringify({ title: event.title, url: event.url, text: event.text, channels: [event.channel] }), encoding: 'utf8', timeout: 20000, windowsHide: true });
       let delivery;
