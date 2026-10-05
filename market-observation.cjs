@@ -36,6 +36,7 @@ function sampleQuality(sample,{requestedAt,receivedAt,serverTime=null}){
 async function capture(){
   const observation={observedAt:Date.now(),assets:{},errors:[],purpose:'Analysis-only. Not used by live alerts.'};
   for(const [asset,cfg] of Object.entries(Feed.instruments)){
+    if(!Feed.collectionPolicy(asset).allowed){observation.assets[asset]={state:'MARKET_CLOSED'};continue;}
     const query=new URLSearchParams({category:cfg.category,symbol:cfg.symbol});
     const timings={};
     async function get(endpoint,extra=''){const requestedAt=Date.now();const response=await fetch(`https://api.bybit.com/v5/market/${endpoint}?${query}${extra}`,{signal:AbortSignal.timeout(12000)});if(!response.ok)throw Error('HTTP '+response.status);const raw=await response.json();if(raw.retCode!==0||!Array.isArray(raw.result?.list))throw Error('Invalid Bybit result');timings[endpoint]={requestedAt,receivedAt:Date.now(),serverTime:raw.time??null};return raw;}

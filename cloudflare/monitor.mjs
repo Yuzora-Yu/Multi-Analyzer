@@ -41,26 +41,31 @@ export class MarketMonitor extends DurableObject {
     if(state.feed!=='bybit-v1'){state={delivered:{},baseline:false,cache:{},day,count:0,feed:'bybit-v1',archives:[]};}
     if(state.day!==day){state.day=day;state.count=0;}
     const policy=Events.alertPolicy(asset,now);
-    const status={updatedAt:now,state:'DATA_ERROR',source:'Bybit',symbol:ASSETS[asset],pollMinutes:1,requestsToday:state.count,emailEnabled:this.env.ALERTS_ENABLED==='true' && policy.allowed,alertSchedule:policy,dryRun,lastEmail:state.lastEmail||null};
+    const collectionSchedule=Feed.collectionPolicy(asset,now);
+    const status={updatedAt:now,state:'DATA_ERROR',source:'Bybit',symbol:ASSETS[asset],pollMinutes:1,requestsToday:state.count,emailEnabled:this.env.ALERTS_ENABLED==='true' && policy.allowed&&collectionSchedule.allowed,alertSchedule:policy,collectionSchedule,dryRun,lastEmail:state.lastEmail||null};
+    if(!collectionSchedule.allowed){Object.assign(status,{state:'MARKET_CLOSED',error:null});await this.ctx.storage.put({state,status});return status;}
+    if(asset==='gold'&&state.sessionVersion!==Feed.SESSION_VERSION){state.cache={};state.sessionVersion=Feed.SESSION_VERSION;}
     try {
       const series={};
       for(const [interval,minutes] of Object.entries(INTERVALS)){
         const cached=state.cache[interval];
         if(interval!=='m15' && canReuse(cached,interval,now,minutes*60000)){series[interval]=cached.rows;continue;}
-        if(state.count>=2000)throw new Error('FREE_DAILY_BUDGET_REACHED');
-        state.count++;
-        const raw=await safeJson(await fetch(Feed.url(asset,minutes),{signal:AbortSignal.timeout(12000)}));
-        const rows=Core.normalizeCandles(Feed.parse(raw));
+        const rows=Core.normalizeCandles(await Feed.load(asset,minutes,300,async url=>{
+          if(state.count>=2000)throw new Error('FREE_DAILY_BUDGET_REACHED');
+          state.count++;
+          return safeJson(await fetch(url,{signal:AbortSignal.timeout(12000)}));
+        }));
         if(rows.length<220)throw new Error('INVALID_CANDLES');
         series[interval]=rows;state.cache[interval]={rows,fetchedAt:now};
       }
+      if(!Feed.collectionPolicy(asset,Date.now()).allowed)throw new Error('GOLD_MARKET_CLOSED');
       const closed=Core.filterClosedCandles(series.m15,15,now-2000);
       const bar=closed.at(-1)?.time;
       if(!bar || now-bar>2100000)throw new Error('STALE_MARKET');
       const id=asset+'-'+bar+'-'+Core.VERSION;
       let snapshot=await this.ctx.storage.get('snapshot:'+id);
       if(!snapshot){
-        const settings={...Core.DEFAULTS,position:state.paperPosition||null,executionMinutes:15,now:bar+900000+1,market:Feed.instruments[asset].market,livePrice:closed.at(-1).close};
+        const settings={...Core.DEFAULTS,marketAsset:asset,position:state.paperPosition||null,executionMinutes:15,now:bar+900000+1,market:Feed.instruments[asset].market,livePrice:closed.at(-1).close};
         snapshot={id,asset,source:'Bybit',symbol:ASSETS[asset],version:Core.VERSION,createdAt:now,settings,bars:{m15:Feed.pack(closed),h1:Feed.pack(Core.filterClosedCandles(series.h1,60,settings.now)),h4:Feed.pack(Core.filterClosedCandles(series.h4,240,settings.now))}};
         await this.ctx.storage.put('snapshot:'+id,snapshot);
         state.archives.push(id);
@@ -100,7 +105,9 @@ export class MarketMonitor extends DurableObject {
       }
       state.delivered=Object.fromEntries(Object.entries(state.delivered).sort((a,b)=>b[1]-a[1]).slice(0,200));
       Object.assign(status,{state:analysis.state,bar:analysis.exec.candles.at(-1)?.time,checkedAt:now,error:null,snapshotId:id,engineVersion:Core.VERSION,volumeAvailable:closed.some(b=>b.volume>0),requestsToday:state.count});
-    }catch(error){status.error=String(error.message).replace(/apikey=[^&\s]+/g,'apikey=[REDACTED]').slice(0,100);status.requestsToday=state.count;}
+    }catch(error){status.error=String(error.message).replace(/apikey=[^&\s]+/g,'apikey=[REDACTED]').slice(0,100);status.requestsToday=state.count;
+      if(error.message==='GOLD_MARKET_CLOSED'){status.state='MARKET_CLOSED';status.error=null;status.emailEnabled=false;status.collectionSchedule=Feed.collectionPolicy(asset,Date.now());}
+    }
     await this.ctx.storage.put({state,status});
     console.log(JSON.stringify({asset,state:status.state,error:status.error,requestsToday:status.requestsToday}));
     return status;

@@ -9,7 +9,8 @@
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
   'use strict';
 
-  const VERSION = '4.3.2';
+  const VERSION = '4.3.3';
+  const Feed = typeof module === 'object' && module.exports ? require('./market-feed.js') : globalThis.MultiAnalyzerFeed;
   const SMC = typeof module === 'object' && module.exports ? require('./smc-core.js') : globalThis.MultiAnalyzerSMC;
   const Flow = typeof module === 'object' && module.exports ? require('./flow-core.js') : globalThis.MultiAnalyzerFlow;
   const MINUTE = 60_000;
@@ -110,7 +111,7 @@
     return normalizeCandles(candles).filter(c => c.time + duration <= now);
   }
 
-  function dataQuality(candles, intervalMinutes, now = Date.now()) {
+  function dataQuality(candles, intervalMinutes, now = Date.now(), asset) {
     const c = normalizeCandles(candles);
     const expected = intervalMinutes * MINUTE;
     let gaps = 0;
@@ -118,7 +119,10 @@
     for (let i = 1; i < c.length; i++) {
       const gap = c[i].time - c[i - 1].time;
       maxGap = Math.max(maxGap, gap);
-      if (gap > expected * 1.55) gaps += Math.max(1, Math.round(gap / expected) - 1);
+      if (gap > expected * 1.55) {
+        if(asset==='gold') { for(let t=c[i-1].time+expected;t<c[i].time;t+=expected)if(Feed.barExpected(asset,t,intervalMinutes))gaps++; }
+        else gaps += Math.max(1, Math.round(gap / expected) - 1);
+      }
     }
     const last = c.at(-1);
     const ageMs = last ? Math.max(0, now - (last.time + expected)) : Infinity;
@@ -432,9 +436,9 @@
     return Math.round(median(diffs) || 0) || null;
   }
 
-  function analyzeTimeframe(rawCandles, intervalMinutes, now = Date.now()) {
+  function analyzeTimeframe(rawCandles, intervalMinutes, now = Date.now(), asset) {
     const candles = filterClosedCandles(rawCandles, intervalMinutes, now);
-    const quality = dataQuality(candles, intervalMinutes, now);
+    const quality = dataQuality(candles, intervalMinutes, now,asset);
     if (candles.length < 60) return { candles, quality, ready: false, reason: 'INSUFFICIENT_DATA', values: {}, structure: {}, pattern: {}, swings: { highs: [], lows: [] } };
     const close = candles.map(c => c.close);
     const volume = candles.map(c => c.volume);
@@ -586,10 +590,11 @@
     const tf15Raw = input.m15 || (execMinutes === 15 ? execRaw : aggregateCandles(execRaw, 15, { baseMinutes: execMinutes }));
     const h1Raw = input.h1 || aggregateCandles(execRaw, 60, { baseMinutes: execMinutes });
     const h4Raw = input.h4 || aggregateCandles(execRaw, 240, { baseMinutes: execMinutes });
-    const exec = analyzeTimeframe(execRaw, execMinutes, now);
-    const m15 = execMinutes === 15 && tf15Raw === execRaw ? exec : analyzeTimeframe(tf15Raw, 15, now);
-    const h1 = analyzeTimeframe(h1Raw, 60, now);
-    const h4 = analyzeTimeframe(h4Raw, 240, now);
+    const asset=settings.marketAsset;
+    const exec = analyzeTimeframe(execRaw, execMinutes, now,asset);
+    const m15 = execMinutes === 15 && tf15Raw === execRaw ? exec : analyzeTimeframe(tf15Raw, 15, now,asset);
+    const h1 = analyzeTimeframe(h1Raw, 60, now,asset);
+    const h4 = analyzeTimeframe(h4Raw, 240, now,asset);
     Flow.align(exec, h1, execMinutes);
     if(m15 !== exec) Flow.align(m15, h1, 15);
     const score = { long: 0, short: 0, components: [] };

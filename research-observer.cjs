@@ -44,6 +44,7 @@ async function run(){
   const errors=[];
   async function get(asset,id){const r=await fetch('https://multi-analyzer-monitor.rikai-829.workers.dev/api/snapshot?asset='+asset+(id?'&id='+id:''),{signal:AbortSignal.timeout(15000)});if(!r.ok)throw Error('HTTP '+r.status);const s=await r.json();if(s.asset!==asset||s.version!==Core.VERSION||!s.bars?.m15)throw Error('snapshot mismatch');return s;}
   for(const asset of ['gold','btc']){
+    if(!Feed.collectionPolicy(asset).allowed)continue;
     try{
       const latest=await get(asset),last=Feed.input(latest).exec.at(-1).time;
       const known=fs.readdirSync(path.join(DIR,'snapshots')).filter(n=>n.startsWith(asset+'-')&&n.endsWith('-'+Core.VERSION+'.json')).map(n=>Number(n.split('-')[1]));

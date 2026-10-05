@@ -131,6 +131,7 @@
     const Core=globalThis.MultiAnalyzerCore,Feed=globalThis.MultiAnalyzerFeed,pack={schema:2,mode:archivedId?'archived':'latest',capturedAt:Date.now(),version:Core.VERSION,assets:[],records:[],errors:[],policy};
     async function get(url){const r=await fetch(url,{signal:AbortSignal.any([signal||new AbortController().signal,AbortSignal.timeout(15000)])});if(!r.ok)throw Error(`HTTP ${r.status}`);return r.json();}
     for(const asset of assets){
+      if(!archivedId&&!Feed.collectionPolicy(asset).allowed){pack.errors.push({asset,tf:'all',error:'GOLD休場・データ取得停止'});continue;}
       signal?.throwIfAborted();onProgress(`${asset}: 共通判定を取得`);
       let s;try{s=await get(`https://multi-analyzer-monitor.rikai-829.workers.dev/api/snapshot?asset=${asset}${archivedId?'&id='+encodeURIComponent(archivedId):''}`);}catch(e){if(signal?.aborted)throw e;pack.errors.push({asset,tf:'all',error:e.message});continue;}
       if(s.version!==Core.VERSION||!s.bars?.m15||s.asset!==asset)throw Error('共通判定の銘柄・バージョン不一致');
@@ -139,9 +140,9 @@
         signal?.throwIfAborted();onProgress(`${asset} ${tf}: 確定足を取得`);
         try{
           const cutoff=archivedId||tf==='15m'?decisionCutoff:pack.capturedAt;
-          const rows=tf==='15m'?input.exec:closed(Core.normalizeCandles(Feed.parse(await get(Feed.url(asset,minutes,1000,cutoff-1)))) ,minutes,cutoff);
+          const rows=tf==='15m'?input.exec:closed(Core.normalizeCandles(await Feed.load(asset,minutes,1000,get,cutoff-1)),minutes,cutoff);
           if(!rows.length)throw Error('確定足なし');
-          const analysis=tf==='15m'?marketSignal.exec:Core.analyzeTimeframe(rows,minutes,cutoff);
+          const analysis=tf==='15m'?marketSignal.exec:Core.analyzeTimeframe(rows,minutes,cutoff,asset);
           pack.records.push({asset,tf,minutes,rows,analysis,signal:tf==='15m'?marketSignal:null,cutoff,decisionCutoff,timeBasis:archivedId?'archived-decision':tf==='15m'?'canonical-decision':'latest-closed',capturedAt:pack.capturedAt,snapshotId:s.id,version:Core.VERSION});
         }catch(e){if(signal?.aborted)throw e;pack.errors.push({asset,tf,error:e.message});}
       }

@@ -90,6 +90,7 @@ async function run(){
   async function get(url){const requestedAt=Date.now(),response=await fetch(url,{signal:AbortSignal.timeout(15000)});if(!response.ok)throw Error('HTTP '+response.status);const raw=await response.text(),receivedAt=Date.now();return {raw,data:JSON.parse(raw),transport:{url,requestedAt,receivedAt,responseSha256:hash(raw)}};}
   const frozen=[];
   for(const asset of ['gold','btc']){
+    if(!Feed.collectionPolicy(asset).allowed)continue;
     const fetched=await get('https://multi-analyzer-monitor.rikai-829.workers.dev/api/snapshot?asset='+asset);
     const time=await get('https://api.bybit.com/v5/market/time');
     if(time.data.retCode!==0)throw Error('Exchange clock unavailable');

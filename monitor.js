@@ -26,6 +26,8 @@ async function run() {
     catch { status.error = '監視設定ファイルが不正・通知を停止'; atomic(path.join(DIR, 'monitor.json'), status); return; }
     const validKeys = new Set();
     for (const asset of Object.keys(instruments)) {
+      const collectionSchedule=Feed.collectionPolicy(asset);
+      if(!collectionSchedule.allowed){status.assets[asset]={state:'MARKET_CLOSED',collectionSchedule};continue;}
       try {
         const snapshot=await fetchJSON('https://multi-analyzer-monitor.rikai-829.workers.dev/api/snapshot?asset='+asset);
         if(snapshot.version!==Core.VERSION || Date.now()-snapshot.settings.now>1200000)throw new Error('Stale or incompatible shared snapshot');

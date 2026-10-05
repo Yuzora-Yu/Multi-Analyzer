@@ -21,7 +21,7 @@ test('persistence after entry cannot become prospective',t=>{
  assert.equal(persist(root,{id:'btc-old',entryAt:0,clockBounds:{valid:true,upperOffsetMs:0},issues:[]}).receipt.prospectiveEligible,false);
 });
 test('future feature bars and wrong markets are rejected before analysis',()=>{
- const s={id:'btc-0-4.3.2',asset:'btc',version:require('../strategy-core').VERSION,symbol:'BTCUSDT',createdAt:STEP+1,settings:{now:STEP+1,market:'spot'},bars:{m15:[[0,100,102,99,101,1]],h1:[[0,100,102,99,101,1]],h4:[]}};
+ const s={id:'btc-0-'+require('../strategy-core').VERSION,asset:'btc',version:require('../strategy-core').VERSION,symbol:'BTCUSDT',createdAt:STEP+1,settings:{now:STEP+1,market:'spot'},bars:{m15:[[0,100,102,99,101,1]],h1:[[0,100,102,99,101,1]],h4:[]}};
  assert.throws(()=>prepare(s,{requestedAt:STEP,receivedAt:STEP+1},{},STEP+2),/Unclosed/);
  assert.throws(()=>prepare({...s,symbol:'XAUUSDT'},{},{},STEP+2),/identity/);
 });

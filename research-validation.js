@@ -3,12 +3,12 @@ const fs=require('node:fs');
 const Core=require('./strategy-core');
 const Feed=require('./market-feed');
 async function history(asset,minutes,pages){
- const path=`.runtime/research-${asset}-${minutes}.json`;
+ if(!Feed.collectionPolicy(asset).allowed)throw Error('GOLD_MARKET_CLOSED');
+ const path=`.runtime/research-${asset}-${minutes}${asset==='gold'?'-'+Feed.SESSION_VERSION:''}.json`;
  if(fs.existsSync(path))return JSON.parse(fs.readFileSync(path));
  let rows=[],end;
  for(let i=0;i<pages;i++){
-  const r=await fetch(Feed.url(asset,minutes,1000,end));if(!r.ok)throw new Error('History HTTP '+r.status);
-  const data=Feed.parse(await r.json());if(!data.length)break;rows.push(...data);end=data[0].time-1;
+  const data=await Feed.load(asset,minutes,1000,async url=>{const r=await fetch(url);if(!r.ok)throw new Error('History HTTP '+r.status);return r.json();},end);if(!data.length)break;rows.push(...data);end=data[0].time-1;
   await new Promise(resolve=>setTimeout(resolve,250));
  }
  rows=Core.normalizeCandles(rows);fs.writeFileSync(path,JSON.stringify(rows));return rows;

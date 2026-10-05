@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 const Events = require('../alert-event');
+const Feed = require('../market-feed');
 const time = value => Date.parse(value);
 const setup = now => ({actionable:true,state:'READY_LONG',direction:'LONG',generatedAt:now,
   exec:{candles:[{time:now-900000}]},plan:{entry:100,stop:99,tp1:101,tp2:102,tp3:103}});
@@ -36,7 +37,7 @@ function monitorHarness(now, asset, exit=false, sendNow=now) {
   const a=setup(now); a.exec.candles=bars;
   if(exit)a.positionDecision={action:'EXIT_LONG',reasons:['stop']};
   const saved=new Map([['state',{feed:'bybit-v1',baseline:true,delivered:{},cache:{},day:new Date(now).toISOString().slice(0,10),count:0,archives:[],paperPosition:exit?{entry:100,stop:99,direction:'LONG'}:null}]]);
-  const sent=[]; let clock=now;
+  const sent=[]; let clock=now,requests=0;
   const storage={get:async key=>saved.get(key),delete:async key=>saved.delete(key),put:async (key,value)=>{
     if(typeof key==='string')saved.set(key,value);else for(const [k,v] of Object.entries(key))saved.set(k,v);
     if(typeof key==='string' && key.startsWith('alert:'))clock=sendNow;
@@ -44,19 +45,20 @@ function monitorHarness(now, asset, exit=false, sendNow=now) {
   class DO {constructor(){this.ctx={storage};this.env={ALERTS_ENABLED:'true',EMAIL_TO:'test@example.invalid',EMAIL:{send:async mail=>sent.push(mail)}};}}
   class Clock extends Date {static now(){return clock;}}
   const core={VERSION:'4.3.2',DEFAULTS:{},normalizeCandles:x=>x,filterClosedCandles:x=>x,analyzeMarket:()=>a};
-  const feed={url:()=> 'https://example.invalid/market',parse:x=>x,pack:x=>x,input:x=>x,instruments:{gold:{market:'futures'},btc:{market:'spot'}}};
+  const feed={...Feed,collectionPolicy:(asset,t)=>Feed.collectionPolicy(asset,t??clock),load:async(asset,minutes,limit,get)=>get('https://example.invalid/market'),pack:x=>x,input:x=>x};
   const source=fs.readFileSync(require.resolve('../cloudflare/monitor.mjs'),'utf8').replace(/^import .*;\r?\n/gm,'').replace('export class MarketMonitor','class MarketMonitor').split('const authorized=')[0]+'\nMarketMonitor';
-  const Type=vm.runInNewContext(source,{DurableObject:DO,Core:core,Feed:feed,Events,canReuse:()=>false,Date:Clock,fetch:async()=>new Response(JSON.stringify(bars)),Response,AbortSignal,Uint8Array,TextDecoder,console:{log(){}}});
-  return {run:()=>new Type().perform(asset,false),sent,saved};
+  const Type=vm.runInNewContext(source,{DurableObject:DO,Core:core,Feed:feed,Events,canReuse:()=>false,Date:Clock,fetch:async()=>{requests++;return new Response(JSON.stringify(bars));},Response,AbortSignal,Uint8Array,TextDecoder,console:{log(){}}});
+  return {run:()=>new Type().perform(asset,false),sent,saved,get requests(){return requests;}};
 }
 
-test('cloud delivery suppresses weekend GOLD and retires weekend virtual exits without Monday backlog',async()=>{
+test('cloud pauses weekend GOLD without any market I/O or position changes; BTC continues',async()=>{
   const now=time('2026-10-10T12:00:00+09:00');
   for(const exit of [false,true]){
     const h=monitorHarness(now,'gold',exit);const status=await h.run();
     assert.equal(status.error,null); assert.equal(status.emailEnabled,false);
     assert.equal(status.alertSchedule.reason,'GOLD_WEEKEND_JST');
-    assert.equal(h.sent.length,0);assert.equal(h.saved.get('state').paperPosition,null);
+    assert.equal(h.sent.length,0);assert.equal(h.requests,0);assert.equal(status.state,'MARKET_CLOSED');
+    assert.equal(Boolean(h.saved.get('state').paperPosition),exit);
   }
   const btc=monitorHarness(now,'btc');await btc.run();assert.equal(btc.sent.length,1);
 });

@@ -36,6 +36,7 @@
     analysis: null,
     snapshot: null,
     snapshotTimer: null,
+    marketPaused: false,
     preview: null,
     livePrice: null,
     feedAt: 0,
@@ -141,11 +142,26 @@
 
   async function fetchKlines(tfKey, limit, cfg = currentInstrument()) {
     const asset=cfg.symbol==='XAUUSDT'?'gold':'btc';
-    return Core.normalizeCandles(Feed.parse(await fetchJson(Feed.url(asset,TF[tfKey].minutes,limit))));
+    return Core.normalizeCandles(await Feed.load(asset,TF[tfKey].minutes,limit,fetchJson));
+  }
+
+  function pauseClosedMarket(){
+    if(state.offlineCsv||INITIAL_PARAMS.has('snapshot')||Feed.collectionPolicy(state.instrumentId).allowed)return false;
+    stopRealtime();
+    state.marketPaused=true;
+    $('signalBadge').textContent='GOLD休場';
+    $('sheetSummary').textContent='市場再開待ち';
+    $('sourceNotice').textContent='GOLD休場・表示中のチャートは最終取得時点の記録です';
+    setLoading(false);setConnection('pending','GOLD休場・データ取得停止');
+    $('actionHeadline').textContent='— GOLD休場・市場再開待ち';
+    $('actionTargets').textContent='休場中は新しい価格・判定を取得しません';
+    $('referenceQuote').textContent='GOLD休場・参考価格の取得停止';
+    return true;
   }
 
   async function refreshSnapshot(){
     if(state.offlineCsv || state.tf!=='15m')return;
+    if(pauseClosedMarket())return;
     const loadId=state.loadId;
     const id=INITIAL_PARAMS.get('snapshot');
     const snapshot=await fetchJson(CLOUD+'/api/snapshot?asset='+state.instrumentId+(id?'&id='+encodeURIComponent(id):''));
@@ -189,8 +205,10 @@
     $('chartTitle').textContent = `${currentInstrument().name} / ${currentTf().label}`;
     $('sourceNotice').textContent = `分析対象: ${currentInstrument().symbol} / USDT建て参考市場`;
     $('referenceQuote').textContent = 'USD参考価格を取得中';
-    refreshServices();
     state.offlineCsv = false;
+    if(pauseClosedMarket())return;
+    state.marketPaused=false;
+    refreshServices();
     state.micro = { bid: null, ask: null, spreadBps: null, bookImbalance: 0, markPrice: null, indexPrice: null, basisBps: 0, fundingRate: 0, nextFundingTime: null };
     setLoading(true);
     setConnection('pending', 'データ取得中');
@@ -241,6 +259,7 @@
       spreadBps: Number.isFinite(state.micro.spreadBps) ? Math.max(state.settings.spreadBps, state.micro.spreadBps) : state.settings.spreadBps,
       executionMinutes: currentTf().minutes,
       market: currentInstrument().market,
+      marketAsset: state.instrumentId,
       feedStale: !state.offlineCsv && Date.now() - state.feedAt > 45000,
       minBars: Math.min(220, Math.max(80, state.data.exec.length - 5)),
       now: state.offlineCsv && state.data.exec.length
@@ -287,7 +306,9 @@
   }
 
   function connectRealtime() {
-    if (state.offlineCsv) return;
+    if (state.offlineCsv||pauseClosedMarket()) return;
+    // Native higher-timeframe GOLD candles include closed-session trades.
+    if(state.instrumentId==='gold'&&currentTf().minutes>=60){startPolling();return;}
     const cfg = currentInstrument();
     const interval = currentTf().api;
     const url='wss://stream.bybit.com/v5/public/'+(cfg.market==='futures'?'linear':'spot');
@@ -303,6 +324,7 @@
       let lastAnalysis = 0;
       ws.onmessage = event => {
         if (state.ws !== ws) return;
+        if(pauseClosedMarket())return;
         state.feedAt = Date.now();
         setConnection('live', 'リアルタイム');
         try {
@@ -310,6 +332,7 @@
           const k = payload.data?.[0];
           if (!k) return;
           const candle = { time: Number(k.start), open: Number(k.open), high: Number(k.high), low: Number(k.low), close: Number(k.close), volume: Number(k.volume) };
+          if(!Feed.marketOpen(state.instrumentId,candle.time))return;
           upsertCandle(state.data.exec, candle);
           if (state.tf === '15m') upsertCandle(state.data.m15, candle);
           if (state.tf === '1h') upsertCandle(state.data.h1, candle);
@@ -343,11 +366,14 @@
     clearInterval(state.pollTimer);
     clearInterval(state.microTimer);
     clearInterval(state.snapshotTimer);
+    state.reconnectTimer=state.pollTimer=state.microTimer=state.snapshotTimer=null;
   }
 
   function startPolling() {
+    if(pauseClosedMarket())return;
     clearInterval(state.pollTimer);
     state.pollTimer = setInterval(async () => {
+      if(pauseClosedMarket())return;
       try {
         const loadId = state.loadId;
         const rows = await fetchKlines(state.tf, 4);
@@ -364,7 +390,7 @@
   }
 
   async function refreshHigherTimeframes() {
-    if (state.offlineCsv || state.snapshot) return;
+    if (state.offlineCsv || state.snapshot || pauseClosedMarket()) return;
     try {
       const loadId = state.loadId, cfg = currentInstrument();
       const [m15, h1, h4] = await Promise.all([fetchKlines('15m', 300, cfg), fetchKlines('1h', 300, cfg), fetchKlines('4h', 300, cfg)]);
@@ -707,6 +733,7 @@
 
   async function refreshServices() {
     const id = state.instrumentId;
+    if(pauseClosedMarket())return;
     const results = await Promise.allSettled([
       fetchJson(STATIC_HOST ? `https://api.gold-api.com/price/${id === 'gold' ? 'XAU' : 'BTC'}` : `/api/reference?asset=${id}`),
       fetchJson(CLOUD+'/api/monitor')
@@ -1002,6 +1029,8 @@
     refreshServices();
     setInterval(refreshServices, 30000);
     setInterval(() => {
+      if(pauseClosedMarket())return;
+      if(!state.offlineCsv&&!INITIAL_PARAMS.has('snapshot')&&state.marketPaused){state.marketPaused=false;loadAllData();return;}
       if (!state.offlineCsv && !INITIAL_PARAMS.has('snapshot') && state.feedAt && Date.now() - state.feedAt > 45000) {
         setConnection('error', '価格更新停止'); analyzeAndRender();
         if (!state.pollTimer) startPolling();
