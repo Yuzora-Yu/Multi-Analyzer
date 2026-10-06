@@ -13,6 +13,28 @@ function eventFor(a, asset, position, feed = {}) {
   const bar = a.exec.candles.at(-1)?.time;
   if (!alertPolicy(asset, feed.now ?? a.generatedAt ?? Date.now(), bar).allowed) return null;
   const exit = a.positionDecision?.action.startsWith('EXIT');
+  // GOLD leads with prospective zones, independently of P-entry and virtual holdings.
+  if(asset==='gold' && a.marketMap) {
+    const map=a.marketMap,now=feed.now??Date.now();
+    if(!map.valid || now-a.generatedAt>1200000 || map.eventRisk.blocked)return null;
+    const nearby=map.candidates.filter(z=>z.phase!=='WAIT'&&z.evidence.some(e=>/EMA|BB/.test(e)));
+    if(!nearby.length)return null;
+    const z=nearby.sort((x,y)=>(y.direction===a.direction?1:0)-(x.direction===a.direction?1:0)||x.distance-y.distance)[0];
+    const direction=z.direction==='SHORT'?'戻り売り':'押し目買い';
+    const phase={APPROACH:'接近・反応待ち',IN_ZONE:'帯内・反応待ち',ENTRY_CONFIRMED:'既存P条件も成立'}[z.phase];
+    const title=`Multi-Analyzer｜Gold｜${direction}候補 ${z.low}～${z.high}（${phase}）`;
+    const url=`${PUBLIC_PAGE}?asset=gold&tf=15m${feed.snapshot?'&snapshot='+encodeURIComponent(feed.snapshot):''}`;
+    const lines=[title,`対象: ${feed.symbol||instruments.gold.symbol} / 15分確定足\n基準価格: ${map.price}`,
+      `時間足: ${map.trends.map(t=>`${t.name} 構造${t.structure}・MA${t.ma}`).join(' / ')}`,
+      ...map.candidates.map(c=>`${c.direction==='SHORT'?'売り':'買い'}候補帯: ${c.low}～${c.high} / ${c.role}\n根拠: ${c.evidence.join(' / ')}\n入場条件: ${c.condition}\n見立て無効化: 15分終値で ${c.invalidationClose} ${c.direction==='SHORT'?'超':'未満'}\n保護SL参考: ${c.protectiveStop}（再訪の高安に合わせ再計算）\n利確・反応確認候補: ${c.targets.join(' / ')||'確認済み価格帯なし'}`),
+      `新規判定: ${map.entryState} / ${a.vetoes?.join(' / ')||a.message}\n${map.note}`,
+      `指標警戒: ${map.eventRisk.events.map(e=>`${new Date(e.time).toLocaleString('ja-JP',{timeZone:'Asia/Tokyo',hour12:false})} JST ${e.name} ${e.source}`).join(' / ')||'最新予定の確認が必要'}\n${map.eventRisk.message}`,
+      ...(exit?[`補助の撤退注意: 前回候補を保有中なら ${a.positionDecision.reasons?.join(' / ')||a.positionDecision.action}。反転エントリーの根拠ではありません。`]:[]),
+      `判定時刻: ${new Date(a.generatedAt).toLocaleString('ja-JP',{timeZone:'Asia/Tokyo',hour12:false})} JST`,
+      `公開チャート:\n${url}`,`共通判定ID: ${feed.snapshot||'ローカル'} / エンジン ${feed.version||a.version}`,
+      feed.note||'USDT参考市場。USDブローカーと価格が異なります。候補帯の収益上の優位性は未確認です。'];
+    return {key:`${asset}:MAP:${z.id}:${z.phase}:${map.bias}`,kind:'ANALYSIS',title,url,text:lines.join('\n\n')};
+  }
   if (!a.actionable && !exit) return null;
   const state = exit ? a.positionDecision.action : a.state;
   const key = exit ? `${asset}:${state}:${position?.entry}:${position?.stop}` : `${asset}:${state}:${bar}`;
@@ -30,7 +52,7 @@ function eventFor(a, asset, position, feed = {}) {
     `公開チャートを開く:\n${url}`,
     feed.snapshot ? `共通判定ID: ${feed.snapshot} / エンジン ${feed.version}\nリンク先は通知時点の保存記録です。各銘柄の送信済み直近100通知を保持し、保存対象外の場合は表示しません。` : '通知は判定時点の記録です。リンク先は現在の相場を表示します。',
     feed.note || 'USDT参考市場の分析。USDブローカーとは価格が異なります。スコアは勝率ではありません。'];
-  return { key, title, url, text: lines.join('\n\n') };
+  return { key, kind:exit?'EXIT':'ENTRY', title, url, text: lines.join('\n\n') };
 }
 
 module.exports = { eventFor, alertPolicy };

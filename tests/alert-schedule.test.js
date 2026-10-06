@@ -32,9 +32,10 @@ test('both entry and exit events are muted on weekends, including delayed weeken
 });
 
 // Run the actual delivery path with storage and market I/O isolated; never send real mail.
-function monitorHarness(now, asset, exit=false, sendNow=now) {
+function monitorHarness(now, asset, exit=false, sendNow=now, map=null) {
   const bars=Array.from({length:220},(_,i)=>({time:now-(220-i)*900000,close:100,volume:1}));
   const a=setup(now); a.exec.candles=bars;
+  if(map)a.marketMap=map;
   if(exit)a.positionDecision={action:'EXIT_LONG',reasons:['stop']};
   const saved=new Map([['state',{feed:'bybit-v1',baseline:true,delivered:{},cache:{},day:new Date(now).toISOString().slice(0,10),count:0,archives:[],paperPosition:exit?{entry:100,stop:99,direction:'LONG'}:null}]]);
   const sent=[]; let clock=now,requests=0;
@@ -61,6 +62,18 @@ test('cloud pauses weekend GOLD without any market I/O or position changes; BTC 
     assert.equal(Boolean(h.saved.get('state').paperPosition),exit);
   }
   const btc=monitorHarness(now,'btc');await btc.run();assert.equal(btc.sent.length,1);
+});
+
+test('cloud zone briefing does not manufacture a virtual holding or require a P entry',async()=>{
+  const now=time('2026-10-06T12:45:00+09:00');
+  const map={valid:true,price:100,bias:'下向き',entryState:'条件待ち',trends:[],
+    candidates:[{id:'15m:OB:bear:1',direction:'SHORT',low:101,high:103,phase:'APPROACH',distance:1,
+      evidence:['15m OB','15m EMA20'],condition:'反落確認',invalidationClose:103,protectiveStop:104,targets:[98],role:'上位足に沿う候補'}],
+    eventRisk:{blocked:false,events:[],message:'予定確認'},note:'接触だけでは入らない'};
+  const h=monitorHarness(now,'gold',false,now,map);await h.run();
+  assert.equal(h.sent.length,1);assert.match(h.sent[0].subject,/候補 101～103/);
+  assert.equal(h.saved.get('state').paperPosition,null);
+  const status=h.saved.get('status');assert.equal(status.notificationMode,'ZONE_ANALYSIS');
 });
 
 test('cloud checks delivery time again when storage crosses Saturday midnight',async()=>{

@@ -611,6 +611,7 @@
     $('confidenceValue').textContent = Math.round(a.confidence);
     $('confidenceRing').style.setProperty('--value', Math.round(a.confidence));
     $('decisionMessage').textContent = a.message;
+    renderMarketMap(a);
     $('longScore').textContent = a.longScore;
     $('shortScore').textContent = a.shortScore;
     $('longScoreBar').style.width = `${a.longScore}%`;
@@ -631,6 +632,20 @@
         ? `${stateLabel(p.state)} / L${p.longScore} S${p.shortScore}（未確定）`
         : `${stateLabel(a.state)} 維持 / L${p.longScore} S${p.shortScore}`;
     }
+  }
+
+  function renderMarketMap(a) {
+    const box=$('marketMap'),map=a.marketMap;
+    if(!box)return;
+    if(!map?.valid){box.innerHTML='<p><strong>候補帯</strong><span>データ不足・更新停止。最新データで再確認します。</span></p>';return;}
+    const phase={WAIT:'接近待ち',APPROACH:'接近・反応待ち',IN_ZONE:'帯内・反応待ち',ENTRY_CONFIRMED:'P条件も成立'};
+    const rows=[['環境と狙い',`${map.trends.map(t=>`${t.name} 構造${t.structure}・MA${t.ma}`).join(' / ')}。新規は${map.entryState}`]];
+    for(const z of map.candidates)rows.push([`${z.direction==='SHORT'?'売り':'買い'} ${fmt(z.low)}～${fmt(z.high)}`,
+      `${phase[z.phase]} / ${z.role}。${z.evidence.join('・')}。${z.condition}。15分終値${fmt(z.invalidationClose)}${z.direction==='SHORT'?'超':'未満'}で帯の見立て無効。保護SL参考 ${fmt(z.protectiveStop)}（再訪高安で再計算）。反応・利確候補 ${z.targets.map(t=>fmt(t)).join(' / ')||'未確認'}`]);
+    if(!map.candidates.length)rows.push(['候補帯','現在有効なSMC帯なし。MA・BB接触だけでは候補を作りません。']);
+    const events=map.eventRisk.events.map(e=>`${new Date(e.time).toLocaleString('ja-JP',{timeZone:'Asia/Tokyo',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false})} JST ${e.name}`).join(' / ');
+    rows.push(['指標警戒',`${events||'最新予定を確認'}。${map.eventRisk.message}`]);
+    box.innerHTML='<h3>環境・候補帯・無効化</h3>'+rows.map(([label,text])=>`<p><strong>${esc(label)}</strong><span>${esc(text)}</span></p>`).join('')+`<small>${esc(map.note)}</small>`;
   }
 
   function renderPlan() {

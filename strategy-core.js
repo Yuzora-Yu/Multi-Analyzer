@@ -9,7 +9,7 @@
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
   'use strict';
 
-  const VERSION = '4.3.3';
+  const VERSION = '4.3.4';
   const Feed = typeof module === 'object' && module.exports ? require('./market-feed.js') : globalThis.MultiAnalyzerFeed;
   const SMC = typeof module === 'object' && module.exports ? require('./smc-core.js') : globalThis.MultiAnalyzerSMC;
   const Flow = typeof module === 'object' && module.exports ? require('./flow-core.js') : globalThis.MultiAnalyzerFlow;
@@ -716,7 +716,90 @@
     };
     if(settings.entryModel === 'pullback-v1') applyPullback(result,settings);
     result.positionDecision = positionDecision(settings.position, result, settings.livePrice ?? exec.values?.close);
+    result.marketMap = buildMarketMap(result, settings);
     return result;
+  }
+
+  // A prospective map, separate from the validated/experimental entry model.
+  // Only closed candles and active zones known at this snapshot are used.
+  function buildMarketMap(a, settings = {}) {
+    const frames = [['4H',a.h4],['1H',a.h1],['15m',a.m15]];
+    const price = a.exec.values?.close, atrNow = a.exec.values?.atr;
+    const valid = Number.isFinite(price) && Number.isFinite(atrNow) && atrNow > 0 &&
+      frames.every(([,tf])=>tf?.ready && !tf.quality?.stale && !(tf.quality?.gaps>3)) && !settings.feedStale;
+    const label = value => ({bull:'上向き',bear:'下向き',range:'中立',neutral:'中立'})[value] || '未確認';
+    const trends = frames.map(([name,tf])=>({name,structure:label(tf?.structure?.trend),ma:label(tf?.trend),
+      ema20:round(tf?.values?.ema20,2),ema50:round(tf?.values?.ema50,2),
+      bbMid:round(tf?.series?.bb?.mid?.at(-1),2),closedAt:tf?.candles?.at(-1)?.time+tf?.intervalMinutes*MINUTE}));
+    const zones = [], references = [];
+    const distance = (low,high) => Math.max(low-price,price-high,0);
+    for(const [name,tf] of frames) {
+      if(!tf?.ready)continue;
+      const v=tf.values, tolerance=Math.max(atrNow*.2,v.atr*.15);
+      for(const [key,text] of [['ema20','EMA20'],['ema50','EMA50'],['bbUpper','BB上限'],['bbLower','BB下限']])
+        if(Number.isFinite(v[key]))references.push({price:v[key],text:`${name} ${text}`});
+      const mid=tf.series?.bb?.mid?.at(-1);
+      if(Number.isFinite(mid))references.push({price:mid,text:`${name} BB中央`});
+      for(const z of tf.smc?.zones || []) {
+        if(z.status!=='active'||!['OB','FVG'].includes(z.type)||![z.low,z.high,z.time].every(Number.isFinite))continue;
+        if(z.side==='bear' ? price>z.high : price<z.low)continue;
+        if(distance(z.low,z.high)>Math.max(atrNow*8,v.atr*3))continue;
+        zones.push({id:`${name}:${z.type}:${z.side}:${z.time}:${z.low}:${z.high}`,frame:name,type:z.type,
+          direction:z.side==='bear'?'SHORT':'LONG',low:z.low,high:z.high,time:z.time,tolerance,
+          evidence:[`${name} ${z.side==='bear'?'売り':'買い'}${z.type}`],distance:distance(z.low,z.high)});
+      }
+    }
+    for(const z of zones) {
+      z.evidence.push(...references.filter(r=>r.price>=z.low-z.tolerance&&r.price<=z.high+z.tolerance).map(r=>r.text));
+      for(const other of zones)if(other.id!==z.id&&other.direction===z.direction&&other.low<=z.high&&other.high>=z.low)
+        z.evidence.push(`${other.frame} ${other.type}重複`);
+      z.evidence=[...new Set(z.evidence)];
+      const inside=price>=z.low&&price<=z.high;
+      z.phase=a.actionable&&a.direction===z.direction&&inside?'ENTRY_CONFIRMED':inside?'IN_ZONE':z.distance<=atrNow?'APPROACH':'WAIT';
+      z.invalidationClose=round(z.direction==='SHORT'?z.high:z.low,2);
+      z.protectiveStop=round(z.direction==='SHORT'?z.high+atrNow*.2:z.low-atrNow*.2,2);
+      z.condition=z.direction==='SHORT'
+        ? '帯を再訪後、確定足で上抜け失敗・短期安値割れを確認。接触だけでは売らない'
+        : '帯を再訪後、確定足で下抜け失敗・短期高値越えを確認。接触だけでは買わない';
+      // Swept historical pivots are not still-waiting liquidity targets.
+      const levels=frames.flatMap(([,tf])=>(z.direction==='SHORT'?(tf.swings?.lows||[]):(tf.swings?.highs||[]))
+        .filter(s=>!a.exec.candles.some(b=>b.time>s.time&&(z.direction==='SHORT'?b.low<s.price:b.high>s.price))).map(s=>s.price));
+      const recent=a.exec.candles.slice(-96);
+      if(recent.length)levels.push(z.direction==='SHORT'?Math.min(...recent.map(b=>b.low)):Math.max(...recent.map(b=>b.high)));
+      const opposite=zones.filter(other=>other.direction!==z.direction).map(other=>z.direction==='SHORT'?other.high:other.low);
+      const levelsSorted=[...levels,...opposite].filter(Number.isFinite).filter(p=>z.direction==='SHORT'?p<z.low:p>z.high).sort((x,y)=>z.direction==='SHORT'?y-x:x-y);
+      z.targets=[];
+      for(const p of levelsSorted)if(!z.targets.some(t=>Math.abs(t-p)<atrNow*.3)){z.targets.push(round(p,2));if(z.targets.length===3)break;}
+      z.role=(a.h4?.trend==='bear'&&z.direction==='LONG')||(a.h4?.trend==='bull'&&z.direction==='SHORT')?'逆張り・短期反発':'上位足に沿う候補';
+    }
+    // Keep nearest zones per direction; confluence is evidence, never a win probability.
+    zones.sort((x,y)=>x.distance-y.distance||y.evidence.length-x.evidence.length);
+    const candidates=['SHORT','LONG'].flatMap(dir=>zones.filter(z=>z.direction===dir).slice(0,2));
+    const eventRisk=calendarRisk(a.generatedAt,settings);
+    if(eventRisk.blocked)for(const z of candidates)if(z.phase==='ENTRY_CONFIRMED')z.phase='IN_ZONE';
+    return {valid,price,asOf:a.generatedAt,trends,candidates,eventRisk,
+      bias:label(a.h4?.structure?.trend),entryState:eventRisk.blocked?'指標警戒・入場保留':a.actionable?'条件成立':'条件待ち',
+      note:'候補帯は予測仮説です。接触＝エントリーではありません。構造無効化は確定足、保護SLは価格到達で別管理。'};
+  }
+
+  function calendarRisk(now,settings={}) {
+    // Manually verified, finite coverage. Never imply absence of unlisted events.
+    const checkedAt=Date.parse('2026-10-06T12:30:00+09:00');
+    const source='https://www.newyorkfed.org/research/calendars/i-oct26.html';
+    const events=[
+      {name:'米貿易収支',time:Date.parse('2026-10-06T21:30:00+09:00'),source},
+      {name:'Bowman FRB副議長講演（銀行監督）',time:Date.parse('2026-10-06T23:45:00+09:00'),source:'https://www.federalreserve.gov/newsevents/2026-october.htm'},
+      {name:'FOMC議事要旨',time:Date.parse('2026-10-08T03:00:00+09:00'),source:'https://www.federalreserve.gov/newsevents/2026-october.htm'},
+      {name:'Waller FRB理事講演（経済見通し）',time:Date.parse('2026-10-08T17:30:00+09:00'),source:'https://www.federalreserve.gov/newsevents/2026-october.htm'},
+      {name:'米新規失業保険申請',time:Date.parse('2026-10-08T21:30:00+09:00'),source},
+      {name:'米ミシガン消費者調査・速報',time:Date.parse('2026-10-09T23:00:00+09:00'),source}
+    ];
+    const covered=now>=checkedAt-24*3600000&&now<=Date.parse('2026-10-10T00:00:00+09:00');
+    const next=covered?events.filter(e=>e.time>=now-30*MINUTE).slice(0,2):[];
+    const imminent=next.some(e=>Math.abs(e.time-now)<=30*MINUTE);
+    return {checkedAt,coverage:covered?'partial':'expired',events:next,
+      blocked:Boolean(settings.blackout)||imminent,
+      message:settings.blackout?'手動指標ブラックアウト中':imminent?'指標・発言の前後30分：新規入場は保留':covered?'確認済み予定の一部。未掲載の発言・突発ニュースも別途確認':'経済予定の確認期限切れ。最新カレンダーを確認'};
   }
 
   function applyPullback(result,settings){
@@ -897,7 +980,7 @@
     VERSION, DEFAULTS, normalizeCandles, filterClosedCandles, dataQuality, inferIntervalMinutes,
     sma, ema, atr, rsi, macd, bollinger, dmi, rollingVWAP, anchoredVWAP, rollingZ,
     confirmedSwings, detectStructure, candlePattern, sessionInfo, aggregateCandles,
-    analyzeTimeframe, analyzeMarket, positionDecision, parseCSV, backtest, summarizeTrades,
+    analyzeTimeframe, analyzeMarket, buildMarketMap, calendarRisk, positionDecision, parseCSV, backtest, summarizeTrades,
     _internal: { calculateCosts, buildTradePlan, simulateTrade, clamp, round, percentileRank }
   };
 });

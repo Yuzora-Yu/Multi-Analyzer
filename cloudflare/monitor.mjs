@@ -79,7 +79,7 @@ export class MarketMonitor extends DurableObject {
       const deliveryPolicy=Events.alertPolicy(asset,now,bar);
       status.alertSchedule=deliveryPolicy;
       status.emailEnabled=this.env.ALERTS_ENABLED==='true' && deliveryPolicy.allowed;
-      const event=position && !exit ? null : Events.eventFor(analysis,asset,position,{now,symbol:ASSETS[asset],note,snapshot:id,version:Core.VERSION,conditionalExit:Boolean(position)});
+      const event=asset!=='gold' && position && !exit ? null : Events.eventFor(analysis,asset,position,{now,symbol:ASSETS[asset],note,snapshot:id,version:Core.VERSION,conditionalExit:Boolean(position)});
       if(!dryRun){
         // Keep virtual position tracking current without queuing a weekend exit for Monday.
         if(exit && !deliveryPolicy.allowed) state.paperPosition=null;
@@ -99,12 +99,13 @@ export class MarketMonitor extends DurableObject {
           state.lastEmail={acceptedAt:now,asset,snapshotId:id,title:event.title};
           status.emailAcceptedAt=now;status.lastEmail=state.lastEmail;
           if(exit)state.paperPosition=null;
-          else state.paperPosition={direction:analysis.direction,entry:analysis.plan.entry,stop:analysis.plan.stop,openedAt:snapshot.settings.now,referenceOnly:true};
+          else if(event.kind!=='ANALYSIS') state.paperPosition={direction:analysis.direction,entry:analysis.plan.entry,stop:analysis.plan.stop,openedAt:snapshot.settings.now,referenceOnly:true};
           }else if(exit)state.paperPosition=null;
         }
       }
       state.delivered=Object.fromEntries(Object.entries(state.delivered).sort((a,b)=>b[1]-a[1]).slice(0,200));
-      Object.assign(status,{state:analysis.state,bar:analysis.exec.candles.at(-1)?.time,checkedAt:now,error:null,snapshotId:id,engineVersion:Core.VERSION,volumeAvailable:closed.some(b=>b.volume>0),requestsToday:state.count});
+      if(exit && !dryRun)state.paperPosition=null;
+      Object.assign(status,{state:analysis.state,marketMap:analysis.marketMap,notificationMode:asset==='gold'?'ZONE_ANALYSIS':'ENTRY_EXIT',bar:analysis.exec.candles.at(-1)?.time,checkedAt:now,error:null,snapshotId:id,engineVersion:Core.VERSION,volumeAvailable:closed.some(b=>b.volume>0),requestsToday:state.count});
     }catch(error){status.error=String(error.message).replace(/apikey=[^&\s]+/g,'apikey=[REDACTED]').slice(0,100);status.requestsToday=state.count;
       if(error.message==='GOLD_MARKET_CLOSED'){status.state='MARKET_CLOSED';status.error=null;status.emailEnabled=false;status.collectionSchedule=Feed.collectionPolicy(asset,Date.now());}
     }

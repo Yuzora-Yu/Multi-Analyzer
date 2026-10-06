@@ -16,10 +16,10 @@
   <script defer src="smc-core.js"></script>
   <script defer src="chart-overlays.js?v=4.3.1-ui3"></script>
   <script defer src="flow-core.js?v=4.3.1-ui6"></script>
-  <script defer src="strategy-core.js?v=4.3.3"></script>
+  <script defer src="strategy-core.js?v=4.3.4"></script>
   <script defer src="review-pack.js?v=4.3.3-session"></script>
   <script defer src="chart-evidence.js?v=4.3.2-mobile10"></script>
-  <script defer src="app.js?v=4.3.3-session"></script>
+  <script defer src="app.js?v=4.3.4-map"></script>
 </head>
 <body>
   <div class="app-shell">
@@ -165,8 +165,9 @@
                     <span id="livePreviewText">価格更新待ち</span>
                   </div>
                   <div class="smc-context" id="smcContext" aria-live="polite"></div>
+                  <div class="smc-context market-map" id="marketMap" aria-live="polite"></div>
                   <div class="flow-summary" id="flowSummary" aria-live="polite"></div>
-                  <p class="dialog-note">参考スコアは相場環境の表示です。通知はP条件で判定します。<a href="https://github.com/Yuzora-Yu/Multi-Analyzer/blob/main/RESEARCH_V43.md" target="_blank" rel="noopener">条件と検証結果</a></p>
+                  <p class="dialog-note">GOLD通知はSMC×MA・BBの候補帯への接近・再訪を案内します。接触だけでは入場条件成立になりません。既存P条件・収益検証とは別です。<a href="https://github.com/Yuzora-Yu/Multi-Analyzer/blob/main/RESEARCH_V43.md" target="_blank" rel="noopener">条件と検証結果</a></p>
                   <a id="currentSnapshotLink" href="?tf=15m">現在の共通判定を開く</a>
                 </article>
               </section>
