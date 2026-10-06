@@ -13,13 +13,14 @@
   <link rel="stylesheet" href="styles.css?v=4.3.2-mobile10">
   <script defer src="https://unpkg.com/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js"></script>
   <script defer src="market-feed.js?v=4.3.3-session"></script>
+  <script defer src="price-basis.js?v=1"></script>
   <script defer src="smc-core.js"></script>
   <script defer src="chart-overlays.js?v=4.3.1-ui3"></script>
   <script defer src="flow-core.js?v=4.3.1-ui6"></script>
   <script defer src="strategy-core.js?v=4.3.4"></script>
   <script defer src="review-pack.js?v=4.3.3-session"></script>
   <script defer src="chart-evidence.js?v=4.3.2-mobile10"></script>
-  <script defer src="app.js?v=4.3.4-map"></script>
+  <script defer src="app.js?v=4.3.4-basis"></script>
 </head>
 <body>
   <div class="app-shell">
@@ -288,6 +289,8 @@
     <form method="dialog" class="settings-form" id="settingsForm">
       <div class="dialog-header"><div><span class="eyebrow">RISK & EXECUTION</span><h2>分析設定</h2></div><button class="icon-button" value="cancel" aria-label="閉じる">×</button></div>
       <div class="settings-grid">
+        <label>GOLD 業者価格との差額（業者 − Bybit、USD）<input id="settingGoldOffset" type="number" step="0.01" placeholder="例：業者が5ドル安ければ -5"></label>
+        <label>照合する業者の現在価格（任意）<input id="settingBrokerQuote" type="number" min="1" step="0.01" placeholder="保存時の最新Bybit価格と照合"></label>
         <label>口座資金（USD / USDT）<input id="settingEquity" type="number" min="1" step="100"></label>
         <label>1回の許容損失（%）<input id="settingRiskPct" type="number" min="0.05" max="5" step="0.05"></label>
         <label>片道手数料（bps）<input id="settingFee" type="number" min="0" max="100" step="0.1"></label>
@@ -297,6 +300,7 @@
         <label>最大レバレッジ<input id="settingLeverage" type="number" min="1" max="100" step="0.5"></label>
         <label class="checkbox-label"><input id="settingBlackout" type="checkbox"><span>重要指標ブラックアウト</span></label>
       </div>
+      <p class="dialog-note">価格差だけは共通判定中も変更できます。業者がBybitより5ドル安ければ −5。候補帯・プランに業者概算と元価格を併記します。チャート、分析、メールはBybit元価格です。補正はこの端末だけに保存し、24時間で期限切れになります。現在価格での照合は15秒以内の価格を使用します。過去の価格差や業者固有の高安まで再現するものではありません。</p>
       <div class="dialog-note">共通設定は資金1,000 USD・許容損失0.5%の参考計算です。15分足の共通判定を開いている間は変更できません。ブラックアウトをONにすると、スコアに関係なく新規取引候補を停止します。15分足は通知との一致のため共通設定を使用します。個別設定は5分・1時間・CSV検証に適用します。</div>
       <div class="dialog-actions"><button class="ghost-button" value="cancel">キャンセル</button><button class="primary-button" id="saveSettingsButton" value="default">保存して再分析</button></div>
     </form>

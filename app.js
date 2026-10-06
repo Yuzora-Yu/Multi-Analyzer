@@ -3,6 +3,7 @@
 
   const Core = window.MultiAnalyzerCore;
   const Feed = window.MultiAnalyzerFeed;
+  const Basis = window.MultiAnalyzerPriceBasis;
   const CLOUD = 'https://multi-analyzer-monitor.rikai-829.workers.dev';
   if (!Core) throw new Error('strategy-core.js could not be loaded');
 
@@ -76,6 +77,8 @@
 
   function currentInstrument() { return INSTRUMENTS[state.instrumentId]; }
   function currentTf() { return TF[state.tf]; }
+  function priceBasis(){return Basis.resolve(state.settings.goldPriceBasis,state.instrumentId);}
+  function mappedPrice(value){const b=priceBasis();return b.enabled?`${fmt(Basis.convert(value,b))}［元 ${fmt(value)}］`:fmt(value);}
 
   function loadSettings() {
     const defaults = { ...Core.DEFAULTS, accountEquity: 1000, riskPct: 0.5, feeBpsPerSide: 2, spreadBps: 1.8, slippageBps: 1.2, minNetRR: 1.8, maxLeverage: 3, blackout: false };
@@ -639,9 +642,9 @@
     if(!box)return;
     if(!map?.valid){box.innerHTML='<p><strong>候補帯</strong><span>データ不足・更新停止。最新データで再確認します。</span></p>';return;}
     const phase={WAIT:'接近待ち',APPROACH:'接近・反応待ち',IN_ZONE:'帯内・反応待ち',ENTRY_CONFIRMED:'P条件も成立'};
-    const rows=[['環境と狙い',`${map.trends.map(t=>`${t.name} 構造${t.structure}・MA${t.ma}`).join(' / ')}。新規は${map.entryState}`]];
-    for(const z of map.candidates)rows.push([`${z.direction==='SHORT'?'売り':'買い'} ${fmt(z.low)}～${fmt(z.high)}`,
-      `${phase[z.phase]} / ${z.role}。${z.evidence.join('・')}。${z.condition}。15分終値${fmt(z.invalidationClose)}${z.direction==='SHORT'?'超':'未満'}で帯の見立て無効。保護SL参考 ${fmt(z.protectiveStop)}（再訪高安で再計算）。反応・利確候補 ${z.targets.map(t=>fmt(t)).join(' / ')||'未確認'}`]);
+    const rows=[['価格基準',priceBasis().label+'。換算は候補帯・プランのみ。チャートと分析はBybitの元価格。'],['環境と狙い',`${map.trends.map(t=>`${t.name} 構造${t.structure}・MA${t.ma}`).join(' / ')}。新規は${map.entryState}`]];
+    for(const z of map.candidates)rows.push([`${z.direction==='SHORT'?'売り':'買い'} ${mappedPrice(z.low)}～${mappedPrice(z.high)}`,
+      `${phase[z.phase]} / ${z.role}。${z.evidence.join('・')}。${z.condition}。15分終値${mappedPrice(z.invalidationClose)}${z.direction==='SHORT'?'超':'未満'}で帯の見立て無効。保護SL参考 ${mappedPrice(z.protectiveStop)}（再訪高安で再計算）。反応・利確候補 ${z.targets.map(t=>mappedPrice(t)).join(' / ')||'未確認'}`]);
     if(!map.candidates.length)rows.push(['候補帯','現在有効なSMC帯なし。MA・BB接触だけでは候補を作りません。']);
     const events=map.eventRisk.events.map(e=>`${new Date(e.time).toLocaleString('ja-JP',{timeZone:'Asia/Tokyo',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false})} JST ${e.name}`).join(' / ');
     rows.push(['指標警戒',`${events||'最新予定を確認'}。${map.eventRisk.message}`]);
@@ -658,7 +661,7 @@
     $('planAction').style.color = action.includes('BUY') ? 'var(--green)' : action.includes('SELL') ? 'var(--red)' : 'var(--muted)';
     for (const [id, val] of [
       ['entryValue', p?.entry], ['stopValue', p?.stop], ['tp1Value', p?.tp1], ['tp2Value', p?.tp2], ['tp3Value', p?.tp3]
-    ]) $(id).textContent = fmt(val);
+    ]) $(id).textContent = mappedPrice(val);
     $('rrValue').textContent = p?.netRR != null ? `${p.netRR} R` : '—';
     $('quantityValue').textContent = p?.quantity != null ? `${fmt(p.quantity, 4)} ${state.instrumentId === 'gold' ? 'oz' : 'BTC'}` : '—';
     $('riskBudgetValue').textContent = p?.riskBudget != null ? `$${fmt(p.riskBudget, 2)}` : '—';
@@ -890,7 +893,11 @@
   function openSettings() {
     const common=Boolean(state.snapshot&&!state.offlineCsv);
     document.querySelectorAll('#settingsDialog input').forEach(el=>{el.disabled=common;});
-    $('saveSettingsButton').disabled=common;
+    $('settingGoldOffset').disabled=false;
+    $('settingBrokerQuote').disabled=state.instrumentId!=='gold';
+    $('settingGoldOffset').value=state.settings.goldPriceBasis?.offset??'';
+    $('settingBrokerQuote').value='';
+    $('saveSettingsButton').disabled=false;
     $('settingEquity').value = (state.snapshot&&!state.offlineCsv?state.snapshot.settings:state.settings).accountEquity;
     $('settingRiskPct').value = (state.snapshot&&!state.offlineCsv?state.snapshot.settings:state.settings).riskPct;
     $('settingFee').value = (state.snapshot&&!state.offlineCsv?state.snapshot.settings:state.settings).feeBpsPerSide;
@@ -904,8 +911,21 @@
 
   function saveSettings(event) {
     event.preventDefault();
+    const broker=inputNumber('settingBrokerQuote'),offset=inputNumber('settingGoldOffset');
+    let goldPriceBasis=null;
+    if(broker!==null){
+      try{goldPriceBasis=Basis.calibration(broker,state.livePrice,Date.now(),state.feedAt,Date.now());}
+      catch(error){$('settingBrokerQuote').setCustomValidity(error.message);$('settingBrokerQuote').reportValidity();return;}
+    }else if(offset!==null&&Number.isFinite(offset))goldPriceBasis={offset,updatedAt:Date.now(),mode:'estimate'};
+    $('settingBrokerQuote').setCustomValidity('');
+    if(state.snapshot&&!state.offlineCsv){
+      state.settings={...state.settings,goldPriceBasis};
+      localStorage.setItem(STORAGE_KEY,JSON.stringify(state.settings));
+      $('settingsDialog').close();analyzeAndRender();return;
+    }
     state.settings = {
       ...state.settings,
+      goldPriceBasis,
       accountEquity: Math.max(1, Number($('settingEquity').value)),
       riskPct: Math.max(.05, Number($('settingRiskPct').value)),
       feeBpsPerSide: Math.max(0, Number($('settingFee').value)),
@@ -992,6 +1012,7 @@
     $('backtestButton').addEventListener('click', runBacktest);
     $('settingsButton').addEventListener('click', openSettings);
     $('saveSettingsButton').addEventListener('click', saveSettings);
+    $('settingBrokerQuote').addEventListener('input',()=>$('settingBrokerQuote').setCustomValidity(''));
     for (const id of ['positionDirection', 'positionEntry', 'positionStop']) $(id).addEventListener('change', savePositionFromInputs);
     $('clearPositionButton').addEventListener('click', () => {
       $('positionDirection').value = '';
