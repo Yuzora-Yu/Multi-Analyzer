@@ -39,6 +39,29 @@ test('stale feeds, missing confluence, blackout and weekends cannot generate zon
   const b=fixture();b.marketMap.eventRisk.blocked=true;assert.equal(Events.eventFor(b,'gold',null,{now}),null);
   assert.equal(Events.eventFor(fixture(),'gold',null,{now:Date.parse('2026-10-10T12:00:00+09:00')}),null);
 });
+test('zone mail opens with a Japanese conclusion and wait conditions, not an entry or EXIT instruction',()=>{
+  const a=fixture();a.positionDecision={action:'EXIT_SHORT',reasons:['EMA13注意']};
+  const event=Events.eventFor(a,'gold',null,{now});
+  assert.ok(event.text.startsWith('結論：戻り売り候補 102～104 に近づいています。'));
+  const opening=event.text.split('詳しい分析')[0];
+  assert.match(opening,/反応を待つ段階/);assert.match(opening,/接触だけではエントリーしません/);
+  assert.match(opening,/終値が 104 を上回る/);assert.match(opening,/参考価格：104.8/);
+  assert.match(opening,/価格補正はこのメールには適用されません/);
+  assert.doesNotMatch(opening,/条件が成立しました|クローズ推奨|EXIT/);
+  assert.match(event.text,/4時間足 高安の構造下向き・移動平均線下向き/);
+  assert.match(event.text,/15分足 指数移動平均線20/);
+});
+test('zone conclusion distinguishes confirmed entry and countertrend buy waiting',()=>{
+  const a=fixture(),z=a.marketMap.candidates[0];
+  a.actionable=true;z.phase='ENTRY_CONFIRMED';
+  assert.match(Events.eventFor(a,'gold',null,{now}).text.split('\n\n')[0],/既存エントリー条件が成立/);
+  a.actionable=false;z.phase='IN_ZONE';z.direction='LONG';z.role='逆張り・短期反発';
+  a.marketMap.candidates=[z];
+  const text=Events.eventFor(a,'gold',null,{now}).text;
+  assert.ok(text.startsWith('結論：押し目買い候補'));
+  assert.match(text.split('詳しい分析')[0],/上位足に逆らう短期/);
+  assert.match(text,/終値が 104 を下回る/);
+});
 test('calendar is explicitly partial, gates release window and expires',()=>{
   const r=Core.calendarRisk(Date.parse('2026-10-06T21:15:00+09:00'));
   assert.equal(r.coverage,'partial');assert.equal(r.blocked,true);assert.equal(r.events[0].name,'米貿易収支');

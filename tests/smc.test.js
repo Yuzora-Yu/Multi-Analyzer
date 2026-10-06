@@ -49,6 +49,7 @@ test('recommendation includes Japanese action, SL, targets and correct public as
   const a = { actionable: true, state: 'READY_SHORT', exec: { candles: [bar(0, 100, 101, 99, 100)] }, generatedAt: start,
     components: [{ long: 0, short: 11, text: '4H bear' }], plan: { entry: 100, stop: 102, tp1: 98, tp2: 96, tp3: 94 } };
   const event = eventFor(a, 'btc');
+  assert.ok(event.text.startsWith('結論：売りのエントリー候補条件が成立しました。'));
   assert.match(event.title, /売り候補/);
   assert.match(event.text, /損切り（SL）: 102/);
   assert.match(event.text, /TP3: 94/);
@@ -56,4 +57,13 @@ test('recommendation includes Japanese action, SL, targets and correct public as
   assert.equal(new URL(event.url).searchParams.get('asset'), 'btc');
   assert.equal(new URL(event.url).origin, 'https://yuzora-yu.github.io');
   assert.match(event.text, /リンク先は現在の相場/);
+});
+test('exit mail begins with conditional caution and never implies a reversal entry',()=>{
+  const a={actionable:false,state:'NO_TRADE',exec:{candles:[bar(0,100,101,99,100)]},generatedAt:start,
+    positionDecision:{action:'EXIT_SHORT',reasons:['EMA13注意'],livePrice:101},plan:null};
+  const event=eventFor(a,'btc',{entry:100,stop:102},{conditionalExit:true});
+  assert.ok(event.text.startsWith('結論：前回の候補を保有中なら、売りポジションに撤退の注意'));
+  assert.match(event.text.split('\n\n')[0],/実際の保有は取得していません/);
+  assert.match(event.text.split('\n\n')[0],/反対方向に入り直す判断はしません/);
+  assert.match(event.text,/指数移動平均線13注意/);
 });
