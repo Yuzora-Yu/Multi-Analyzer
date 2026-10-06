@@ -9,4 +9,7 @@ When the user contacts us about the current GOLD market, first inspect the live 
 - Analyzer XAUUSDT perpetual quotes differ from the user's broker GOLD/USD. Do not translate prices using a fixed assumed offset.
 - Zone analysis is primary. Exit warnings are supplemental and never imply a reversal entry. An unconfirmed zone is not an instruction to trade.
 - Preserve existing SMC and experimental P strategy; new contextual features must not be represented as proven profitable or silently promoted to trade execution.
+- Start each follow-up review with the previously stated checkpoint and its ORIGINAL price basis, timeframe, confirmation and invalidation rules. Report actual touch, closed-candle evidence and status (not reached / awaiting confirmation / confirmed / invalidated) before introducing farther zones.
+- Never widen an invalidated zone or protective stop after the move to preserve a directional thesis. A new zone is a separate hypothesis; explicitly close the old one first. Do not equate short invalidation with long entry confirmation.
+- Evaluate the CURRENT checkpoint on its own merits. Keep higher-timeframe bias separate from actual local price/MA behavior; a delayed structure label cannot override a visibly reclaimed swing or a closed-candle zone break. Preserve the existing trigger rules when updating the review.
 - GOLD collection/analysis/notifications remain stopped on JST weekends and market closures. Honor the separately agreed research pause; market review and interface/notification fixes do not authorize restarting strategy research.
