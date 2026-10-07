@@ -469,7 +469,7 @@
     state.volumeSeries=state.chart.addHistogramSeries({priceFormat:{type:'volume'},priceScaleId:'volume',priceLineVisible:false,lastValueVisible:false});
     state.volumeSeries.priceScale().applyOptions({scaleMargins:{top:.87,bottom:0}});
     const canvas=document.createElement('canvas');canvas.className='flow-overlay';container.appendChild(canvas);state.flowCanvas=canvas;
-    const redraw=()=>requestAnimationFrame(()=>{if(canvas.isConnected && state.chart && state.analysis?.exec?.flow)window.MultiAnalyzerOverlay.draw(canvas,state.chart,state.candleSeries,state.analysis.exec.candles,state.analysis.exec.flow);});
+    const redraw=()=>requestAnimationFrame(()=>{if(canvas.isConnected && state.chart && state.analysis?.exec?.flow){renderChartMarkerLabels();window.MultiAnalyzerOverlay.draw(canvas,state.chart,state.candleSeries,state.analysis.exec.candles,state.analysis.exec.flow);}});
     state.redrawFlow=redraw;
     state.chart.timeScale().subscribeVisibleLogicalRangeChange(redraw);
     container.addEventListener('pointermove',redraw);container.addEventListener('wheel',redraw,{passive:true});
@@ -506,10 +506,10 @@
     }
     if (state.analysis.actionable) markers.push({ time: toChartTime(state.analysis.exec.candles.at(-1).time), position: state.analysis.direction === 'LONG' ? 'belowBar' : 'aboveBar', color: '#e6b85c', shape: 'circle', text: state.analysis.direction === 'LONG' ? '買い候補' : '売り候補' });
     markers.sort((a, b) => a.time - b.time);
-    // Preserve every marker, but space labels so small screens remain readable.
-    const labelBars = Math.max(3, Math.ceil((Number($('chartRange').value) || visible.length) * 65 / Math.max(240, state.chartSize.width)));
-    window.MultiAnalyzerEvidence.spaceLabels(markers,labelBars*currentTf().minutes*60);
-    state.candleSeries.setMarkers(markers);
+    // Keep original explanations so zooming or panning can restore hidden labels.
+    state.chartMarkers=markers;
+    state.markerLayoutKey=null;
+    renderChartMarkerLabels();
 
     for (const line of state.priceLines) state.candleSeries.removePriceLine(line);
     state.priceLines = [];
@@ -541,6 +541,17 @@
 
   function chartCandles() {
     return INITIAL_PARAMS.has('snapshot') && state.snapshot ? state.analysis?.exec?.candles || [] : state.data.exec;
+  }
+
+  function renderChartMarkerLabels() {
+    if(!state.chart||!state.candleSeries||!state.flowCanvas)return;
+    const scale=state.chart.timeScale(),ctx=state.flowCanvas.getContext('2d');
+    ctx.font='12px JetBrains Mono';
+    const markers=window.MultiAnalyzerEvidence.viewportLabels(state.chartMarkers||[],time=>scale.timeToCoordinate(time),scale.width(),text=>ctx.measureText(text).width);
+    const key=JSON.stringify(markers);
+    if(key===state.markerLayoutKey)return;
+    state.markerLayoutKey=key;
+    state.candleSeries.setMarkers(markers);
   }
 
   function applyChartRange() {
@@ -1121,6 +1132,7 @@
     state.chartResizeFrame = 0;
     if(state.redrawFlow){$('chartContainer').removeEventListener('pointermove',state.redrawFlow);$('chartContainer').removeEventListener('wheel',state.redrawFlow);}
     state.flowCanvas?.remove();state.flowCanvas=null;state.redrawFlow=null;
+    state.chartMarkers=[];state.markerLayoutKey=null;
     if (state.chart) state.chart.remove();
     state.chart = state.candleSeries = state.ema20Series = state.ema50Series = state.vwapSeries = null;
     state.priceLines = [];

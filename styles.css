@@ -474,3 +474,9 @@ button { color: inherit; -webkit-tap-highlight-color: transparent; }
 
 /* Keep the confirmed calendar day visible without widening phone tables. */
 .review-overview td:nth-child(2){white-space:pre-line;line-height:1.45;font-variant-numeric:tabular-nums}
+@media(max-width:420px){
+ .chart-toolbar .header-quote{gap:6px}
+ .chart-toolbar .symbol-line #symbolCode{display:none}
+ .chart-toolbar .quote-line{gap:4px}
+ .chart-toolbar .price-change{font-size:9px;padding:3px}
+}

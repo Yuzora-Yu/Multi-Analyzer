@@ -43,5 +43,22 @@
       exit:f.exitLong?'買いEXIT注意：EMA13下で2本確定':f.exitShort?'売りEXIT注意：EMA13上で2本確定':'最新確定足のEXIT注意なし'
     };
   }
-  return {markers,hourlyZones,spaceLabels,context};
+  function viewportLabels(markers,locate,width,measure){
+    const out=markers.map(m=>({...m,text:''}));
+    if(!Number.isFinite(width)||width<=0)return out;
+    const priority=m=>m.text.startsWith('方向転換')?4:m.text.startsWith('リボン')?3:m.text.startsWith('P ')?2:m.text.includes('EXIT')?1:0;
+    const used=[];
+    const ordered=markers.map((m,i)=>({m,i})).sort((a,b)=>priority(b.m)-priority(a.m)||b.m.time-a.m.time);
+    for(const {m,i} of ordered){
+      if(!m.text)continue;
+      const x=locate(m.time),length=measure(m.text);
+      if(!Number.isFinite(x)||!Number.isFinite(length)||length<0||x<0||x>width)continue;
+      // Clamp the label footprint to the plot; events outside it do not reserve space.
+      const left=Math.max(0,Math.min(Math.max(0,width-length),x-length/2)),right=Math.min(width,left+length);
+      if(used.some(p=>p.position===m.position&&left<p.right+8&&right>p.left-8))continue;
+      used.push({left,right,position:m.position});out[i].text=m.text;
+    }
+    return out;
+  }
+  return {markers,hourlyZones,spaceLabels,viewportLabels,context};
 });

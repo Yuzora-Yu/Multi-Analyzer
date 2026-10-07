@@ -21,3 +21,22 @@ test('H1 references exclude unclosed, stale, invalidated and non-OB zones',()=>{
  assert.equal(E.hourlyZones(h,3599999).length,0);assert.equal(E.hourlyZones(h,3600000).length,1);
  h.quality.stale=true;assert.equal(E.hourlyZones(h,3600000).length,0);
 });
+test('viewport label layout restores explanations on zoom and does not let offscreen events suppress visible labels',()=>{
+ const original=[{time:1,position:'aboveBar',text:'売 EXIT注意',shape:'circle',color:'yellow'},{time:2,position:'aboveBar',text:'方向転換 売 B',shape:'arrowDown',color:'red'},{time:3,position:'belowBar',text:'P 押し目条件',shape:'circle',color:'purple'}],before=JSON.stringify(original);
+ const close=E.viewportLabels(original,t=>t*20,320,()=>80);
+ assert.equal(close[0].text,'');assert.equal(close[1].text,original[1].text);assert.equal(close[2].text,original[2].text);
+ const wide=E.viewportLabels(original,t=>t*100,390,()=>80);assert.deepEqual(wide,original);
+ const historical=E.viewportLabels(original,t=>t===2?-5:50,320,()=>80);assert.equal(historical[0].text,original[0].text);assert.equal(historical[1].text,'');
+ for(let i=0;i<original.length;i++){const {text,...a}=close[i],{text:unused,...b}=original[i];assert.deepEqual(a,b);}
+ assert.equal(JSON.stringify(original),before);
+ assert.ok(E.viewportLabels(original,()=>null,320,()=>80).every(m=>m.text===''));
+});
+test('app redraw restores labels from originals and skips identical marker writes',()=>{
+ const fs=require('node:fs'),vm=require('node:vm'),app=fs.readFileSync(require.resolve('../app.js'),'utf8');
+ const source=app.slice(app.indexOf('  function renderChartMarkerLabels()'),app.indexOf('  function applyChartRange()'));
+ let multiplier=20,writes=[];
+ const state={chart:{timeScale:()=>({width:()=>320,timeToCoordinate:t=>t*multiplier})},candleSeries:{setMarkers:m=>writes.push(m)},flowCanvas:{getContext:()=>({measureText:()=>({width:80})})},chartMarkers:[{time:1,position:'aboveBar',text:'売 EXIT注意'},{time:2,position:'aboveBar',text:'方向転換 売 B'}]};
+ const original=JSON.stringify(state.chartMarkers),context={state,window:{MultiAnalyzerEvidence:E}};vm.createContext(context);
+ vm.runInContext(source+';renderChartMarkerLabels();renderChartMarkerLabels()',context);assert.equal(writes.length,1);assert.equal(writes[0][0].text,'');
+ multiplier=100;vm.runInContext('renderChartMarkerLabels()',context);assert.equal(writes.length,2);assert.equal(writes[1][0].text,'売 EXIT注意');assert.equal(JSON.stringify(state.chartMarkers),original);
+});
