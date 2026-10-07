@@ -113,9 +113,9 @@
   function consultation(a,now,{archived=false}={}){
     const Focus=globalThis.MultiAnalyzerZoneFocus,C=globalThis.MultiAnalyzerCheckpoint,G=globalThis.MultiAnalyzerZoneGeometry;
     const zones=(a.signal.marketMap?.candidates||[]).map(z=>{
-      const geometry=G?.describe(a.signal,z)||null;
+      const geometry=!archived&&a.health?.blocked?null:G?.describe(a.signal,z)||null;
       const geometryText=geometry?G.text(geometry):[];
-      const preview=confirmationContext(a.signal,z);
+      const preview=confirmationContext(a.signal,z,num,archived?null:a.health);
       const confirmationPreview=archived?{...preview,scope:'saved-decision-checkpoint-reconstruction',text:'保存判定からの後日再構築。当時の表示・追跡成立や現在の条件を示すものではありません。'+preview.text.replace('今から固定追跡する場合','この保存判定を基準に固定する場合')}:preview;
       return {zone:structuredClone(z),focus:Focus?.describe(a.signal,z)||null,geometry,geometryText,confirmationPreview,
         geometryBasis:{sourceId:a.snapshot?.id??null,sourceClosedAt:a.signal.m15?.candles?.at(-1)?.time!=null?a.signal.m15.candles.at(-1).time+900000:null,reviewCapturedAt:now,calculatedAt:Date.now(),
@@ -124,7 +124,8 @@
     const checkpoints=archived?[]:(C?.read()||[]).filter(c=>c.asset===a.asset&&c.savedAt<=now).map(c=>C.advance(c,a.signal,{now,allowed:!a.health?.blocked&&(globalThis.MultiAnalyzerFeed?.collectionPolicy(a.asset).allowed??true)}));
     return {basis:'Bybit元市場価格。端末の固定帯は保存時の換算を別記。',trendContext:globalThis.MultiAnalyzerTrendContext?.describe(a.signal)||null,zones,checkpoints,checkpointText:checkpoints.flatMap(c=>C.describe(c)),note:archived?'過去判定に現在の端末チェックポイントを混入しません。':'端末内の観察記録。保存後の追跡であり、元の予測やPサインを書き換えません。'};
   }
-  function confirmationContext(a,z,price=num){
+  function confirmationContext(a,z,price=num,health=null){
+    if(health?.blocked)return {available:false,minutes:15,scope:'suspended-checkpoint-preview',reason:health.kind||'PRESENTATION_BLOCKED',text:'判断保留中のため、新しい固定追跡の確認価格は表示しません。'+(health.message||'共通判定の状態を確認してください。')+' 保存済み追跡は元条件を維持します。'};
     const g=globalThis.MultiAnalyzerZoneGeometry?.describe(a,z),short=z?.direction==='SHORT',closedAt=a?.m15?.candles?.at(-1)?.time+900000;
     if(!g?.available||!Number.isFinite(closedAt))return {available:false,minutes:15,text:'固定追跡の確認価格は未取得です。帯への接触だけでは成立と判定しません。'};
     return {available:true,minutes:15,sourceClosedAt:closedAt,direction:z.direction,zoneEdge:short?z.low:z.high,pivot:g.pivot,boundary:g.boundary,comparison:short?'strictly-below':'strictly-above',scope:'new-checkpoint-preview',

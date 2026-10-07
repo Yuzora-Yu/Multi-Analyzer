@@ -690,8 +690,8 @@
     const fields=list=>'<dl class="zone-fields">'+list.map(([label,text])=>`<div><dt>${esc(label)}</dt><dd>${esc(text)}</dd></div>`).join('')+'</dl>';
     const cards=map.candidates.map((z,i)=>{
       const focus=window.MultiAnalyzerZoneFocus?.describe(a,z);
-      const geometry=window.MultiAnalyzerZoneGeometry?.describe(a,z);
-      const confirmation=window.MultiAnalyzerReview?.confirmationContext?.(a,z,mappedPrice);
+      const geometry=health?.blocked?null:window.MultiAnalyzerZoneGeometry?.describe(a,z);
+      const confirmation=window.MultiAnalyzerReview?.confirmationContext?.(a,z,mappedPrice,health);
       const higher=map.trends.find(t=>t.name==='4H');
       const role=higher?.ma==='中立'&&higher?.structure==='中立'?'上位足の方向未確定':z.role;
       const local=[];
