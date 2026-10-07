@@ -12,6 +12,7 @@ function transport(log,{badAsset,badClock,httpAsset}={}){return async url=>{log.
 function prepare(snapshot,transport,clock,now){return{schema:1,specId:F.SPEC.id,id:snapshot.id,asset:snapshot.asset,transport,clockMeasurement:clock,clockBounds:F.clockBounds(clock),generatedAt:now,targetBarClosedAt:now-30000,entryAt:now+900000,issues:[],snapshot,prediction:{state:'NO_TRADE'}};}
 const open=()=>({allowed:true});
 test('capture persists and bridges each original before next asset; budget four and no evaluator',async t=>{
+ t.mock.method(Date,'now',()=>Date.parse('2026-10-05T12:00:00+09:00'));
  const base=fixture(t),log=[],originals=[];
  const result=await C.capture({base,policy:open,fetchImpl:transport(log),prepare,persist:(root,r)=>{log.push('persist:'+r.asset);const p=F.persist(root,r);originals.push(fs.readFileSync(path.join(p.directory,'prediction.json')));return p;},bridge:(dirs,options)=>{
    const r=JSON.parse(fs.readFileSync(path.join(dirs[0],'prediction.json')));log.push('bridge:'+r.asset);return B.bridge(dirs,{...options,ingest:()=>({reused:false})});

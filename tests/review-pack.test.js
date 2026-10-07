@@ -36,7 +36,7 @@ test('review uses exact canonical 15m input, excludes forming bars, and records 
   assert.match(R.prompt(p),/EXIT/);
 });
 
-test('cancelled capture makes no network request',async(t)=>{t.mock.method(global,'fetch',()=>{throw Error('unexpected network');});const c=new AbortController();c.abort();await assert.rejects(R.collect(['gold'],{signal:c.signal}),{name:'AbortError'});});
+test('cancelled capture makes no network request even when Gold collection is closed',async(t)=>{t.mock.method(global,'fetch',()=>{throw Error('unexpected network');});t.mock.method(Date,'now',()=>Date.parse('2026-10-04T12:00:00+09:00'));const c=new AbortController();c.abort();await assert.rejects(R.collect(['gold'],{signal:c.signal}),{name:'AbortError'});});
 test('overview marks stale signals and missing timeframes without manufacturing alignment',()=>{
  const pack={assets:[{asset:'gold',snapshot:{id:'x',settings:{now:1000}},signal:{state:'READY_LONG',actionable:true,vetoes:[],plan:{netRR:2}}}],records:[]};
  const current=R.overview(pack,1000)[0],old=R.overview(pack,1000+21*60000)[0];

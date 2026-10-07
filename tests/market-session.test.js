@@ -20,7 +20,8 @@ test('closed GOLD load never invokes transport',async()=>{
   await assert.rejects(Feed.load('gold',15,300,async()=>{requests++;},undefined,at('2026-10-04T12:00:00+09:00')),/GOLD_MARKET_CLOSED/);
   assert.equal(requests,0);
 });
-test('GOLD rebuilds partial H4 from valid hours and excludes closed-hour price/volume',async()=>{
+test('GOLD rebuilds partial H4 from valid hours and excludes closed-hour price/volume',async(t)=>{
+  t.mock.method(Date,'now',()=>at('2026-10-05T12:00:00+09:00'));
   const start=at('2026-09-28T00:00:00Z');
   const source=Array.from({length:178},(_,i)=>{const time=start+i*3600000,open=Feed.marketOpen('gold',time);return {time,open:open?100:9000,high:open?102:9999,low:open?99:8000,close:open?101:9500,volume:open?2:5000};});
   let requests=0;
@@ -28,7 +29,7 @@ test('GOLD rebuilds partial H4 from valid hours and excludes closed-hour price/v
     requests++;const u=new URL(url);assert.equal(u.searchParams.get('interval'),'60');
     const end=Number(u.searchParams.get('end')||Infinity);
     return {retCode:0,result:{list:Feed.pack(source.filter(b=>b.time<=end)).reverse()}};
-  });
+  },undefined,at('2026-10-05T12:00:00+09:00'));
   assert.ok(requests<=3);assert.ok(rows.length>10);
   assert.ok(rows.every(b=>b.high===102&&b.low===99&&b.close===101&&b.volume<=8));
   const reopening=rows.find(b=>b.time===at('2026-10-05T05:00:00+09:00'));
@@ -47,9 +48,10 @@ test('BTC retains native kline data and a single API request',async()=>{
   const rows=await Feed.load('btc',240,300,async url=>{requests++;assert.equal(new URL(url).searchParams.get('interval'),'240');return {retCode:0,result:{list:packed}};});
   assert.deepEqual(Feed.pack(rows),packed);assert.equal(requests,1);
 });
-test('GOLD daily session starts at NY reopening rather than making a Sunday two-hour daily candle',async()=>{
+test('GOLD daily session starts at NY reopening rather than making a Sunday two-hour daily candle',async(t)=>{
+  t.mock.method(Date,'now',()=>at('2026-10-05T12:00:00+09:00'));
   const start=at('2026-10-04T22:00:00Z');
   const source=Array.from({length:24},(_,i)=>({time:start+i*3600000,open:100,high:102,low:99,close:101,volume:2}));
-  const rows=await Feed.load('gold',1440,1,async()=>({retCode:0,result:{list:Feed.pack(source).reverse()}}));
+  const rows=await Feed.load('gold',1440,1,async()=>({retCode:0,result:{list:Feed.pack(source).reverse()}}),undefined,at('2026-10-05T12:00:00+09:00'));
   assert.equal(rows.length,1);assert.equal(rows[0].time,start);assert.equal(rows[0].volume,46);
 });

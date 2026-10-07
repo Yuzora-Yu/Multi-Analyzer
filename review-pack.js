@@ -208,6 +208,7 @@
     const Core=globalThis.MultiAnalyzerCore,Feed=globalThis.MultiAnalyzerFeed,pack={schema:2,mode:archivedId?'archived':'latest',capturedAt:Date.now(),version:Core.VERSION,assets:[],records:[],errors:[],policy};
     async function get(url){const r=await fetch(url,{signal:AbortSignal.any([signal||new AbortController().signal,AbortSignal.timeout(15000)])});if(!r.ok)throw Error(`HTTP ${r.status}`);return r.json();}
     for(const asset of assets){
+      signal?.throwIfAborted();
       if(!archivedId&&!Feed.collectionPolicy(asset).allowed){pack.errors.push({asset,tf:'all',error:'GOLD休場・データ取得停止'});continue;}
       signal?.throwIfAborted();onProgress(`${asset}: 共通判定を取得`);
       let s;try{s=await get(`https://multi-analyzer-monitor.rikai-829.workers.dev/api/snapshot?asset=${asset}${archivedId?'&id='+encodeURIComponent(archivedId):''}`);}catch(e){if(signal?.aborted)throw e;pack.errors.push({asset,tf:'all',error:e.message});continue;}
