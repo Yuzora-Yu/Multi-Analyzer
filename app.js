@@ -706,6 +706,8 @@
     }).join('');
     if(map.candidates.length)rows.push(['局所帯の見方','単独は1水準、重合は複数のMA・BBが近接する範囲。観察専用で、接触・重合数は入場条件や勝率ではありません。背景帯の無効化・SLは変更しません。']);
     if(!map.candidates.length)rows.push(['候補帯','現在有効なSMC帯なし。MA・BB接触だけでは候補を作りません。']);
+    const cost=window.MultiAnalyzerReview?.costContext?.(state.snapshot&&!state.offlineCsv?state.snapshot.settings:state.settings);
+    if(cost)rows.push(['RR計算の費用',cost.text]);
     const events=map.eventRisk.events.map(e=>`${new Date(e.time).toLocaleString('ja-JP',{timeZone:'Asia/Tokyo',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false})} JST ${e.name}`).join(' / ');
     rows.push(['指標警戒',`${events||'最新予定を確認'}。${map.eventRisk.message}`]);
     const calendarChecked=map.eventRisk.checkedAt;
@@ -729,6 +731,7 @@
     $('quantityValue').textContent = p?.quantity != null ? `${fmt(p.quantity, 4)} ${state.instrumentId === 'gold' ? 'oz' : 'BTC'}` : '—';
     $('riskBudgetValue').textContent = p?.riskBudget != null ? `$${fmt(p.riskBudget, 2)}` : '—';
     const notes = [];
+    notes.push(window.MultiAnalyzerReview.costContext(state.snapshot&&!state.offlineCsv?state.snapshot.settings:state.settings).text);
     if (p) notes.push(`${p.orderType === 'CLOSE_CONFIRM' ? '確定足確認' : 'リテスト指値候補'}。無効化: ${p.invalidation}。`);
     if (a.vetoes.length) notes.push(`見送り: ${window.MultiAnalyzerReview.reasons(a).slice(0, 2).join(' / ')}`);
     else if (a.actionable) notes.push('新規候補。実際のスプレッドと注文可能数量を確認してからペーパートレードで検証してください。');

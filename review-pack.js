@@ -122,6 +122,13 @@
     const checkpoints=archived?[]:(C?.read()||[]).filter(c=>c.asset===a.asset&&c.savedAt<=now).map(c=>C.advance(c,a.signal,{now,allowed:!a.health?.blocked&&(globalThis.MultiAnalyzerFeed?.collectionPolicy(a.asset).allowed??true)}));
     return {basis:'Bybit元市場価格。端末の固定帯は保存時の換算を別記。',trendContext:globalThis.MultiAnalyzerTrendContext?.describe(a.signal)||null,zones,checkpoints,checkpointText:checkpoints.flatMap(c=>C.describe(c)),note:archived?'過去判定に現在の端末チェックポイントを混入しません。':'端末内の観察記録。保存後の追跡であり、元の予測やPサインを書き換えません。'};
   }
+  function costContext(settings){
+    const fee=settings?.feeBpsPerSide,spread=settings?.spreadBps,slippage=settings?.slippageBps;
+    const available=[fee,spread,slippage].every(v=>Number.isFinite(v)&&v>=0)&&Number.isFinite(fee*2+spread+slippage);
+    const note='設定上の費用仮定です。口座・市場別の実手数料、実スプレッド・滑り・資金調達・借入費用は未確認。実損益ではありません。';
+    return {available,feeBpsPerSide:available?fee:null,roundTripFeeBps:available?fee*2:null,spreadBps:available?spread:null,slippageBps:available?slippage:null,totalBps:available?fee*2+spread+slippage:null,
+      text:available?`費用仮定：片道手数料 ${num(fee)}bps ×2 + スプレッド ${num(spread)}bps + 滑り ${num(slippage)}bps = 合計 ${num(fee*2+spread+slippage)}bps。${note}`:`費用仮定を確認できません。${note}`};
+  }
   function decision(a,now=Date.now()){
     const s=a.signal,e=s.exec,f=e?.flow?.latest,d=f?.setup,settings=a.snapshot.settings;
     const stale=now-settings.now>20*60000;
@@ -134,7 +141,7 @@
       item('確定H1一致',f?.hourlyAligned,'H1と15分の保持方向が一致'),
       item('ADX',Number.isFinite(e?.values?.adx)?e.values.adx>=20:null,`${num(e?.values?.adx)} / 20以上`)];
     return {id:a.snapshot.id,stale,health:a.health||null,direction:context(s,'15m共通判定'),consultation:a.consultation||null,
-      checks,levels:{ema13:d?.ema13??null,ema21:d?.ema21??null},
+      checks,costAssumptions:costContext(a.snapshot.settings),levels:{ema13:d?.ema13??null,ema21:d?.ema21??null},
       exit:f?.exitLong?'買い保有の撤退注意':f?.exitShort?'売り保有の撤退注意':null,
       verdict:a.health?.blocked?'現在の判断保留・保存足の条件のみ':stale?'記録が古いため更新':s.actionable?'共通条件成立・研究用候補':'新規候補の条件待ち（検証中）',
       note:'新規候補の条件表示であり、保有の継続・決済判断ではありません。確定スイングと保持方向は転換確認まで以前の向きが残る場合があります。リボンとの不一致は押し目成立を意味しません。精度は検証中です。各条件は同じ15分確定足で評価。成立数は勝率ではありません。EMA価格は次の足で変動し、価格への到達だけではサインになりません。',
@@ -146,6 +153,7 @@
       ...(f?.windows||[]).map(w=>`局所観察 ${num(w.low)}～${num(w.high)}：${w.levels.map(r=>r.label+' '+num(r.price)).join(' / ')}（接触や重合数は勝率・入場条件ではありません）`),
       ...(geometryText?.length?['確認を待った場合の残り値幅',geometryBasis?.note||'',...geometryText]:[])
     ]),q.note]:[]),
+    ...(d.costAssumptions?[d.costAssumptions.text]:[]),
     `観察水準 EMA13 ${num(d.levels.ema13)} / EMA21 ${num(d.levels.ema21)}`,
     ...d.checks.map(c=>`${c.status}：${c.label} — ${c.detail}`),
     ...d.vetoes.map(v=>`最終判定の未成立条件：${v}`),d.plan?planText(d.plan):'参考プランなし',d.note];}
@@ -235,5 +243,5 @@
       }catch(e){status.textContent='保存失敗：'+e.message;}finally{button.disabled=false;$('reviewRefresh').disabled=false;$('reviewBoth').disabled=Boolean(getArchiveId());}
     });
   }
-  return{context,reasons,init,collect,zip,zipCompressed,crc32,closed,frames,policy,facts,prompt,overview,decision,decisionText,consultation};
+  return{context,reasons,init,collect,zip,zipCompressed,crc32,closed,frames,policy,facts,prompt,overview,decision,decisionText,consultation,costContext};
 });
