@@ -4,6 +4,7 @@ const path = require('node:path');
 const Core = require('./strategy-core');
 const Feed = require('./market-feed');
 const Review = require('./review-pack');
+const Cache = require('./research-classification-cache.cjs');
 
 const STEP = 15 * 60 * 1000;
 const DIR = path.join(__dirname, '.runtime', 'hourly-observation', 'cohort-v1');
@@ -35,21 +36,30 @@ function median(values) {
   return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
 }
 
-function loadRows(spec) {
-  const outcomes = new Map(JSON.parse(fs.readFileSync(path.join(DIR, 'outcomes.json'), 'utf8')).map(row => [row.id, row]));
-  const samples = new Map(fs.readFileSync(path.join(DIR, 'samples.jsonl'), 'utf8').trim().split(/\r?\n/).filter(Boolean).map(line => {
+function loadRows(spec, {directory = DIR, cacheDirectory = path.join(__dirname, '.runtime', 'hourly-observation', 'research-near-miss-cache'), useCache = true, cacheStats} = {}) {
+  const outcomes = new Map(JSON.parse(fs.readFileSync(path.join(directory, 'outcomes.json'), 'utf8')).map(row => [row.id, row]));
+  const samples = new Map(fs.readFileSync(path.join(directory, 'samples.jsonl'), 'utf8').trim().split(/\r?\n/).filter(Boolean).map(line => {
     const row = JSON.parse(line); return [row.id, row];
   }));
-  const snapshotDir = path.join(DIR, 'snapshots');
-  return fs.readdirSync(snapshotDir).filter(name => name.endsWith('.json')).map(name => JSON.parse(fs.readFileSync(path.join(snapshotDir, name), 'utf8')))
-    .map(({snapshot, firstObservedAt}) => {
+  const snapshotDir = path.join(directory, 'snapshots');
+  const cache = useCache ? Cache.open(cacheDirectory) : null;
+  const rows = fs.readdirSync(snapshotDir).filter(name => name.endsWith('.json')).map(name => {
+      const raw = fs.readFileSync(path.join(snapshotDir, name));
+      const {snapshot, firstObservedAt} = JSON.parse(raw);
       const sample = samples.get(snapshot.id);
       if (!sample || sample.bar <= spec.startAfterBar || !sample.heldDirection) return null;
-      const signal = Core.analyzeMarket(Feed.input(snapshot), snapshot.settings);
-      const decision = Review.decision({snapshot, signal}, firstObservedAt);
+      const compute = () => {
+        const signal = Core.analyzeMarket(Feed.input(snapshot), snapshot.settings);
+        const decision = Review.decision({snapshot, signal}, firstObservedAt);
+        return classify(decision.checks);
+      };
+      const group = cache ? cache.classify(raw, compute) : compute();
       return {id: snapshot.id, asset: snapshot.asset, bar: sample.bar, firstObservedAt, observedBeforeEntry: firstObservedAt <= sample.bar + STEP,
-        direction: sample.heldDirection, regime: sample.regime, group: classify(decision.checks), vetoes: sample.vetoes, outcomes: outcomes.get(snapshot.id)?.outcomes || []};
+        direction: sample.heldDirection, regime: sample.regime, group, vetoes: sample.vetoes, outcomes: outcomes.get(snapshot.id)?.outcomes || []};
     }).filter(Boolean);
+  cache?.flush();
+  if (cacheStats && cache) Object.assign(cacheStats, cache.stats);
+  return rows;
 }
 
 function summarize(rows, spec) {
@@ -89,4 +99,4 @@ function run({quiet = false} = {}) {
 }
 
 if (require.main === module) run();
-module.exports = {classify, selectNonoverlap, median, summarize, run};
+module.exports = {classify, selectNonoverlap, median, summarize, run, loadRows};
