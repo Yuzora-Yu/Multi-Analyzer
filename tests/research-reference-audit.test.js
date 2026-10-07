@@ -35,3 +35,8 @@ test('extraction preserves missed entry guards and deduplicates exact journal in
  const plan={episodeId:'episode',arm:'choch-retest',confirmedBarAt:0,entryAt:2*STEP,stop:110,direction:'SHORT'},row={eligible:true,guard:false,journalSha256:'proof',journalPublishedAt:STEP+1,identity:{asset:'btc',market:'spot',symbol:'BTCUSDT'},intents:[plan,plan]};
  const r=extract([row]);assert.equal(r.length,1);assert.equal(r[0].eligibility.eligible,false);assert.deepEqual(r[0].candidate.plan,plan);assert.equal(extract([{...row,eligible:false}]).length,0);
 });
+test('local registration before close is not enough when exchange clock is ahead',t=>{
+ const f=setup(t),row=f.rows[0],registration={...f.registration,registeredAt:row.journal.observation.bar.time+STEP-8000};
+ row.journal.registrationSha256=hash(JSON.stringify(registration));row.sha256=hash(JSON.stringify(row.journal,null,2));row.receipt.sha256=row.sha256;
+ const r=replay([row],registration,{asOf:f.asOf});assert.equal(r[0].eligible,false);assert.ok(r[0].issues.some(i=>i.includes('exchange upper clock bound')));assert.equal(extract(r).length,0);
+});

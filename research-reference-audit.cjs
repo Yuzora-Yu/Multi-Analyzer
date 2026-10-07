@@ -19,7 +19,9 @@ function replay(rows,registration,{asOf=Date.now(),loadSource=Ledger.readSource}
     let expectedState=null,entryAt=null,guard=false;
     try{
       const source=loadSource(j.source.directory);if(source.sha256!==j.source.sha256)throw Error('Source hash differs');
-      const o=Ledger.observation(source,registration,j.generatedAt),clock=Forward.clockBounds(source.record.clockMeasurement);
+      const clock=Forward.clockBounds(source.record.clockMeasurement);
+      if(!clock.valid||!Number.isFinite(registration.registeredAt)||registration.registeredAt+Math.max(0,clock.upperOffsetMs)>=source.record.targetBarClosedAt)throw Error('Registration not before source close in exchange upper clock bound');
+      const o=Ledger.observation(source,registration,j.generatedAt);
       if(!clock.valid||!equal(clock,j.clockBounds)||j.generatedAt-source.record.clockMeasurement.receivedAt>60000||j.generatedAt+clock.upperOffsetMs-o.bar.time-STEP>Sequence.SPEC.maxDelayMs)throw Error('Saved derivation clock/staleness invalid');
       if(!equal(o,j.observation)||!equal(Sequence.controls(o),j.controls))throw Error('Saved observation/control differs from source replay');
       if(!Feed.collectionPolicy(o.asset,j.generatedAt+clock.upperOffsetMs).allowed)throw Error('Closed/weekend collection');

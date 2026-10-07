@@ -43,4 +43,6 @@ test('source proof checks real clock, code, registration and actual source cutof
  assert.ok(Z.verifySource({...r,targetBarClosedAt:cutoff+STEP},receipt,registration,'sha',now+100).issues.includes('source-cutoff'));
  assert.ok(Z.verifySource(r,{...receipt,persistedAt:r.entryAt},registration,'sha',r.entryAt).issues.includes('future-guard'));
  assert.ok(Z.verifySource(r,receipt,registration,'changed',now+100).issues.includes('receipt-hash'));
+ const clock={requestedAt:r.generatedAt-40,receivedAt:r.generatedAt-20,serverTime:r.generatedAt+21960},skewed={...r,clockMeasurement:clock,clockBounds:Forward.clockBounds(clock)};
+ assert.ok(Z.verifySource(skewed,receipt,{...registration,registeredAt:r.targetBarClosedAt-8000},'sha',r.generatedAt+100).issues.includes('pre-registration-source'));
 });

@@ -6,12 +6,12 @@ const Forward=require('./research-forward.cjs'),Score=require('./research-scorec
 const {validBar,indexSnapshots,atomicJSON}=require('./research-audit.cjs');
 const STEP=900000,hash=x=>crypto.createHash('sha256').update(x).digest('hex');
 const FILES=['research-zones.cjs','zone-focus.js','strategy-core.js','flow-core.js','smc-core.js','market-feed.js','research-forward.cjs','research-scorecard.cjs','research-audit.cjs'];
-const SPEC={id:'registered-smc-zone-diagnostics-v1',horizons:[4,8,16],costBps:[7,14,21],
+const SPEC={id:'registered-smc-zone-diagnostics-v2',horizons:[4,8,16],costBps:[7,14,21],
   purpose:'Test frozen SMC-zone observations, not a trading strategy or a published forecast win rate.',
   source:'Deterministic later reconstruction from immutable source features and the exact frozen engine. Protocol registration must precede source closed time. This is not proof that a zone was displayed or mailed at capture.',
   selection:'Preserve all original ranked candidates; deduplicate zone IDs within market/code/config at their first registered source, including ineligible sources. Primary = original candidate index zero; secondary zones remain correlated descriptions.',
   context:'Separate asset/market/symbol, code/config, frame/type/role and no/single/multiple/MA+BB local confluence. Do not interpret unmatched groups as a causal MA/BB improvement.',
-  clock:'Use verified original capture/receipt clock bounds and guarded future entry boundary. Start only after original features were persisted; no touch from a pre-save candle.',
+  clock:'Use verified original capture/receipt clock bounds and guarded future entry boundary. Registration local time plus the conservative nonnegative exchange upper offset must precede source close. Assumes stable local offset between registration and capture; not independent clock certification. Start only after original features were persisted; no touch from a pre-save candle.',
   events:'Future full M15 wick overlap establishes touch. Withdrawal = original M15 close beyond boundary. Stop-reference visit is separate. Reaction requires a prior touch and a later close beyond both original zone and original confirmed swing; never same-bar ordering.',
   outcomes:'Fixed wall-clock windows require every price bar and receipt available by as-of. Missing, conflicts, pending and no-touch remain visible. Scheduled closures do not shrink horizons.',
   movement:'Following first touch, next bar open to fixed-window close and subsequent wick extrema are diagnostic movements. Stop/withdrawal are flags; these movements are not stop-managed trades or realized P&L. 7/14/21bps are assumed cost sensitivity; real spread/slippage/funding/broker basis unmeasured.',
@@ -28,7 +28,7 @@ function verifySource(r,receipt,registration,rawHash,asOf){
   if(!cfg||r.market!==cfg.market||r.symbol!==cfg.symbol||s?.asset!==r.asset||s.symbol!==cfg.symbol||s.settings?.market!==cfg.market||s.version!==Core.VERSION||r.engineVersion!==Core.VERSION||s.id!==r.id||r.id!==`${r.asset}-${last?.[0]}-${Core.VERSION}`)issues.push('identity');
   if(rawHash!==receipt.predictionSha256)issues.push('receipt-hash');
   if(!b.valid||JSON.stringify(b)!==JSON.stringify(r.clockBounds))issues.push('clock-bounds');
-  if(!(registration.registeredAt<closeAt))issues.push('pre-registration-source');
+  if(!(registration.registeredAt+Math.max(0,b.upperOffsetMs??Infinity)<closeAt))issues.push('pre-registration-source');
   if(r.targetBarClosedAt!==closeAt||r.targetBarOpenAt!==last?.[0]||r.cutoff!==s?.settings?.now||r.specId!==Forward.SPEC.id)issues.push('source-cutoff');
   if(![closeAt,r.generatedAt,r.transport?.requestedAt,r.transport?.receivedAt,receipt.persistedAt,r.entryAt,s?.createdAt,s?.settings?.now].every(Number.isFinite)||r.transport.requestedAt>r.transport.receivedAt||r.generatedAt<r.transport.receivedAt||receipt.persistedAt<r.generatedAt||receipt.persistedAt>asOf||closeAt>s.settings.now||s.settings.now>=closeAt+STEP||s.createdAt<s.settings.now||s.createdAt>r.transport.receivedAt+(b.upperOffsetMs??0))issues.push('event-sequence');
   if(!Number.isFinite(r.clockMeasurement?.receivedAt)||r.generatedAt-r.clockMeasurement.receivedAt<0||r.generatedAt-r.clockMeasurement.receivedAt>60000)issues.push('old-clock');
@@ -79,7 +79,7 @@ function evaluate(candidates,index,asOf){
   }
   return rows;
 }
-function run({base=path.join(__dirname,'.runtime','hourly-observation'),root=path.join(base,'research-zones-v1'),asOf=Date.now()}={}){
+function run({base=path.join(__dirname,'.runtime','hourly-observation'),root=path.join(base,'research-zones-v2'),asOf=Date.now()}={}){
   const registration=JSON.parse(fs.readFileSync(path.join(root,'registration.json')));if(JSON.stringify(registration.spec)!==JSON.stringify(SPEC)||JSON.stringify(registration.codeHashes)!==JSON.stringify(hashes()))throw Error('Study code differs from registration');
   if(!Number.isFinite(registration.registeredAt)||registration.registeredAt>asOf)throw Error('Registration time is invalid or future');
   const manifest=[],records=[],candidates=[],issues=[],controls=[],read=file=>{const raw=fs.readFileSync(file);manifest.push({file,sha256:hash(raw)});return raw;};read(path.join(root,'registration.json'));
@@ -100,5 +100,5 @@ function run({base=path.join(__dirname,'.runtime','hourly-observation'),root=pat
   const summary={sourceControls:controls.length,zoneForecasts:rows.length,primaryForecasts:rows.filter(r=>r.forecast.primary).length,eligiblePrimary:rows.filter(r=>r.forecast.primary&&r.forecast.eligibility.eligible).length,eligibleResolvedByHorizon:Object.fromEntries(SPEC.horizons.map(h=>[h,rows.filter(r=>r.outcomes.find(o=>o.horizon===h)?.eligibleForSummary).length])),accuracyProven:false,interpretation:'Do not pool horizons, confluence groups or secondary zones. No probability/edge estimate; source flags are overlapping controls, not independent trades.'};
   const output=path.join(base,'research-zones-reports');fs.mkdirSync(output,{recursive:true});const staging=fs.mkdtempSync(path.join(output,'.staging-'));atomicJSON(path.join(staging,'report.json'),{asOf,registration,summary,rows,controls,issues,priceIssues:index.issues});atomicJSON(path.join(staging,'manifest.json'),{sources:manifest,collectorExecuted:false});const directory=path.join(output,asOf+'-'+crypto.randomUUID());fs.renameSync(staging,directory);return {directory,...summary};
 }
-if(require.main===module){try{const base=path.join(__dirname,'.runtime','hourly-observation'),root=path.join(base,'research-zones-v1');console.log(JSON.stringify(process.argv[2]==='register'?register(root):run(),null,2));}catch(e){console.error(e.message);process.exitCode=1;}}
+if(require.main===module){try{const base=path.join(__dirname,'.runtime','hourly-observation'),root=path.join(base,'research-zones-v2');console.log(JSON.stringify(process.argv[2]==='register'?register(root):run(),null,2));}catch(e){console.error(e.message);process.exitCode=1;}}
 module.exports={SPEC,register,verifySource,forecasts,outcome,evaluate,run};
