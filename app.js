@@ -695,6 +695,8 @@
     if(!map.candidates.length)rows.push(['候補帯','現在有効なSMC帯なし。MA・BB接触だけでは候補を作りません。']);
     const events=map.eventRisk.events.map(e=>`${new Date(e.time).toLocaleString('ja-JP',{timeZone:'Asia/Tokyo',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false})} JST ${e.name}`).join(' / ');
     rows.push(['指標警戒',`${events||'最新予定を確認'}。${map.eventRisk.message}`]);
+    const calendarChecked=map.eventRisk.checkedAt;
+    rows.push(['予定の確認時刻',Number.isFinite(calendarChecked)?`${new Date(calendarChecked).toLocaleString('ja-JP',{timeZone:'Asia/Tokyo',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false})} JST。${map.eventRisk.coverage==='expired'?'確認期限切れ。最新予定との再照合が必要です。':'一部の予定を確認した時刻です。現在の全予定を網羅したものではありません。'}`:'未確認。最新予定との照合が必要です。']);
     const rowHtml=list=>list.map(([label,text])=>`<p><strong>${esc(label)}</strong><span>${esc(text)}</span></p>`).join('');
     box.innerHTML='<h3>環境・候補帯・無効化</h3>'+rowHtml(rows.slice(0,2))+cards+rowHtml(rows.slice(2))+`<small>${esc(map.note)}</small>`;
   }
