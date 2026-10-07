@@ -24,6 +24,9 @@
 .chart-focus .terminal-workspace { grid-template-columns:minmax(0,1fr); }
 .chart-focus .insight-panel,.chart-focus .market-hud { display:none; }
 .chart-focus #focusMode { color:var(--gold); border-color:var(--gold); }
+#chartBands{min-width:44px;padding:6px}
+#chartBands[aria-pressed=true]{color:var(--blue);border-color:var(--blue)}
+.bb-legend{color:var(--blue)}
 .zone-card {margin:12px 0;padding:12px;border:1px solid var(--border);border-left:3px solid var(--muted);border-radius:8px;min-width:0;}
 .zone-card.zone-short {border-left-color:var(--red)}
 .zone-card.zone-long {border-left-color:var(--green)}
@@ -475,6 +478,7 @@ button { color: inherit; -webkit-tap-highlight-color: transparent; }
 /* Keep the confirmed calendar day visible without widening phone tables. */
 .review-overview td:nth-child(2){white-space:pre-line;line-height:1.45;font-variant-numeric:tabular-nums}
 @media(max-width:420px){
+ .workspace-modes button{white-space:nowrap;font-size:11px;padding:8px}
  .chart-toolbar .header-quote{gap:6px}
  .chart-toolbar .symbol-line #symbolCode{display:none}
  .chart-toolbar .quote-line{gap:4px}

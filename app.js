@@ -27,6 +27,7 @@
   TF['1d'] = { minutes: 1440, api: 'D', label: '日足', limit: 1000 };
   const STORAGE_KEY = 'multiAnalyzerUltimate.v4.usd';
   const POSITION_KEY = 'multiAnalyzerUltimate.position';
+  const CHART_BANDS_KEY = 'multiAnalyzerUltimate.chartBands';
   const STATIC_HOST = location.hostname.endsWith('.github.io');
   const INITIAL_PARAMS = new URLSearchParams(location.search);
 
@@ -60,6 +61,8 @@
     ema20Series: null,
     ema50Series: null,
     vwapSeries: null,
+    bbSeries: [],
+    showChartBands: loadChartBands(),
     priceLines: [],
     chartResizeObserver: null,
     chartResizeFrame: 0,
@@ -80,6 +83,7 @@
   const esc = value => String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
 
   function currentInstrument() { return INSTRUMENTS[state.instrumentId]; }
+  function loadChartBands(){try{return localStorage.getItem(CHART_BANDS_KEY)!=='off';}catch{return true;}}
   function currentTf() { return TF[state.tf]; }
   function priceBasis(){return Basis.resolve(state.settings.goldPriceBasis,state.instrumentId);}
   function mappedPrice(value){const b=priceBasis();return b.enabled?`${fmt(Basis.convert(value,b))}［元 ${fmt(value)}］`:fmt(value);}
@@ -464,6 +468,8 @@
     state.ema20Series = state.chart.addLineSeries({ color: '#e6b85c', lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
     state.ema50Series = state.chart.addLineSeries({ color: '#64a8ff', lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
     state.vwapSeries = state.chart.addLineSeries({ color: '#a58cff', lineWidth: 1, lineStyle: 2, priceLineVisible: false, lastValueVisible: false });
+    state.bbSeries=['upper','mid','lower'].map((key,index)=>({key,series:state.chart.addLineSeries({color:index===1?'#7297c699':'#64a8ffb3',lineWidth:1,lineStyle:index===1?2:0,priceLineVisible:false,lastValueVisible:false,crosshairMarkerVisible:false,visible:state.showChartBands})}));
+    $('chartBands').setAttribute('aria-pressed',String(state.showChartBands));
     state.chartResizeObserver = new ResizeObserver(scheduleChartResize);
     state.chartResizeObserver.observe(container);
     state.volumeSeries=state.chart.addHistogramSeries({priceFormat:{type:'volume'},priceScaleId:'volume',priceLineVisible:false,lastValueVisible:false});
@@ -494,6 +500,7 @@
     state.ema20Series.setData(lineData(state.analysis.exec.candles.slice(offset), state.analysis.exec.series.ema20.slice(offset)));
     state.ema50Series.setData(lineData(state.analysis.exec.candles.slice(offset), state.analysis.exec.series.ema50.slice(offset)));
     state.vwapSeries.setData(lineData(state.analysis.exec.candles.slice(offset), state.analysis.exec.series.vwap96.slice(offset)));
+    renderChartBands(state.analysis.exec.candles,state.analysis.exec.series.bb);
 
     state.volumeSeries.setData(visible.map(c=>({time:toChartTime(c.time),value:c.volume,color:c.close>=c.open?'#43d49d66':'#ff6b7866'})));
     const markers = window.MultiAnalyzerEvidence.markers(state.analysis.exec.flow?.history||[],visible[0].time);
@@ -552,6 +559,13 @@
     if(key===state.markerLayoutKey)return;
     state.markerLayoutKey=key;
     state.candleSeries.setMarkers(markers);
+  }
+
+  function renderChartBands(candles,bb) {
+    for(const {key,series} of state.bbSeries){
+      series.setData(lineData(candles,bb?.[key]||[]));
+      series.applyOptions({visible:state.showChartBands});
+    }
   }
 
   function applyChartRange() {
@@ -1061,6 +1075,13 @@
   }
 
   function bindEvents() {
+    $('chartBands').addEventListener('click',()=>{
+      state.showChartBands=!state.showChartBands;
+      $('chartBands').setAttribute('aria-pressed',String(state.showChartBands));
+      try{localStorage.setItem(CHART_BANDS_KEY,state.showChartBands?'on':'off');}catch{}
+      for(const {series} of state.bbSeries)series.applyOptions({visible:state.showChartBands});
+      state.redrawFlow?.();
+    });
     $('marketMap').addEventListener('click',event=>{
       const button=event.target.closest('[data-track-zone]');if(!button||button.disabled)return;
       try {
@@ -1135,6 +1156,7 @@
     state.chartMarkers=[];state.markerLayoutKey=null;
     if (state.chart) state.chart.remove();
     state.chart = state.candleSeries = state.ema20Series = state.ema50Series = state.vwapSeries = null;
+    state.bbSeries=[];
     state.priceLines = [];
     state.zoneSeries = [];
     state.chartSize = { width: 0, height: 0 };
