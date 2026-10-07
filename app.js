@@ -627,7 +627,7 @@
       : (a.exec.structure.bearSweep || a.exec.pattern.bearReject || a.exec.pattern.bearEngulf || ['BEAR_BOS', 'BEAR_CHOCH'].includes(a.exec.structure.event));
     $('triggerState').textContent = a.entryModel==='pullback-v1'?(a.exec.flow?.latest?.pullbackConfirmed?'P CONFIRMED':'P WAIT'):trigger?'CONFIRMED':'WAIT';
     const signalBar=a.exec.candles.at(-1);
-    $('signalTime').textContent = signalBar ? '確定 '+new Date(signalBar.time+a.exec.intervalMinutes*60000).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })+' JST' : '—';
+    $('signalTime').textContent = signalBar&&Number.isFinite(a.exec.intervalMinutes) ? '確定 '+new Date(signalBar.time+a.exec.intervalMinutes*60000).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })+' JST' : '—';
 
     if (state.preview) {
       const p = state.preview;
