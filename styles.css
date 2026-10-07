@@ -471,3 +471,6 @@ button { color: inherit; -webkit-tap-highlight-color: transparent; }
  .chart-area{grid-template-rows:40px minmax(0,1fr) auto}.chart-touch-tools button{min-height:36px}
  .action-compass #actionTargets{display:none}
 }
+
+/* Keep the confirmed calendar day visible without widening phone tables. */
+.review-overview td:nth-child(2){white-space:pre-line;line-height:1.45;font-variant-numeric:tabular-nums}
