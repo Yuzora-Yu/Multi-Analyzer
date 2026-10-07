@@ -62,3 +62,13 @@ test('presentation explains only failed conditions and preserves canonical outpu
  const before=JSON.stringify(s),r=R.reasons(s);assert.equal(r[0],'未成立：押し・戻り・EMA13再突破');assert.equal(r[1],s.vetoes[1]);assert.equal(JSON.stringify(s),before);
  delete s.exec.flow.latest.setup;assert.match(R.reasons(s)[0],/詳細データ不足/);
 });
+
+test('failed live monitor blocks exported candidates without rewriting canonical analysis; archives avoid live health',async(t)=>{
+ const cutoff=Date.UTC(2026,9,7,12),now=cutoff+60000;
+ const rows=m=>Array.from({length:301},(_,i)=>({time:cutoff+(i-300)*m*60000,open:100,high:102,low:99,close:101,volume:50}));
+ const s={id:'btc-health',asset:'btc',version:Core.VERSION,settings:{...Core.DEFAULTS,executionMinutes:15,now:cutoff,market:'spot'},bars:{m15:Feed.pack(rows(15).slice(0,300)),h1:Feed.pack(rows(60).slice(0,300)),h4:Feed.pack(rows(240).slice(0,300))}};
+ global.MultiAnalyzerCore=Core;global.MultiAnalyzerFeed=Feed;global.MultiAnalyzerSnapshotHealth=require('../snapshot-health');t.after(()=>delete global.MultiAnalyzerSnapshotHealth);t.mock.method(Date,'now',()=>now);
+ let monitorCalls=0;t.mock.method(global,'fetch',async url=>{if(url.includes('/api/snapshot'))return{ok:true,json:async()=>s};if(url.includes('/api/monitor')){monitorCalls++;return{ok:true,json:async()=>({assets:{btc:{state:'DATA_ERROR',error:'failed',updatedAt:now,snapshotId:s.id}}})};}const i=new URL(url).searchParams.get('interval'),m=i==='D'?1440:+i;return{ok:true,json:async()=>({retCode:0,result:{list:Feed.pack(rows(m)).reverse()}})};});
+ const live=await R.collect(['btc']);assert.equal(live.assets[0].health.kind,'DATA_ERROR');assert.equal(R.overview(live,now)[0].actionable,false);assert.match(R.decisionText(R.decision(live.assets[0],now)).join(' '),/現在の判断保留/);assert.deepEqual(live.assets[0].signal,Core.analyzeMarket(Feed.input(s),s.settings));
+ const archived=await R.collect(['btc'],{archivedId:s.id});assert.equal(monitorCalls,1);assert.equal(archived.assets[0].health.kind,'ARCHIVE');assert.deepEqual(archived.assets[0].signal,live.assets[0].signal);
+});

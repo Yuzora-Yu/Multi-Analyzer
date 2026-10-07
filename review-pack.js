@@ -95,7 +95,7 @@
   function consultation(a,now,{archived=false}={}){
     const Focus=globalThis.MultiAnalyzerZoneFocus,C=globalThis.MultiAnalyzerCheckpoint;
     const zones=(a.signal.marketMap?.candidates||[]).map(z=>({zone:structuredClone(z),focus:Focus?.describe(a.signal,z)||null}));
-    const checkpoints=archived?[]:(C?.read()||[]).filter(c=>c.asset===a.asset&&c.savedAt<=now).map(c=>C.advance(c,a.signal,{now,allowed:globalThis.MultiAnalyzerFeed?.collectionPolicy(a.asset).allowed??true}));
+    const checkpoints=archived?[]:(C?.read()||[]).filter(c=>c.asset===a.asset&&c.savedAt<=now).map(c=>C.advance(c,a.signal,{now,allowed:!a.health?.blocked&&(globalThis.MultiAnalyzerFeed?.collectionPolicy(a.asset).allowed??true)}));
     return {basis:'Bybit元市場価格。端末の固定帯は保存時の換算を別記。',trendContext:globalThis.MultiAnalyzerTrendContext?.describe(a.signal)||null,zones,checkpoints,checkpointText:checkpoints.flatMap(c=>C.describe(c)),note:archived?'過去判定に現在の端末チェックポイントを混入しません。':'端末内の観察記録。保存後の追跡であり、元の予測やPサインを書き換えません。'};
   }
   function decision(a,now=Date.now()){
@@ -109,14 +109,14 @@
       item('出来高',d?.volume,`${num(f?.volumeRatio)}倍 / 過去21本平均の1倍以上`),
       item('確定H1一致',f?.hourlyAligned,'H1と15分の保持方向が一致'),
       item('ADX',Number.isFinite(e?.values?.adx)?e.values.adx>=20:null,`${num(e?.values?.adx)} / 20以上`)];
-    return {id:a.snapshot.id,stale,direction:context(s,'15m共通判定'),consultation:a.consultation||null,
+    return {id:a.snapshot.id,stale,health:a.health||null,direction:context(s,'15m共通判定'),consultation:a.consultation||null,
       checks,levels:{ema13:d?.ema13??null,ema21:d?.ema21??null},
       exit:f?.exitLong?'買い保有の撤退注意':f?.exitShort?'売り保有の撤退注意':null,
-      verdict:stale?'記録が古いため更新':s.actionable?'共通条件成立・研究用候補':'新規候補の条件待ち（検証中）',
+      verdict:a.health?.blocked?'現在の判断保留・保存足の条件のみ':stale?'記録が古いため更新':s.actionable?'共通条件成立・研究用候補':'新規候補の条件待ち（検証中）',
       note:'新規候補の条件表示であり、保有の継続・決済判断ではありません。確定スイングと保持方向は転換確認まで以前の向きが残る場合があります。リボンとの不一致は押し目成立を意味しません。精度は検証中です。各条件は同じ15分確定足で評価。成立数は勝率ではありません。EMA価格は次の足で変動し、価格への到達だけではサインになりません。',
       vetoes:reasons(s),plan:s.plan??null};
   }
-  function decisionText(d){const q=d.consultation;return [...(q?.checkpointText?.length?['前回固定したチェックポイント（元条件で先に確認）',...q.checkpointText]:[]),`${d.verdict} / ${d.direction}`,d.exit||'今回の足に黄EXITなし',
+  function decisionText(d){const q=d.consultation;return [...(q?.checkpointText?.length?['前回固定したチェックポイント（元条件で先に確認）',...q.checkpointText]:[]),...(d.health?[`鮮度確認 ${jst(d.health.assessedAt)}：${d.health.message}`]:[]),`${d.verdict} / ${d.direction}`,d.exit||'今回の足に黄EXITなし',
     ...(q?[q.basis,...(q.trendContext?[`現在地の基準：15分確定価格 ${num(q.trendContext.price)} / ${q.trendContext.priceClosedAt?jst(q.trendContext.priceClosedAt):'未取得'}`]:[]),...(q.trendContext?.frames||[]).flatMap(f=>[`${f.name} 構造 ${f.structure} / MA ${f.ma} / ${f.available?'確定 '+jst(f.closedAt):'未取得・遅延'}：${f.levels.map(l=>`${l.label} ${num(l.price)} の${l.position}（15分確定価格比）`).join(' / ')}`,...(f.leg?[`${f.name} 確認済み${f.leg.direction} ${num(f.leg.start.price)}→${num(f.leg.end.price)}（終点確認 ${jst(f.leg.end.confirmedAt)}）から ${num(f.leg.ratio)}％ / ${f.leg.levels.map(l=>`${num(l.percent)}％ ${num(l.price)}`).join(' / ')}。${f.leg.note}`]:[])]),...q.zones.flatMap(({zone:z,focus:f})=>[
       `背景 ${z.direction} ${z.frame} ${z.type} ${num(z.low)}～${num(z.high)} / ${z.condition} / 15分終値 ${num(z.invalidationClose)}${z.direction==='SHORT'?'超':'未満'}で撤回 / SL参考 ${num(z.protectiveStop)}`,
       ...(f?.windows||[]).map(w=>`局所観察 ${num(w.low)}～${num(w.high)}：${w.levels.map(r=>r.label+' '+num(r.price)).join(' / ')}（接触や重合数は勝率・入場条件ではありません）`)
@@ -129,8 +129,8 @@
     const [out,ctx]=canvas(y+25);ctx.drawImage(c,0,0);return out;}
   function overview(pack,now=Date.now()){
     return pack.assets.map(a=>({asset:a.asset,id:a.snapshot.id,cutoff:a.snapshot.settings.now,
-      stale:now-a.snapshot.settings.now>20*60000,state:a.signal.state,actionable:a.signal.actionable&&now-a.snapshot.settings.now<=20*60000,
-      reasons:reasons(a.signal),netRR:a.signal.plan?.netRR??null,decision:decision(a,now),
+      stale:now-a.snapshot.settings.now>20*60000,state:a.signal.state,actionable:a.signal.actionable&&!a.health?.blocked&&now-a.snapshot.settings.now<=20*60000,
+      health:a.health||null,reasons:reasons(a.signal),netRR:a.signal.plan?.netRR??null,decision:decision(a,now),
       frames:frames.map(([tf])=>{const r=pack.records.find(r=>r.asset===a.asset&&r.tf===tf),f=r?.analysis.flow?.latest;return{tf,closedAt:r?.rows?.at(-1)?.time!=null?r.rows.at(-1).time+r.minutes*60000:null,missing:!r,structure:f?.structure??null,ribbon:f?.ribbon??null,adx:r?.analysis.values?.adx??null,volume:f?.volumeRatio??null};})}));
   }
   function overviewImage(pack){const items=overview(pack,pack.capturedAt),[c,x]=canvas(160+items.length*460);x.fillStyle='#e6b85c';x.font='bold 28px sans-serif';x.fillText('確認一覧 — 確定足の構造と待機理由',30,42);x.font='18px sans-serif';let y=83;
@@ -145,7 +145,7 @@
       signal?.throwIfAborted();onProgress(`${asset}: 共通判定を取得`);
       let s;try{s=await get(`https://multi-analyzer-monitor.rikai-829.workers.dev/api/snapshot?asset=${asset}${archivedId?'&id='+encodeURIComponent(archivedId):''}`);}catch(e){if(signal?.aborted)throw e;pack.errors.push({asset,tf:'all',error:e.message});continue;}
       if(s.version!==Core.VERSION||!s.bars?.m15||s.asset!==asset)throw Error('共通判定の銘柄・バージョン不一致');
-      const decisionCutoff=s.settings.now,input=Feed.input(s),marketSignal=Core.analyzeMarket(input,s.settings),entry={asset,snapshot:s,signal:marketSignal};entry.consultation=consultation(entry,pack.capturedAt,{archived:Boolean(archivedId)});pack.assets.push(entry);
+      const decisionCutoff=s.settings.now,input=Feed.input(s),marketSignal=Core.analyzeMarket(input,s.settings),entry={asset,snapshot:s,signal:marketSignal};pack.assets.push(entry);
       for(const [tf,minutes] of frames){
         signal?.throwIfAborted();onProgress(`${asset} ${tf}: 確定足を取得`);
         try{
@@ -158,13 +158,19 @@
       }
     }
     if(!pack.records.length)throw Error('取得できた時間足がありません');
+    const Health=globalThis.MultiAnalyzerSnapshotHealth;
+    if(Health){let monitor=null,receivedAt=0;
+      if(!archivedId){signal?.throwIfAborted();try{monitor=await get('https://multi-analyzer-monitor.rikai-829.workers.dev/api/monitor');receivedAt=Date.now();}catch(e){if(signal?.aborted)throw e;}}
+      const assessedAt=Date.now();for(const a of pack.assets)a.health=Health.assess({snapshot:a.snapshot,monitor:monitor?.assets?.[a.asset],monitorReceivedAt:receivedAt,now:assessedAt,archived:Boolean(archivedId)});
+    }
+    for(const a of pack.assets)a.consultation=consultation(a,pack.capturedAt,{archived:Boolean(archivedId)});
     return pack;
   }
   function init({getAsset,getArchiveId,onLayout}){
     const $=id=>document.getElementById(id);let pack=null,controller=null,downloadUrl=null;
     const dialog=$('reviewDialog'),grid=$('reviewGrid'),status=$('reviewStatus');
     const summary=document.createElement('section');summary.className='review-overview';summary.setAttribute('aria-label','確認一覧');grid.before(summary);
-    function renderOverview(){const expanded=new Map([...summary.querySelectorAll('details[data-asset]')].map(d=>[d.dataset.asset,d.open]));summary.replaceChildren();if(!pack)return;for(const a of overview(pack)){const card=document.createElement('article'),h=document.createElement('h3');h.textContent=`${a.asset.toUpperCase()} — ${a.stale?'過去の記録':a.actionable?'研究用候補':'待機'}`;const note=document.createElement('p');note.textContent=`基準 ${jst(a.cutoff)} / コスト後RR ${num(a.netRR)}。${a.stale?'20分以上経過。現在の判断には更新が必要です。':a.reasons.join(' / ')||'条件成立。収益上の優位性は未確認。'}`;card.append(h,note);const table=document.createElement('table'),head=table.createTHead().insertRow();for(const name of ['時間足','最終確定(JST)','構造','リボン','ADX','出来高']){const th=document.createElement('th');th.scope='col';th.textContent=name;head.append(th);}const body=table.createTBody();for(const f of a.frames){const row=body.insertRow();for(const value of [f.tf,f.closedAt?new Date(f.closedAt).toLocaleTimeString('ja-JP',{timeZone:'Asia/Tokyo',hour12:false}):'—',f.missing?'欠測':f.structure==null?'?':dir(f.structure),f.ribbon==null?'?':dir(f.ribbon),num(f.adx),num(f.volume)+'x'])row.insertCell().textContent=value;}card.append(table);const detail=document.createElement('details');detail.className='review-decision';detail.dataset.asset=a.asset;detail.open=expanded.get(a.asset)??true;const title=document.createElement('summary');title.textContent='次に確認する条件・価格';detail.append(title);for(const text of decisionText(a.decision)){const p=document.createElement('p');p.textContent=text;p.dataset.status=text.startsWith('成立：')?'pass':text.startsWith('未成立：')?'wait':'info';detail.append(p);}card.append(detail);summary.append(card);}}
+    function renderOverview(){const expanded=new Map([...summary.querySelectorAll('details[data-asset]')].map(d=>[d.dataset.asset,d.open]));summary.replaceChildren();if(!pack)return;for(const a of overview(pack)){const card=document.createElement('article'),h=document.createElement('h3');h.textContent=`${a.asset.toUpperCase()} — ${a.health?.blocked?'判断保留・保存足':a.stale?'過去の記録':a.actionable?'研究用候補':'待機'}`;const note=document.createElement('p');note.textContent=`基準 ${jst(a.cutoff)} / コスト後RR ${num(a.netRR)}。${a.health?.blocked?a.health.message:a.stale?'20分以上経過。現在の判断には更新が必要です。':a.reasons.join(' / ')||'条件成立。収益上の優位性は未確認。'}`;card.append(h,note);const table=document.createElement('table'),head=table.createTHead().insertRow();for(const name of ['時間足','最終確定(JST)','構造','リボン','ADX','出来高']){const th=document.createElement('th');th.scope='col';th.textContent=name;head.append(th);}const body=table.createTBody();for(const f of a.frames){const row=body.insertRow();for(const value of [f.tf,f.closedAt?new Date(f.closedAt).toLocaleTimeString('ja-JP',{timeZone:'Asia/Tokyo',hour12:false}):'—',f.missing?'欠測':f.structure==null?'?':dir(f.structure),f.ribbon==null?'?':dir(f.ribbon),num(f.adx),num(f.volume)+'x'])row.insertCell().textContent=value;}card.append(table);const detail=document.createElement('details');detail.className='review-decision';detail.dataset.asset=a.asset;detail.open=expanded.get(a.asset)??true;const title=document.createElement('summary');title.textContent='次に確認する条件・価格';detail.append(title);for(const text of decisionText(a.decision)){const p=document.createElement('p');p.textContent=text;p.dataset.status=text.startsWith('成立：')?'pass':text.startsWith('未成立：')?'wait':'info';detail.append(p);}card.append(detail);summary.append(card);}}
     setInterval(()=>{if(dialog.open&&pack)renderOverview();},30000);
     function setView(mode){dialog.dataset.view=mode;for(const b of dialog.querySelectorAll('[data-review-view]'))b.setAttribute('aria-pressed',String(b.dataset.reviewView===mode));}
     async function refresh(){

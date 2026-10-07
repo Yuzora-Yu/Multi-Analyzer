@@ -36,6 +36,9 @@
     data: { exec: [], m15: [], h1: [], h4: [] },
     analysis: null,
     snapshot: null,
+    snapshotError: false,
+    monitor: null,
+    monitorReceivedAt: 0,
     snapshotTimer: null,
     marketPaused: false,
     preview: null,
@@ -79,6 +82,7 @@
   function currentTf() { return TF[state.tf]; }
   function priceBasis(){return Basis.resolve(state.settings.goldPriceBasis,state.instrumentId);}
   function mappedPrice(value){const b=priceBasis();return b.enabled?`${fmt(Basis.convert(value,b))}［元 ${fmt(value)}］`:fmt(value);}
+  function snapshotHealth(){return state.snapshot&&!state.offlineCsv?window.MultiAnalyzerSnapshotHealth?.assess({snapshot:state.snapshot,monitor:state.monitor,monitorReceivedAt:state.monitorReceivedAt,snapshotError:state.snapshotError,archived:INITIAL_PARAMS.has('snapshot')}):null;}
 
   function loadSettings() {
     const defaults = { ...Core.DEFAULTS, accountEquity: 1000, riskPct: 0.5, feeBpsPerSide: 2, spreadBps: 1.8, slippageBps: 1.2, minNetRR: 1.8, maxLeverage: 3, blackout: false };
@@ -167,11 +171,11 @@
     if(pauseClosedMarket())return;
     const loadId=state.loadId;
     const id=INITIAL_PARAMS.get('snapshot');
-    const snapshot=await fetchJson(CLOUD+'/api/snapshot?asset='+state.instrumentId+(id?'&id='+encodeURIComponent(id):''));
+    let snapshot;try{snapshot=await fetchJson(CLOUD+'/api/snapshot?asset='+state.instrumentId+(id?'&id='+encodeURIComponent(id):''));}catch(error){if(loadId===state.loadId){state.snapshotError=true;if(state.snapshot)analyzeAndRender();}throw error;}
     if(loadId!==state.loadId)return;
-    if(snapshot.version!==Core.VERSION)throw new Error('分析バージョンが更新されています。ページを再読み込みしてください');
-    if(snapshot.asset!==state.instrumentId)throw new Error('通知の銘柄が一致しません');
-    if(state.snapshot?.id===snapshot.id)return;
+    if(snapshot.version!==Core.VERSION||snapshot.asset!==state.instrumentId){state.snapshotError=true;if(state.snapshot)analyzeAndRender();throw new Error(snapshot.version!==Core.VERSION?'分析バージョンが更新されています。ページを再読み込みしてください':'通知の銘柄が一致しません');}
+    state.snapshotError=false;
+    if(state.snapshot?.id===snapshot.id){analyzeAndRender();return;}
     state.snapshot=snapshot;
     state.data=Feed.input(snapshot);
     state.analysisKey=null;
@@ -188,6 +192,7 @@
     state.data = { exec: [], m15: [], h1: [], h4: [] };
     state.analysis = null;
     state.snapshot = null;
+    state.snapshotError=false;state.monitor=null;state.monitorReceivedAt=0;
     state.livePrice = null;
     state.reference = null;
     state.feedAt = 0;
@@ -283,7 +288,6 @@
         : Core.analyzeMarket({ ...state.data, micro: state.micro }, analysisSettings());
       if(state.snapshot && !state.offlineCsv){
         state.analysis.positionDecision=getPosition()&&!INITIAL_PARAMS.has('snapshot')?Core.positionDecision(getPosition(),state.analysis,state.livePrice):state.analysis.positionDecision;
-        if(!INITIAL_PARAMS.has('snapshot') && Date.now()-state.snapshot.settings.now>1200000){state.analysis.actionable=false;state.analysis.state='NO_TRADE';state.analysis.vetoes.push('共通判定の更新停止・新規判断を保留');}
       }
       key += `:${state.analysis.state}:${state.analysis.vetoes.join()}`;
       const forming = state.data.exec.at(-1);
@@ -614,6 +618,7 @@
     $('confidenceValue').textContent = Math.round(a.confidence);
     $('confidenceRing').style.setProperty('--value', Math.round(a.confidence));
     $('decisionMessage').textContent = a.message;
+    const health=snapshotHealth();if(health?.blocked){badge.textContent='記録・判断保留';badge.className='signal-badge no-trade';sheetSummary.textContent='判断保留';sheetSummary.style.color='var(--muted)';$('decisionMessage').textContent=health.message+' 保存足の状態：'+stateLabel(a.state)+'。'+a.message;}
     renderCheckpoints(a);
     renderTrendContext(a);
     renderMarketMap(a);
@@ -646,7 +651,7 @@
     const archived=INITIAL_PARAMS.has('snapshot')||state.offlineCsv;
     if(archived){box.hidden=true;box.innerHTML='';return;}
     try {
-      const records=C.refresh(a,state.instrumentId,{allowed:Feed.collectionPolicy(state.instrumentId).allowed});
+      const records=C.refresh(a,state.instrumentId,{allowed:Feed.collectionPolicy(state.instrumentId).allowed&&!snapshotHealth()?.blocked});
       box.hidden=!records.length;
       box.innerHTML='<h3>前回固定したチェックポイント</h3>'+records.map(c=>'<section>'+C.describe(c).map(t=>`<p>${esc(t)}</p>`).join('')+`<button type="button" data-checkpoint-remove="${esc(c.id)}">この追跡を解除</button></section>`).join('');
     } catch(e) { box.hidden=false;box.textContent='追跡保存を更新できません：'+e.message; }
@@ -684,7 +689,7 @@
     if(!map.candidates.length)rows.push(['候補帯','現在有効なSMC帯なし。MA・BB接触だけでは候補を作りません。']);
     const events=map.eventRisk.events.map(e=>`${new Date(e.time).toLocaleString('ja-JP',{timeZone:'Asia/Tokyo',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false})} JST ${e.name}`).join(' / ');
     rows.push(['指標警戒',`${events||'最新予定を確認'}。${map.eventRisk.message}`]);
-    const canTrack=!state.offlineCsv&&!INITIAL_PARAMS.has('snapshot')&&a.m15?.ready&&!a.m15.quality?.stale&&Date.now()-a.generatedAt<=20*60000;
+    const canTrack=!state.offlineCsv&&!INITIAL_PARAMS.has('snapshot')&&!snapshotHealth()?.blocked&&a.m15?.ready&&!a.m15.quality?.stale&&Date.now()-a.generatedAt<=20*60000;
     const buttons=map.candidates.map((z,i)=>`<button type="button" data-track-zone="${i}" ${canTrack?'':'disabled'}>${z.direction==='SHORT'?'売り':'買い'}帯 ${esc(mappedPrice(z.low))}～${esc(mappedPrice(z.high))}を固定して追跡</button>`).join(' ');
     box.innerHTML='<h3>環境・候補帯・無効化</h3>'+rows.map(([label,text])=>`<p><strong>${esc(label)}</strong><span>${esc(text)}</span></p>`).join('')+buttons+`<small>${esc(map.note)}</small>`;
   }
@@ -740,13 +745,16 @@
 
   function renderCompass() {
     const a = state.analysis, p = a.plan, pos = a.positionDecision;
-    const stale = !state.offlineCsv && !INITIAL_PARAMS.has('snapshot') && Date.now() - state.feedAt > 45000;
+    const health=snapshotHealth(),held=health?.blocked;
+    const stale = held||(!state.offlineCsv && !INITIAL_PARAMS.has('snapshot') && Date.now() - state.feedAt > 45000);
     const exit = pos?.action.startsWith('EXIT');
     const cls = stale ? 'wait' : exit ? 'exit' : a.actionable ? (a.direction === 'LONG' ? 'buy' : 'sell') : 'wait';
     $('actionCompass').className = `action-compass ${cls}`;
     $('actionHeadline').textContent = stale ? '— 更新停止・判断待機' : exit ? `× ${(getPosition()||state.snapshot?.settings.position)?.direction === 'LONG' ? '買い' : '売り'}ポジション クローズ推奨${!getPosition()?'（前回候補を保有中なら）':''}` : `${cls === 'buy' ? '▲' : cls === 'sell' ? '▼' : '—'} ${a.state === 'NO_TRADE' ? '新規候補なし' : stateLabel(a.state)}`;
     if(INITIAL_PARAMS.has('snapshot'))$('actionHeadline').textContent='保存記録｜'+$('actionHeadline').textContent;
     $('actionTargets').textContent = stale ? '価格が復旧するまで新規シグナルを停止します' : exit ? pos.reasons.join(' / ') : a.actionable && p ? `目標 ${fmt(p.tp1)} → ${fmt(p.tp2)} ｜ SL ${fmt(p.stop)} ｜ 基準 ${fmt(p.entry)}` : window.MultiAnalyzerReview.reasons(a)[0] || a.message;
+    if(held){$('actionHeadline').textContent='— 共通判定を保留・前回の足を表示';$('actionTargets').textContent=health.message;}
+    $('snapshotHealth').hidden=!health;$('snapshotHealth').textContent=health?health.message:'';
     $('sourceNotice').textContent = state.offlineCsv ? 'CSV検証 / 実相場ではありません・通知しません' : `分析・目標: ${currentInstrument().symbol} (${currentInstrument().market}) / ブローカーのUSD価格とは異なります`;
     if (exit && !stale) { $('sheetSummary').textContent = '× クローズ推奨'; $('sheetSummary').style.color = '#c69cff'; }
     $('currentSnapshotLink').href='?asset='+state.instrumentId+'&tf=15m';
@@ -789,12 +797,13 @@
 
   async function refreshServices() {
     const id = state.instrumentId;
+    const loadId=state.loadId;
     if(pauseClosedMarket())return;
     const results = await Promise.allSettled([
       fetchJson(STATIC_HOST ? `https://api.gold-api.com/price/${id === 'gold' ? 'XAU' : 'BTC'}` : `/api/reference?asset=${id}`),
       fetchJson(CLOUD+'/api/monitor')
     ]);
-    if (id !== state.instrumentId) return;
+    if (id !== state.instrumentId||loadId!==state.loadId) return;
     if (results[0].status === 'fulfilled') {
       const q = results[0].value;
       const old = !q.updatedAt || Date.now() - Date.parse(q.updatedAt) > 120000;
@@ -802,9 +811,11 @@
     } else $('referenceQuote').textContent = 'USD参考値: 取得できません（分析はUSDT建て）';
     if (results[1].status === 'fulfilled') {
       const m = results[1].value;
+      if(!state.monitor||!(state.monitor.updatedAt>m.assets?.[id]?.updatedAt)){state.monitor=m.assets?.[id]||null;state.monitorReceivedAt=Date.now();}
       const fresh = m.updatedAt && Date.now() - m.updatedAt < 420000;
       $('monitorStatus').textContent = `${fresh ? '● クラウド監視更新中' : '○ クラウド監視の更新遅延'} / ${m.channels?.join('・') || '通知検証中'} / ${m.summary || '未開始'} / ${m.source || ''}${m.error ? ' / ' + m.error : ''}（通知対象は15分足の共通判定）`;
-    } else $('monitorStatus').textContent = 'クラウド監視の状態を取得できません。';
+    } else {state.monitor=null;state.monitorReceivedAt=0;$('monitorStatus').textContent = 'クラウド監視の状態を取得できません。';}
+    if(state.snapshot)analyzeAndRender();
   }
 
   function renderTfRow(prefix, tf) {
@@ -1122,6 +1133,7 @@
         setConnection('error', '価格更新停止'); analyzeAndRender();
         if (!state.pollTimer) startPolling();
       }
+      else if(state.snapshot&&!state.offlineCsv&&!INITIAL_PARAMS.has('snapshot')){renderDecision();renderCompass();}
     }, 5000);
   }
 
