@@ -678,6 +678,12 @@
     if(!box)return;
     const expandedGeometry=new Set([...(box.querySelectorAll?.('details[data-geometry-zone]')||[])].filter(d=>d.open).map(d=>d.dataset.geometryZone));
     if(!map?.valid){box.innerHTML='<p><strong>候補帯</strong><span>データ不足・更新停止。最新データで再確認します。</span></p>';return;}
+    const basisBar=a.m15?.candles?.at(-1),basisClose=basisBar?.time+a.m15?.intervalMinutes*60000;
+    const basisAvailable=a.m15?.ready&&!a.m15.quality?.stale&&a.m15.intervalMinutes===15&&Number.isFinite(basisBar?.time)&&Number.isFinite(basisBar?.close)&&Number.isFinite(basisClose)&&Number.isFinite(a.generatedAt)&&basisClose<=a.generatedAt;
+    const health=snapshotHealth();
+    const sourceMode=state.offlineCsv?'CSV検証':INITIAL_PARAMS.has('snapshot')?'保存記録（現在の推奨ではありません）':health?.blocked?'共通判定を保留・前回の足':'確定足分析';
+    const basisText=basisAvailable?`${new Date(basisClose).toLocaleString('ja-JP',{timeZone:'Asia/Tokyo',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false})} JST / 確定価格 ${mappedPrice(basisBar.close)}`:'確定時刻・価格を確認できません';
+    const sourceHtml=`<p class="zone-source"><strong>15分足の基準</strong><span>${esc(sourceMode+' / '+basisText+'。上部の進行中価格とは別です。')}</span></p>`;
     const phase={WAIT:'接近待ち',APPROACH:'接近・反応待ち',IN_ZONE:'帯内・反応待ち',ENTRY_CONFIRMED:'P条件も成立'};
     const rows=[['価格基準',priceBasis().label+'。換算は候補帯・プランのみ。チャートと分析はBybitの元価格。'],['環境と狙い',`${map.trends.map(t=>`${t.name} 構造${t.structure}・MA${t.ma}`).join(' / ')}。新規は${map.entryState}`]];
     const canTrack=!state.offlineCsv&&!INITIAL_PARAMS.has('snapshot')&&!snapshotHealth()?.blocked&&a.m15?.ready&&!a.m15.quality?.stale&&Date.now()-a.generatedAt<=20*60000;
@@ -705,7 +711,7 @@
     const calendarChecked=map.eventRisk.checkedAt;
     rows.push(['予定の確認時刻',Number.isFinite(calendarChecked)?`${new Date(calendarChecked).toLocaleString('ja-JP',{timeZone:'Asia/Tokyo',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false})} JST。${map.eventRisk.coverage==='expired'?'確認期限切れ。最新予定との再照合が必要です。':'一部の予定を確認した時刻です。現在の全予定を網羅したものではありません。'}`:'未確認。最新予定との照合が必要です。']);
     const rowHtml=list=>list.map(([label,text])=>`<p><strong>${esc(label)}</strong><span>${esc(text)}</span></p>`).join('');
-    box.innerHTML='<h3>環境・候補帯・無効化</h3>'+rowHtml(rows.slice(0,2))+cards+rowHtml(rows.slice(2))+`<small>${esc(map.note)}</small>`;
+    box.innerHTML='<h3>環境・候補帯・無効化</h3>'+sourceHtml+rowHtml(rows.slice(0,2))+cards+rowHtml(rows.slice(2))+`<small>${esc(map.note)}</small>`;
   }
 
   function renderPlan() {
