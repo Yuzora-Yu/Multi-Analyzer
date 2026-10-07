@@ -53,10 +53,19 @@
   function dir(v){return v>0?'↑':v<0?'↓':'横';}
   function lines(ctx,text,x,y,maxWidth,lineHeight=25){let line='';for(const ch of String(text)){if(ctx.measureText(line+ch).width>maxWidth){ctx.fillText(line,x,y);y+=lineHeight;line='';}line+=ch;}ctx.fillText(line,x,y);return y+lineHeight;}
   function canvas(height=1000){const c=document.createElement('canvas');c.width=1280;c.height=height;const x=c.getContext('2d');x.fillStyle='#0b1018';x.fillRect(0,0,c.width,c.height);x.font='18px sans-serif';x.fillStyle='#dbe7f2';return[c,x];}
+  function chartContextSeries(r,bars){
+    const a=r.analysis||{},s=a.series||{},indices=new Map(),duplicates=new Set();
+    for(const [i,c] of (a.candles||[]).entries()){
+      if(!Number.isFinite(c.time)||!Number.isFinite(r.cutoff)||!Number.isFinite(r.minutes)||r.minutes<=0||c.time+r.minutes*60000>r.cutoff)continue;
+      if(indices.has(c.time))duplicates.add(c.time);else indices.set(c.time,i);
+    }
+    return [['EMA20','#e6b85c',[],s.ema20],['EMA50','#64a8ff',[],s.ema50],['BB上限','#64a8ffb3',[],s.bb?.upper],['BB中央','#7297c6',[4,4],s.bb?.mid],['BB下限','#64a8ffb3',[],s.bb?.lower]].map(([label,color,dash,values])=>({label,color,dash,values:bars.map(b=>{const i=indices.get(b.time),v=i==null||duplicates.has(b.time)?null:values?.[i];return Number.isFinite(v)?v:null;})}));
+  }
   function facts(r){const f=r.analysis.flow?.latest||{},v=r.analysis.values||{},p=r.analysis.flow?.profile;return[
     `${r.tf} / ${r.rows.length}確定足 / 最終確定 ${jst(r.rows.at(-1).time+r.minutes*60000)}`,
     `構造 ${dir(f.structure)}　リボン ${dir(f.ribbon)}　保持方向 ${dir(f.direction)}　ADX ${num(v.adx)}　出来高 ${num(f.volumeRatio)}倍`,
     `POC ${num(p?.poc)}　VAH ${num(p?.vah)}　VAL ${num(p?.val)}　ATR ${num(v.atr)}`,
+    chartContextSeries(r,r.rows.slice(-1)).map(s=>`${s.label} ${num(s.values[0])}`).join(' / ')+'（BB 20期間・±2σ、同じ時間足の確定値）',
     `時間基準：${r.timeBasis==='latest-closed'?'取得開始時点の最新確定足（15分判定後の情報を含みます）':'保存した15分判定の時点'} / 観測 ${jst(r.capturedAt)} / 判定基準 ${jst(r.decisionCutoff??r.cutoff)}`,
     `品質：${r.analysis.ready?'計算可能':'履歴不足'} / 欠損 ${r.analysis.quality?.gaps??'不明'} / ${r.analysis.quality?.stale?'基準時刻に対して遅延':'取得基準まで確定'}。取得時の取得基準からの経過 ${Math.max(0,Math.round((r.capturedAt-r.cutoff)/60000))}分。`,
     r.tf==='15m'?`共通判定 ${r.signal.state} / ${r.signal.direction} / ${r.snapshotId}`:'環境・執行タイミングの比較用。独立したメール通知や売買推奨はありません。',
@@ -66,7 +75,9 @@
     const [c,x]=canvas(1600),bars=r.rows.slice(-180),flow=r.analysis.flow,off=r.rows.length-bars.length;
     x.fillStyle='#e6b85c';x.font='bold 27px sans-serif';x.fillText(`${r.asset.toUpperCase()} / ${r.tf} — 確定足レビュー`,30,42);
     x.font='16px sans-serif';x.fillStyle='#a5b9cc';x.fillText(`Bybit ${r.asset==='gold'?'XAUUSDT perpetual':'BTCUSDT spot'} | 基準 ${jst(r.cutoff)} | Core ${r.version}`,30,74);
-    const lo=Math.min(...bars.map(b=>b.low)),hi=Math.max(...bars.map(b=>b.high)),span=Math.max(hi-lo,hi*.001),y=p=>110+(hi+span*.08-p)/(span*1.16)*480,xx=i=>36+i*5.7;
+    const context=chartContextSeries(r,bars),levels=context.flatMap(s=>s.values.filter(Number.isFinite));
+    const lo=Math.min(...bars.map(b=>b.low),...levels),hi=Math.max(...bars.map(b=>b.high),...levels),span=Math.max(hi-lo,hi*.001),y=p=>110+(hi+span*.08-p)/(span*1.16)*480,xx=i=>36+i*5.7;
+    x.font='15px sans-serif';x.fillText('EMA20 黄 / EMA50 青 / BB(20,±2σ) 青・中央破線 — 同じ時間足の確定値',30,94);
     x.save();x.beginPath();x.rect(25,100,1220,515);x.clip();
     for(let i=0;i<6;i++){const p=lo+(hi-lo)*i/5;x.strokeStyle='#233141';x.beginPath();x.moveTo(25,y(p));x.lineTo(1240,y(p));x.stroke();x.fillStyle='#9ab0c2';x.fillText(num(p),1140,y(p)-5);}
     if(flow)for(let i=1;i<bars.length;i++)for(let k=0;k<flow.periods.length-1;k++){
@@ -74,6 +85,11 @@
       x.fillStyle=flow.history[n]?.ribbon>0?'#24c89444':'#ff557744';x.beginPath();x.moveTo(xx(i-1),y(a[n-1]));x.lineTo(xx(i),y(a[n]));x.lineTo(xx(i),y(b[n]));x.lineTo(xx(i-1),y(b[n-1]));x.fill();
     }
     const maxV=Math.max(1,...bars.map(b=>b.volume));
+    for(const line of context){
+      x.strokeStyle=line.color;x.lineWidth=1;x.setLineDash(line.dash);x.beginPath();let connected=false;
+      for(let i=0;i<bars.length;i++){const value=line.values[i];if(value==null){connected=false;continue;}if(connected)x.lineTo(xx(i),y(value));else x.moveTo(xx(i),y(value));connected=true;}
+      x.stroke();x.setLineDash([]);
+    }
     for(const z of r.analysis.smc?.zones||[]){if(z.status!=='active')continue;const start=Math.max(0,bars.findIndex(b=>b.time>=z.time));x.fillStyle=z.side==='bull'?'#43d49d16':'#ff6b7816';x.fillRect(xx(start),y(z.high),xx(bars.length-1)-xx(start),y(z.low)-y(z.high));}
     bars.forEach((b,i)=>{x.fillStyle=x.strokeStyle=b.close>=b.open?'#43d49d':'#ff6b78';x.beginPath();x.moveTo(xx(i),y(b.high));x.lineTo(xx(i),y(b.low));x.stroke();x.fillRect(xx(i)-2,y(Math.max(b.open,b.close)),4,Math.max(1,Math.abs(y(b.close)-y(b.open))));x.globalAlpha=.6;x.fillRect(xx(i)-2,608-b.volume/maxV*40,4,b.volume/maxV*40);x.globalAlpha=1;
       const h=flow?.history[off+i];if(h?.exitLong||h?.exitShort){x.fillStyle='#ffcd46';x.beginPath();x.arc(xx(i),y(h.exitLong?b.high:b.low)+(h.exitLong?-12:12),4,0,Math.PI*2);x.fill();}
@@ -261,5 +277,5 @@
       }catch(e){status.textContent='保存失敗：'+e.message;}finally{button.disabled=false;$('reviewRefresh').disabled=false;$('reviewBoth').disabled=Boolean(getArchiveId());}
     });
   }
-  return{context,reasons,init,collect,zip,zipCompressed,crc32,closed,frames,policy,facts,prompt,overview,decision,decisionText,consultation,confirmationContext,costContext,executionContext};
+  return{context,reasons,init,collect,zip,zipCompressed,crc32,closed,frames,policy,facts,prompt,overview,decision,decisionText,consultation,confirmationContext,costContext,executionContext,chartContextSeries,chartImage};
 });
