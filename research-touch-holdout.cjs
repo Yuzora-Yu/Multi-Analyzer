@@ -3,7 +3,7 @@
 const fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto'),assert=require('node:assert/strict');
 const H=require('./research-touch-confirmation.cjs'),S=require('./research-touch-confirmation-summary.cjs'),{atomicJSON}=require('./research-audit.cjs');
 const STEP=900000,hash=b=>crypto.createHash('sha256').update(b).digest('hex');
-const SPEC=Object.freeze({id:'touch-calendar-holdout-v1',start:Date.parse('2026-10-12T00:00:00Z'),end:Date.parse('2026-11-09T00:00:00Z'),embargoMs:86400000,horizon:16,
+const SPEC=Object.freeze({id:'touch-calendar-holdout-v2',start:Date.parse('2026-10-12T00:00:00Z'),end:Date.parse('2026-11-09T00:00:00Z'),embargoMs:86400000,horizon:16,
  population:'Original primary decision-window reservations only; no resetting reservation history at the split. Original eligibility, complete receipts, conservative exchange clock and code/market partitions remain required.',
  selection:'Fixed calendar chosen before observations. A validation source must close strictly after start plus nonnegative exchange upper clock offset; its full 16-bar outcome window must be inside the fixed interval. Development windows must end before the 24-hour embargo begins.',
  release:'No validation outcome statistics before calendar end. Counts only. No early stopping, extension for small samples or tuning on holdout outcomes. A modified hypothesis requires a new future registration and validation period.',
@@ -39,13 +39,13 @@ function run(file,directory,root,hypothesisRoot){
  if(!fs.existsSync(path.join(root,'registration.json'))||!fs.existsSync(path.join(hypothesisRoot,'registration.json')))throw Error('Explicit existing preregistrations required');
  const registration=register(root,hypothesisRoot),captured=new Map(),read=f=>{const b=fs.readFileSync(f);captured.set(f,b);return b;};
  read(path.join(root,'registration.json'));const report=JSON.parse(read(file)),cohort=JSON.parse(read(path.join(directory,'report.json'))),manifest=JSON.parse(read(path.join(directory,'manifest.json')));
- const replay=S.run(file,directory,hypothesisRoot),sources=new Map();
+ const replay=H.run(directory,hypothesisRoot),replayed=JSON.parse(fs.readFileSync(replay.file)),sources=new Map();assert.deepEqual(replayed,report,'Original registered hypothesis replay changed');
  for(const m of manifest.sources.filter(m=>path.basename(m.file)==='prediction.json')){const b=read(m.file);if(hash(b)!==m.sha256)throw Error('Original clock source changed');const s=JSON.parse(b);if(sources.has(s.id))throw Error('Duplicate source');sources.set(s.id,s);}
  const result=partition(report,cohort,sources,registration);
  for(const [f,b]of captured)if(hash(fs.readFileSync(f))!==hash(b))throw Error('Original holdout input changed');
  register(root,hypothesisRoot);
  const output=path.join(path.dirname(root),'research-touch-holdout-reports');fs.mkdirSync(output,{recursive:true});const target=path.join(output,Date.now()+'-'+crypto.randomUUID()+'.json');
- atomicJSON(target,{...result,evidence:{pairedReplaySummary:replay.file,hypothesisReportSha256:hash(captured.get(file)),cohortReportSha256:hash(captured.get(path.join(directory,'report.json')))},collectorExecuted:false,productionChanged:false});return {file:target,released:result.released,validationPrimary:result.validationPrimary,validationEvaluated:result.validationEvaluated,accuracyProven:false};
+ atomicJSON(target,{...result,evidence:{pairedHypothesisReplay:replay.file,note:'Raw original-arm replay, not interim aggregate validation statistics or new observations.',hypothesisReportSha256:hash(captured.get(file)),cohortReportSha256:hash(captured.get(path.join(directory,'report.json')))},collectorExecuted:false,productionChanged:false});return {file:target,released:result.released,validationPrimary:result.validationPrimary,validationEvaluated:result.validationEvaluated,accuracyProven:false};
 }
-if(require.main===module){try{const base=path.join(__dirname,'.runtime/hourly-observation'),root=path.join(base,'research-touch-holdout-v1'),hypothesisRoot=path.join(base,'research-touch-confirmation-v1');console.log(JSON.stringify(process.argv[2]==='register'?register(root,hypothesisRoot):run(path.resolve(process.argv[2]||''),path.resolve(process.argv[3]||''),root,hypothesisRoot),null,2));}catch(e){console.error(e.message);process.exitCode=1;}}
+if(require.main===module){try{const base=path.join(__dirname,'.runtime/hourly-observation'),root=path.join(base,'research-touch-holdout-v2'),hypothesisRoot=path.join(base,'research-touch-confirmation-v1');console.log(JSON.stringify(process.argv[2]==='register'?register(root,hypothesisRoot):run(path.resolve(process.argv[2]||''),path.resolve(process.argv[3]||''),root,hypothesisRoot),null,2));}catch(e){console.error(e.message);process.exitCode=1;}}
 module.exports={SPEC,register,classify,partition,run};
