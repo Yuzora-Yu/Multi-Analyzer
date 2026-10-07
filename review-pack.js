@@ -92,6 +92,12 @@
       return missing.length?'未成立：'+missing.join('・'):'新規候補の条件待ち（共通判定を参照）';
     });
   }
+  function consultation(a,now,{archived=false}={}){
+    const Focus=globalThis.MultiAnalyzerZoneFocus,C=globalThis.MultiAnalyzerCheckpoint;
+    const zones=(a.signal.marketMap?.candidates||[]).map(z=>({zone:structuredClone(z),focus:Focus?.describe(a.signal,z)||null}));
+    const checkpoints=archived?[]:(C?.read()||[]).filter(c=>c.asset===a.asset&&c.savedAt<=now).map(c=>C.advance(c,a.signal,{now,allowed:globalThis.MultiAnalyzerFeed?.collectionPolicy(a.asset).allowed??true}));
+    return {basis:'Bybit元市場価格。端末の固定帯は保存時の換算を別記。',zones,checkpoints,checkpointText:checkpoints.flatMap(c=>C.describe(c)),note:archived?'過去判定に現在の端末チェックポイントを混入しません。':'端末内の観察記録。保存後の追跡であり、元の予測やPサインを書き換えません。'};
+  }
   function decision(a,now=Date.now()){
     const s=a.signal,e=s.exec,f=e?.flow?.latest,d=f?.setup,settings=a.snapshot.settings;
     const stale=now-settings.now>20*60000;
@@ -103,18 +109,22 @@
       item('出来高',d?.volume,`${num(f?.volumeRatio)}倍 / 過去21本平均の1倍以上`),
       item('確定H1一致',f?.hourlyAligned,'H1と15分の保持方向が一致'),
       item('ADX',Number.isFinite(e?.values?.adx)?e.values.adx>=20:null,`${num(e?.values?.adx)} / 20以上`)];
-    return {id:a.snapshot.id,stale,direction:context(s,'15m共通判定'),
+    return {id:a.snapshot.id,stale,direction:context(s,'15m共通判定'),consultation:a.consultation||null,
       checks,levels:{ema13:d?.ema13??null,ema21:d?.ema21??null},
       exit:f?.exitLong?'買い保有の撤退注意':f?.exitShort?'売り保有の撤退注意':null,
       verdict:stale?'記録が古いため更新':s.actionable?'共通条件成立・研究用候補':'新規候補の条件待ち（検証中）',
       note:'新規候補の条件表示であり、保有の継続・決済判断ではありません。確定スイングと保持方向は転換確認まで以前の向きが残る場合があります。リボンとの不一致は押し目成立を意味しません。精度は検証中です。各条件は同じ15分確定足で評価。成立数は勝率ではありません。EMA価格は次の足で変動し、価格への到達だけではサインになりません。',
       vetoes:reasons(s),plan:s.plan??null};
   }
-  function decisionText(d){return [`${d.verdict} / ${d.direction}`,d.exit||'今回の足に黄EXITなし',
+  function decisionText(d){const q=d.consultation;return [...(q?.checkpointText?.length?['前回固定したチェックポイント（元条件で先に確認）',...q.checkpointText]:[]),`${d.verdict} / ${d.direction}`,d.exit||'今回の足に黄EXITなし',
+    ...(q?[q.basis,...q.zones.flatMap(({zone:z,focus:f})=>[
+      `背景 ${z.direction} ${z.frame} ${z.type} ${num(z.low)}～${num(z.high)} / ${z.condition} / 15分終値 ${num(z.invalidationClose)}${z.direction==='SHORT'?'超':'未満'}で撤回 / SL参考 ${num(z.protectiveStop)}`,
+      ...(f?.windows||[]).map(w=>`局所観察 ${num(w.low)}～${num(w.high)}：${w.levels.map(r=>r.label+' '+num(r.price)).join(' / ')}（接触や重合数は勝率・入場条件ではありません）`)
+    ]),q.note]:[]),
     `観察水準 EMA13 ${num(d.levels.ema13)} / EMA21 ${num(d.levels.ema21)}`,
     ...d.checks.map(c=>`${c.status}：${c.label} — ${c.detail}`),
     ...d.vetoes.map(v=>`最終判定の未成立条件：${v}`),d.plan?planText(d.plan):'参考プランなし',d.note];}
-  function decisionImage(pack){const [c,x]=canvas(2600);let y=42;x.font='bold 27px sans-serif';x.fillStyle='#e6b85c';x.fillText('次に確認する条件・価格',30,y);y+=40;x.font='18px sans-serif';
+  function decisionImage(pack){const texts=pack.assets.flatMap(a=>decisionText(decision(a,pack.capturedAt))),height=300+texts.reduce((n,t)=>n+Math.ceil(String(t).length/50)*27+6,0);const [c,x]=canvas(height);let y=42;x.font='bold 27px sans-serif';x.fillStyle='#e6b85c';x.fillText('次に確認する条件・価格',30,y);y+=40;x.font='18px sans-serif';
     for(const a of pack.assets){x.fillStyle='#e6b85c';y=lines(x,`${a.asset.toUpperCase()} / ${a.snapshot.id} / ${jst(a.snapshot.settings.now)}`,30,y,1210);x.fillStyle='#dbe7f2';for(const t of decisionText(decision(a,pack.capturedAt)))y=lines(x,t,30,y,1210,27)+6;y+=25;}
     const [out,ctx]=canvas(y+25);ctx.drawImage(c,0,0);return out;}
   function overview(pack,now=Date.now()){
@@ -135,7 +145,7 @@
       signal?.throwIfAborted();onProgress(`${asset}: 共通判定を取得`);
       let s;try{s=await get(`https://multi-analyzer-monitor.rikai-829.workers.dev/api/snapshot?asset=${asset}${archivedId?'&id='+encodeURIComponent(archivedId):''}`);}catch(e){if(signal?.aborted)throw e;pack.errors.push({asset,tf:'all',error:e.message});continue;}
       if(s.version!==Core.VERSION||!s.bars?.m15||s.asset!==asset)throw Error('共通判定の銘柄・バージョン不一致');
-      const decisionCutoff=s.settings.now,input=Feed.input(s),marketSignal=Core.analyzeMarket(input,s.settings);pack.assets.push({asset,snapshot:s,signal:marketSignal});
+      const decisionCutoff=s.settings.now,input=Feed.input(s),marketSignal=Core.analyzeMarket(input,s.settings),entry={asset,snapshot:s,signal:marketSignal};entry.consultation=consultation(entry,pack.capturedAt,{archived:Boolean(archivedId)});pack.assets.push(entry);
       for(const [tf,minutes] of frames){
         signal?.throwIfAborted();onProgress(`${asset} ${tf}: 確定足を取得`);
         try{
@@ -193,5 +203,5 @@
       }catch(e){status.textContent='保存失敗：'+e.message;}finally{button.disabled=false;$('reviewRefresh').disabled=false;$('reviewBoth').disabled=Boolean(getArchiveId());}
     });
   }
-  return{context,reasons,init,collect,zip,crc32,closed,frames,policy,facts,prompt,overview,decision,decisionText};
+  return{context,reasons,init,collect,zip,crc32,closed,frames,policy,facts,prompt,overview,decision,decisionText,consultation};
 });

@@ -614,6 +614,7 @@
     $('confidenceValue').textContent = Math.round(a.confidence);
     $('confidenceRing').style.setProperty('--value', Math.round(a.confidence));
     $('decisionMessage').textContent = a.message;
+    renderCheckpoints(a);
     renderMarketMap(a);
     $('longScore').textContent = a.longScore;
     $('shortScore').textContent = a.shortScore;
@@ -638,6 +639,18 @@
     }
   }
 
+  function renderCheckpoints(a) {
+    const box=$('checkpointStatus'),C=window.MultiAnalyzerCheckpoint;
+    if(!box||!C)return;
+    const archived=INITIAL_PARAMS.has('snapshot')||state.offlineCsv;
+    if(archived){box.hidden=true;box.innerHTML='';return;}
+    try {
+      const records=C.refresh(a,state.instrumentId,{allowed:Feed.collectionPolicy(state.instrumentId).allowed});
+      box.hidden=!records.length;
+      box.innerHTML='<h3>前回固定したチェックポイント</h3>'+records.map(c=>'<section>'+C.describe(c).map(t=>`<p>${esc(t)}</p>`).join('')+`<button type="button" data-checkpoint-remove="${esc(c.id)}">この追跡を解除</button></section>`).join('');
+    } catch(e) { box.hidden=false;box.textContent='追跡保存を更新できません：'+e.message; }
+  }
+
   function renderMarketMap(a) {
     const box=$('marketMap'),map=a.marketMap;
     if(!box)return;
@@ -659,7 +672,9 @@
     if(!map.candidates.length)rows.push(['候補帯','現在有効なSMC帯なし。MA・BB接触だけでは候補を作りません。']);
     const events=map.eventRisk.events.map(e=>`${new Date(e.time).toLocaleString('ja-JP',{timeZone:'Asia/Tokyo',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false})} JST ${e.name}`).join(' / ');
     rows.push(['指標警戒',`${events||'最新予定を確認'}。${map.eventRisk.message}`]);
-    box.innerHTML='<h3>環境・候補帯・無効化</h3>'+rows.map(([label,text])=>`<p><strong>${esc(label)}</strong><span>${esc(text)}</span></p>`).join('')+`<small>${esc(map.note)}</small>`;
+    const canTrack=!state.offlineCsv&&!INITIAL_PARAMS.has('snapshot')&&a.m15?.ready&&!a.m15.quality?.stale&&Date.now()-a.generatedAt<=20*60000;
+    const buttons=map.candidates.map((z,i)=>`<button type="button" data-track-zone="${i}" ${canTrack?'':'disabled'}>${z.direction==='SHORT'?'売り':'買い'}帯 ${esc(mappedPrice(z.low))}～${esc(mappedPrice(z.high))}を固定して追跡</button>`).join(' ');
+    box.innerHTML='<h3>環境・候補帯・無効化</h3>'+rows.map(([label,text])=>`<p><strong>${esc(label)}</strong><span>${esc(text)}</span></p>`).join('')+buttons+`<small>${esc(map.note)}</small>`;
   }
 
   function renderPlan() {
@@ -984,6 +999,19 @@
   }
 
   function bindEvents() {
+    $('marketMap').addEventListener('click',event=>{
+      const button=event.target.closest('[data-track-zone]');if(!button||button.disabled)return;
+      try {
+        const a=state.analysis,z=a.marketMap.candidates[Number(button.dataset.trackZone)],instrument=INSTRUMENTS[state.instrumentId];
+        window.MultiAnalyzerCheckpoint.track(a,z,{asset:state.instrumentId,market:instrument.market,symbol:instrument.symbol,snapshotId:state.snapshot?.id,basis:priceBasis()});
+        renderCheckpoints(a);
+      } catch(e) { $('checkpointStatus').hidden=false;$('checkpointStatus').textContent='追跡を保存できません：'+e.message; }
+    });
+    $('checkpointStatus').addEventListener('click',event=>{
+      const button=event.target.closest('[data-checkpoint-remove]');if(!button)return;
+      try { window.MultiAnalyzerCheckpoint.remove(button.dataset.checkpointRemove);renderCheckpoints(state.analysis); }
+      catch(e) { $('checkpointStatus').textContent='追跡を解除できません：'+e.message; }
+    });
     $('chartZoomIn').addEventListener('click',()=>zoomChart(.75));
     $('chartZoomOut').addEventListener('click',()=>zoomChart(1/.75));
     $('chartReset').addEventListener('click',()=>{
