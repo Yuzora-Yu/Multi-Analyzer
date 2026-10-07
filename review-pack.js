@@ -174,13 +174,23 @@
       item('確定H1一致',f?.hourlyAligned,'H1と15分の保持方向が一致'),
       item('ADX',Number.isFinite(e?.values?.adx)?e.values.adx>=20:null,`${num(e?.values?.adx)} / 20以上`)];
     return {id:a.snapshot.id,stale,health:a.health||null,direction:context(s,'15m共通判定'),consultation:a.consultation||null,
+      eventRisk:s.marketMap?.eventRisk?structuredClone(s.marketMap.eventRisk):null,
+      eventRiskBasis:{decisionAt:Number.isFinite(s.generatedAt)?s.generatedAt:settings.now,reviewCapturedAt:now,scope:'original-engine-calendar',note:'元判定時点の部分的な予定情報です。現在の全予定や、メール配信・入場成立の証拠ではありません。'},
       checks,costAssumptions:costContext(a.snapshot.settings),executionContext:executionContext(a.snapshot),levels:{ema13:d?.ema13??null,ema21:d?.ema21??null},
       exit:f?.exitLong?'買い保有の撤退注意':f?.exitShort?'売り保有の撤退注意':null,
       verdict:a.health?.blocked?'現在の判断保留・保存足の条件のみ':stale?'記録が古いため更新':s.actionable?'共通条件成立・研究用候補':'新規候補の条件待ち（検証中）',
       note:'新規候補の条件表示であり、保有の継続・決済判断ではありません。確定スイングと保持方向は転換確認まで以前の向きが残る場合があります。リボンとの不一致は押し目成立を意味しません。精度は検証中です。各条件は同じ15分確定足で評価。成立数は勝率ではありません。EMA価格は次の足で変動し、価格への到達だけではサインになりません。',
       vetoes:reasons(s),plan:s.plan??null};
   }
-  function decisionText(d){const q=d.consultation;return [...(q?.checkpointText?.length?['前回固定したチェックポイント（元条件で先に確認）',...q.checkpointText]:[]),...(d.health?[`鮮度確認 ${jst(d.health.assessedAt)}：${d.health.message}`]:[]),`${d.verdict} / ${d.direction}`,d.exit||'今回の足に黄EXITなし',
+  function calendarText(d){
+    const risk=d.eventRisk,basis=d.eventRiskBasis;
+    if(!risk)return ['指標警戒：元判定の予定情報は未取得。最新の予定を別途確認してください。'];
+    const events=Array.isArray(risk.events)?risk.events.map(e=>`${Number.isFinite(e.time)?jst(e.time):'予定時刻未確認'} ${e.name||'名称未確認'}${e.source?' / 出典 '+e.source:''}`).join(' / '):'';
+    return [`指標警戒（元判定 ${Number.isFinite(basis?.decisionAt)?jst(basis.decisionAt):'時刻未確認'}）：${risk.blocked===true?'入場保留。':''}${events||'この記録に掲載予定なし。指標がないことを示しません。'} ${risk.message||'予定の範囲は未確認。'}`,
+      `予定の確認時刻 ${Number.isFinite(risk.checkedAt)?jst(risk.checkedAt):'未確認'} / ${risk.coverage==='expired'?'確認期限切れ。最新予定との再照合が必要です。':risk.coverage==='partial'?'一部の予定のみ。全予定を網羅しません。':'確認範囲未確認。'}`,
+      basis?.note||'元判定の予定情報です。現在の予定を過去の判定に混入しません。'];
+  }
+  function decisionText(d){const q=d.consultation;return [...(q?.checkpointText?.length?['前回固定したチェックポイント（元条件で先に確認）',...q.checkpointText]:[]),...(d.health?[`鮮度確認 ${jst(d.health.assessedAt)}：${d.health.message}`]:[]),`${d.verdict} / ${d.direction}`,...calendarText(d),d.exit||'今回の足に黄EXITなし',
     ...(q?[q.basis,...(q.trendContext?[`現在地の基準：15分確定価格 ${num(q.trendContext.price)} / ${q.trendContext.priceClosedAt?jst(q.trendContext.priceClosedAt):'未取得'}`]:[]),...(q.trendContext?.frames||[]).flatMap(f=>[`${f.name} 構造 ${f.structure} / MA ${f.ma} / ${f.available?'確定 '+jst(f.closedAt):'未取得・遅延'}：${f.levels.map(l=>`${l.label} ${num(l.price)} の${l.position}（15分確定価格比）`).join(' / ')}`,...(f.leg?[`${f.name} 確認済み${f.leg.direction} ${num(f.leg.start.price)}→${num(f.leg.end.price)}（終点確認 ${jst(f.leg.end.confirmedAt)}）から ${num(f.leg.ratio)}％ / ${f.leg.levels.map(l=>`${num(l.percent)}％ ${num(l.price)}`).join(' / ')}。${f.leg.note}`]:[])]),...q.zones.flatMap(({zone:z,focus:f,geometryText,geometryBasis,confirmationPreview})=>[
       `背景 ${z.direction} ${z.frame} ${z.type} ${num(z.low)}～${num(z.high)} / ${z.condition} / 15分終値 ${num(z.invalidationClose)}${z.direction==='SHORT'?'超':'未満'}で撤回 / SL参考 ${num(z.protectiveStop)}`,
       ...(confirmationPreview?[confirmationPreview.text]:[]),
@@ -278,5 +288,5 @@
       }catch(e){status.textContent='保存失敗：'+e.message;}finally{button.disabled=false;$('reviewRefresh').disabled=false;$('reviewBoth').disabled=Boolean(getArchiveId());}
     });
   }
-  return{context,reasons,init,collect,zip,zipCompressed,crc32,closed,frames,policy,facts,prompt,overview,decision,decisionText,consultation,confirmationContext,costContext,executionContext,chartContextSeries,chartImage};
+  return{context,reasons,init,collect,zip,zipCompressed,crc32,closed,frames,policy,facts,prompt,overview,decision,decisionText,calendarText,consultation,confirmationContext,costContext,executionContext,chartContextSeries,chartImage};
 });
