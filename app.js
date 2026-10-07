@@ -691,6 +691,7 @@
     const cards=map.candidates.map((z,i)=>{
       const focus=window.MultiAnalyzerZoneFocus?.describe(a,z);
       const geometry=window.MultiAnalyzerZoneGeometry?.describe(a,z);
+      const confirmation=window.MultiAnalyzerReview?.confirmationContext?.(a,z,mappedPrice);
       const higher=map.trends.find(t=>t.name==='4H');
       const role=higher?.ma==='中立'&&higher?.structure==='中立'?'上位足の方向未確定':z.role;
       const local=[];
@@ -700,7 +701,7 @@
       else local.push(['局所観察','現在の背景帯内に、確定MA・BBの局所重合を確認できません。']);
       const side=z.direction==='SHORT'?'売り':'買い';
       return `<section class="zone-card ${z.direction==='SHORT'?'zone-short':'zone-long'}"><h4>${side}背景 ${esc(mappedPrice(z.low))}～${esc(mappedPrice(z.high))}</h4><p class="zone-phase">${esc(`${phase[z.phase]} / ${z.frame} ${z.type} / ${role}`)}</p>`+
-        fields([['確認条件',z.condition],['撤回条件',`15分終値${mappedPrice(z.invalidationClose)}${z.direction==='SHORT'?'超':'未満'}で背景帯の見立て無効`],['保護SL参考',`${mappedPrice(z.protectiveStop)}（再訪高安で再計算）`],['反応・利確候補',z.targets.map(t=>mappedPrice(t)).join(' / ')||'未確認']])+fields(local)+
+        fields([['確認条件',z.condition],...(confirmation?[['固定追跡の確認価格',confirmation.text]]:[]),['撤回条件',`15分終値${mappedPrice(z.invalidationClose)}${z.direction==='SHORT'?'超':'未満'}で背景帯の見立て無効`],['保護SL参考',`${mappedPrice(z.protectiveStop)}（再訪高安で再計算）`],['反応・利確候補',z.targets.map(t=>mappedPrice(t)).join(' / ')||'未確認']])+fields(local)+
         (geometry?`<details data-geometry-zone="${esc(z.id)}" ${expandedGeometry.has(z.id)?'open':''}><summary>確認を待った場合の残り値幅</summary>${window.MultiAnalyzerZoneGeometry.text(geometry,mappedPrice).map(t=>`<p>${esc(t)}</p>`).join('')}</details>`:'')+
         `<button type="button" data-track-zone="${i}" ${canTrack?'':'disabled'}>${side}帯 ${esc(mappedPrice(z.low))}～${esc(mappedPrice(z.high))}を固定して追跡</button></section>`;
     }).join('');

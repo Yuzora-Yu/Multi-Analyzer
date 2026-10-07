@@ -115,12 +115,18 @@
     const zones=(a.signal.marketMap?.candidates||[]).map(z=>{
       const geometry=G?.describe(a.signal,z)||null;
       const geometryText=geometry?G.text(geometry):[];
-      return {zone:structuredClone(z),focus:Focus?.describe(a.signal,z)||null,geometry,geometryText,
+      return {zone:structuredClone(z),focus:Focus?.describe(a.signal,z)||null,geometry,geometryText,confirmationPreview:confirmationContext(a.signal,z),
         geometryBasis:{sourceId:a.snapshot?.id??null,sourceClosedAt:a.signal.m15?.candles?.at(-1)?.time!=null?a.signal.m15.candles.at(-1).time+900000:null,reviewCapturedAt:now,calculatedAt:Date.now(),
           scope:archived?'saved-decision-reconstruction':'current-candidate-description',note:archived?'保存判定の元候補・確定スイングから後で計算した距離です。当時の表示・保存・約定の証拠ではなく、現在の水準でもありません。':'この候補から新しく追跡を始める場合の距離です。保存済みチェックポイントの条件は変更しません。'}};
     });
     const checkpoints=archived?[]:(C?.read()||[]).filter(c=>c.asset===a.asset&&c.savedAt<=now).map(c=>C.advance(c,a.signal,{now,allowed:!a.health?.blocked&&(globalThis.MultiAnalyzerFeed?.collectionPolicy(a.asset).allowed??true)}));
     return {basis:'Bybit元市場価格。端末の固定帯は保存時の換算を別記。',trendContext:globalThis.MultiAnalyzerTrendContext?.describe(a.signal)||null,zones,checkpoints,checkpointText:checkpoints.flatMap(c=>C.describe(c)),note:archived?'過去判定に現在の端末チェックポイントを混入しません。':'端末内の観察記録。保存後の追跡であり、元の予測やPサインを書き換えません。'};
+  }
+  function confirmationContext(a,z,price=num){
+    const g=globalThis.MultiAnalyzerZoneGeometry?.describe(a,z),short=z?.direction==='SHORT',closedAt=a?.m15?.candles?.at(-1)?.time+900000;
+    if(!g?.available||!Number.isFinite(closedAt))return {available:false,minutes:15,text:'固定追跡の確認価格は未取得です。帯への接触だけでは成立と判定しません。'};
+    return {available:true,minutes:15,sourceClosedAt:closedAt,direction:z.direction,zoneEdge:short?z.low:z.high,pivot:g.pivot,boundary:g.boundary,comparison:short?'strictly-below':'strictly-above',scope:'new-checkpoint-preview',
+      text:`今から固定追跡する場合：帯への接触確認後、後続15分終値が ${price(g.boundary)} を${short?'下回る':'上回る'}こと（等値は未成立）。帯${short?'下端':'上端'} ${price(short?z.low:z.high)} と固定する確定${short?'安値':'高値'} ${price(g.pivot)} の両方を通過。現時点の成立やPサインを示すものではありません。保存済み追跡は元条件を維持します。`};
   }
   function costContext(settings){
     const fee=settings?.feeBpsPerSide,spread=settings?.spreadBps,slippage=settings?.slippageBps;
@@ -156,8 +162,9 @@
       vetoes:reasons(s),plan:s.plan??null};
   }
   function decisionText(d){const q=d.consultation;return [...(q?.checkpointText?.length?['前回固定したチェックポイント（元条件で先に確認）',...q.checkpointText]:[]),...(d.health?[`鮮度確認 ${jst(d.health.assessedAt)}：${d.health.message}`]:[]),`${d.verdict} / ${d.direction}`,d.exit||'今回の足に黄EXITなし',
-    ...(q?[q.basis,...(q.trendContext?[`現在地の基準：15分確定価格 ${num(q.trendContext.price)} / ${q.trendContext.priceClosedAt?jst(q.trendContext.priceClosedAt):'未取得'}`]:[]),...(q.trendContext?.frames||[]).flatMap(f=>[`${f.name} 構造 ${f.structure} / MA ${f.ma} / ${f.available?'確定 '+jst(f.closedAt):'未取得・遅延'}：${f.levels.map(l=>`${l.label} ${num(l.price)} の${l.position}（15分確定価格比）`).join(' / ')}`,...(f.leg?[`${f.name} 確認済み${f.leg.direction} ${num(f.leg.start.price)}→${num(f.leg.end.price)}（終点確認 ${jst(f.leg.end.confirmedAt)}）から ${num(f.leg.ratio)}％ / ${f.leg.levels.map(l=>`${num(l.percent)}％ ${num(l.price)}`).join(' / ')}。${f.leg.note}`]:[])]),...q.zones.flatMap(({zone:z,focus:f,geometryText,geometryBasis})=>[
+    ...(q?[q.basis,...(q.trendContext?[`現在地の基準：15分確定価格 ${num(q.trendContext.price)} / ${q.trendContext.priceClosedAt?jst(q.trendContext.priceClosedAt):'未取得'}`]:[]),...(q.trendContext?.frames||[]).flatMap(f=>[`${f.name} 構造 ${f.structure} / MA ${f.ma} / ${f.available?'確定 '+jst(f.closedAt):'未取得・遅延'}：${f.levels.map(l=>`${l.label} ${num(l.price)} の${l.position}（15分確定価格比）`).join(' / ')}`,...(f.leg?[`${f.name} 確認済み${f.leg.direction} ${num(f.leg.start.price)}→${num(f.leg.end.price)}（終点確認 ${jst(f.leg.end.confirmedAt)}）から ${num(f.leg.ratio)}％ / ${f.leg.levels.map(l=>`${num(l.percent)}％ ${num(l.price)}`).join(' / ')}。${f.leg.note}`]:[])]),...q.zones.flatMap(({zone:z,focus:f,geometryText,geometryBasis,confirmationPreview})=>[
       `背景 ${z.direction} ${z.frame} ${z.type} ${num(z.low)}～${num(z.high)} / ${z.condition} / 15分終値 ${num(z.invalidationClose)}${z.direction==='SHORT'?'超':'未満'}で撤回 / SL参考 ${num(z.protectiveStop)}`,
+      ...(confirmationPreview?[confirmationPreview.text]:[]),
       ...(f?.windows||[]).map(w=>`局所観察 ${num(w.low)}～${num(w.high)}：${w.levels.map(r=>r.label+' '+num(r.price)).join(' / ')}（接触や重合数は勝率・入場条件ではありません）`),
       ...(geometryText?.length?['確認を待った場合の残り値幅',geometryBasis?.note||'',...geometryText]:[])
     ]),q.note]:[]),
@@ -251,5 +258,5 @@
       }catch(e){status.textContent='保存失敗：'+e.message;}finally{button.disabled=false;$('reviewRefresh').disabled=false;$('reviewBoth').disabled=Boolean(getArchiveId());}
     });
   }
-  return{context,reasons,init,collect,zip,zipCompressed,crc32,closed,frames,policy,facts,prompt,overview,decision,decisionText,consultation,costContext,executionContext};
+  return{context,reasons,init,collect,zip,zipCompressed,crc32,closed,frames,policy,facts,prompt,overview,decision,decisionText,consultation,confirmationContext,costContext,executionContext};
 });
