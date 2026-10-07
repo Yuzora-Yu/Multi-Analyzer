@@ -755,15 +755,16 @@
     const health=snapshotHealth(),held=health?.blocked;
     const stale = held||(!state.offlineCsv && !INITIAL_PARAMS.has('snapshot') && Date.now() - state.feedAt > 45000);
     const exit = pos?.action.startsWith('EXIT');
+    const enteredPosition=getPosition();
     const cls = stale ? 'wait' : exit ? 'exit' : a.actionable ? (a.direction === 'LONG' ? 'buy' : 'sell') : 'wait';
     $('actionCompass').className = `action-compass ${cls}`;
-    $('actionHeadline').textContent = stale ? '— 更新停止・判断待機' : exit ? `× ${(getPosition()||state.snapshot?.settings.position)?.direction === 'LONG' ? '買い' : '売り'}ポジション クローズ推奨${!getPosition()?'（前回候補を保有中なら）':''}` : `${cls === 'buy' ? '▲' : cls === 'sell' ? '▼' : '—'} ${a.state === 'NO_TRADE' ? '新規候補なし' : stateLabel(a.state)}`;
+    $('actionHeadline').textContent = stale ? '— 更新停止・判断待機' : exit ? enteredPosition ? `× 入力した${enteredPosition.direction==='LONG'?'買い':'売り'}ポジション：撤退条件成立` : '× 参考候補の撤退注意（実際の保有を確認）' : `${cls === 'buy' ? '▲' : cls === 'sell' ? '▼' : '—'} ${a.state === 'NO_TRADE' ? '新規候補なし' : stateLabel(a.state)}`;
     if(INITIAL_PARAMS.has('snapshot'))$('actionHeadline').textContent='保存記録｜'+$('actionHeadline').textContent;
-    $('actionTargets').textContent = stale ? '価格が復旧するまで新規シグナルを停止します' : exit ? pos.reasons.join(' / ') : a.actionable && p ? `目標 ${fmt(p.tp1)} → ${fmt(p.tp2)} ｜ SL ${fmt(p.stop)} ｜ 基準 ${fmt(p.entry)}` : window.MultiAnalyzerReview.reasons(a)[0] || a.message;
+    $('actionTargets').textContent = stale ? '価格が復旧するまで新規シグナルを停止します' : exit ? `${pos.reasons.join(' / ')}。反転エントリーの確認とは別です。` : a.actionable && p ? `目標 ${fmt(p.tp1)} → ${fmt(p.tp2)} ｜ SL ${fmt(p.stop)} ｜ 基準 ${fmt(p.entry)}` : window.MultiAnalyzerReview.reasons(a)[0] || a.message;
     if(held){$('actionHeadline').textContent='— 共通判定を保留・前回の足を表示';$('actionTargets').textContent=health.message;}
     $('snapshotHealth').hidden=!health;$('snapshotHealth').textContent=health?health.message:'';
     $('sourceNotice').textContent = state.offlineCsv ? 'CSV検証 / 実相場ではありません・通知しません' : `分析・目標: ${currentInstrument().symbol} (${currentInstrument().market}) / ブローカーのUSD価格とは異なります`;
-    if (exit && !stale) { $('sheetSummary').textContent = '× クローズ推奨'; $('sheetSummary').style.color = '#c69cff'; }
+    if (exit && !stale) { $('sheetSummary').textContent = enteredPosition?'× 保有の撤退条件':'× 参考候補の撤退注意'; $('sheetSummary').style.color = '#c69cff'; }
     $('currentSnapshotLink').href='?asset='+state.instrumentId+'&tf=15m';
     if(state.snapshot) {
       $('sourceNotice').textContent='共通判定 '+state.snapshot.id+' / Bybit '+state.snapshot.symbol+' / '+(INITIAL_PARAMS.has('snapshot')?'通知時点の保存記録（現在の推奨ではありません）':'メールと同じデータ・設定・確定足');

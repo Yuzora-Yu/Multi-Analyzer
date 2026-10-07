@@ -213,3 +213,9 @@ Research reference: [Bailey et al., The Probability of Backtest Overfitting](htt
 ## 2026-10-08: visible economic-calendar verification time
 
 The main market map now displays the calendar's original verification time beside its partial-coverage warning, with explicit expired/unverified wording. This does not claim a new calendar refresh or alter the common engine, historical inputs, blackout logic or notifications. The existing October 8 FOMC minutes/Waller times were checked against the [Federal Reserve October calendar](https://www.federalreserve.gov/newsevents/2026-october.htm), and October 8 claims/October 9 Michigan schedules against the [New York Fed calendar](https://www.newyorkfed.org/research/calendars/i-oct26.html). These checks are separate research evidence; the engine's original checked-at timestamp remains visible and unchanged.
+
+## 2026-10-08: distinguish reference exits from entered holdings
+
+The action compass previously described a saved reference position's EXIT decision as a close recommendation even when the user had not entered an actual holding. It now labels this as a reference-candidate withdrawal caution. An explicitly entered holding retains its side and the existing exit evidence under a separate holding-condition label. The mobile summary and purple legend use the same distinction; exit reasons explicitly remain separate from reverse-entry confirmation. Archived decisions remain labelled as saved records, and blocked health still takes precedence. No reference state, P/EXIT condition, alert, order or registered study changes are introduced.
+
+Four tests execute the actual compass renderer for reference/entered exits, blocked health, archive and ordinary waiting cases. Full suite: 187 passed; syntax checks passed. These are decision-clarity checks, not evidence of predictive improvement.
