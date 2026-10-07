@@ -62,8 +62,10 @@ function prepare(sources,registration,clock,now=Date.now()){
   if(availableUpper-latest.bar.time-STEP>Sequence.SPEC.maxDelayMs||availableUpper<latest.observedAt)throw Error('Candidate generation is delayed or clock-inconsistent');
   const candidates=episode.intents.filter(i=>i.confirmedBarAt===latest.bar.time).map(plan=>{
     if(!Number.isFinite(plan.stop)||plan.stop<=0)throw Error('Invalid frozen stop');
-    const {persistedAt:plannedAt,status:provisionalStatus,...checkpoint}=Sequence.checkpoint(plan,{persistedAt:now,clockUpperOffsetMs:bounds.upperOffsetMs,registeredAt:registration.registeredAt});
-    const savedPlan={...plan,...checkpoint,plannedAt,status:'planned-awaiting-actual-receipt'};
+    // Intent availability is an exchange upper bound; `now` is local. Do not
+    // compare them as one clock or label a planning timestamp as persistence.
+    const entryAt=Math.ceil((Math.max(now,availableUpper)+Sequence.SPEC.guardMs+1)/STEP)*STEP;
+    const savedPlan={...plan,entryAt,plannedAtLocal:now,planningExchangeUpper:availableUpper,availableAtBasis:'exchange-upper-bound',status:'planned-awaiting-actual-receipt'};
     if(!Feed.collectionPolicy(latest.asset,availableUpper).allowed||!Feed.collectionPolicy(latest.asset,savedPlan.entryAt).allowed)throw Error('Market/weekend policy forbids candidate or future entry');
     return {schema:1,id:hash([episode.id,plan.arm,plan.confirmedBarAt].join('/')),methodId:METHOD.id,generatedAt:now,clockMeasurement:clock,clockBounds:bounds,
       registrationSha256:hash(JSON.stringify(registration)),identity:episode.identity,episode,plan:savedPlan,
@@ -127,7 +129,7 @@ function evaluate(candidates,index,asOf){
     })};
   });
 }
-function run(root=path.join(__dirname,'.runtime','hourly-observation','research-retest-ledger-v2')){
+function run(root=path.join(__dirname,'.runtime','hourly-observation','research-retest-ledger-v3')){
   const registration=register(root),asOf=Date.now(),candidateDir=path.join(root,'candidates'),rows=[];
   if(fs.existsSync(candidateDir))for(const id of fs.readdirSync(candidateDir).filter(n=>/^[a-f0-9]{64}$/.test(n))){
     const raw=fs.readFileSync(path.join(candidateDir,id,'candidate.json')),candidate=JSON.parse(raw),receiptFile=path.join(candidateDir,id,'receipt.json');
@@ -150,5 +152,5 @@ function run(root=path.join(__dirname,'.runtime','hourly-observation','research-
   const directory=path.join(output,asOf+'-'+crypto.randomUUID());fs.renameSync(staging,directory);
   return {directory,candidates:rows.length,eligible:rows.filter(r=>r.eligibility.eligible).length,sourceIssues:index.issues.length,collectorExecuted:false};
 }
-if(require.main===module){const root=path.join(__dirname,'.runtime','hourly-observation','research-retest-ledger-v2');if(process.argv[2]==='register')console.log(JSON.stringify(register(root),null,2));else if(process.argv[2]==='evaluate')console.log(JSON.stringify(run(root),null,2));else throw Error('Use register/evaluate. Capture hook requires fresh existing frozen sources and bounded clock; no collector or mail is run.');}
+if(require.main===module){const root=path.join(__dirname,'.runtime','hourly-observation','research-retest-ledger-v3');if(process.argv[2]==='register')console.log(JSON.stringify(register(root),null,2));else if(process.argv[2]==='evaluate')console.log(JSON.stringify(run(root),null,2));else throw Error('Use register/evaluate. Capture hook requires fresh existing frozen sources and bounded clock; no collector or mail is run.');}
 module.exports={METHOD,engineHashes,register,readSource,observation,prepare,persist,verify,outcome,evaluate,run};

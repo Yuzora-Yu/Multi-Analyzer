@@ -60,7 +60,7 @@ test('ledger registration remains fixed; malformed entry timing cannot reach out
  const r=register(root);assert.deepEqual(register(root),r);const c=candidate();c.plan.entryAt=STEP;assert.throws(()=>outcome(c,prices(),4,10*STEP),/Invalid/);
  const hash=crypto.createHash('sha256').update(JSON.stringify(r)).digest('hex');assert.equal(hash.length,64);
 });
-test('a real engine EXIT replays to a guarded candidate; changing the frozen stop fails proof',t=>{
+test('a real engine EXIT replays across 22s clock skew; changing the frozen stop fails proof',t=>{
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'ma-causal-candidate-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
  // Explicit synthetic clock/source fixture, never research data.
  const closed=Date.UTC(2026,9,7),now=closed+1200;
@@ -69,10 +69,10 @@ test('a real engine EXIT replays to a guarded candidate; changing the frozen sto
  const s={asset:'btc',version:Core.VERSION,symbol:'BTCUSDT',createdAt:closed+100,settings:{now:closed+1,market:'spot',position:{direction:'LONG',entry:125,stop:90}},bars:{m15,h1:bars(60),h4:bars(240)}};s.id=`btc-${m15.at(-1)[0]}-${s.version}`;
  const a=Core.analyzeMarket(require('../market-feed').input(s),s.settings),f=a.exec.flow.latest;assert.equal(f.exitLong,true);assert.equal(a.positionDecision.action,'EXIT_LONG');
  const r={id:s.id,specId:Forward.SPEC.id,asset:'btc',market:'spot',symbol:'BTCUSDT',engineVersion:Core.VERSION,snapshot:s,issues:[],codeHashes:engineHashes(),
-  generatedAt:closed+1000,transport:{requestedAt:closed+400,receivedAt:closed+500},clockMeasurement:{requestedAt:closed+100,receivedAt:closed+200,serverTime:closed+150},
+  generatedAt:closed+1000,transport:{requestedAt:closed+400,receivedAt:closed+500},clockMeasurement:{requestedAt:closed+100,receivedAt:closed+200,serverTime:closed+22150},
   targetBarOpenAt:closed-STEP,targetBarClosedAt:closed,cutoff:closed+1,latestInfoEventAt:closed,prediction:{exitLong:f.exitLong,exitShort:f.exitShort,pullbackConfirmed:f.pullbackConfirmed}};
  const raw=JSON.stringify(r);fs.writeFileSync(path.join(root,'prediction.json'),raw);fs.writeFileSync(path.join(root,'receipt.json'),JSON.stringify({persistedAt:closed+1100,predictionSha256:crypto.createHash('sha256').update(raw).digest('hex')}));
- const registration={...register(path.join(root,'ledger')),registeredAt:closed-STEP},clock={requestedAt:closed+1150,receivedAt:closed+1180,serverTime:closed+1165};
+ const registration={...register(path.join(root,'ledger')),registeredAt:closed-STEP},clock={requestedAt:closed+1150,receivedAt:closed+1180,serverTime:closed+23165};
  const prepared=prepare([readSource(root)],registration,clock,now);assert.equal(prepared.candidates.length,1);const c=prepared.candidates[0];assert.equal(c.plan.entryAt,closed+STEP);assert.equal(c.plan.arm,'post-save-reversal');
  assert.equal(c.plan.persistedAt,undefined);assert.equal(c.plan.status,'planned-awaiting-actual-receipt');
  const receipt={persistedAt:closed+1300,publishedAt:closed+1301,sha256:crypto.createHash('sha256').update(JSON.stringify(c,null,2)).digest('hex')};assert.equal(verify(c,receipt,registration).eligible,true);
