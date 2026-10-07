@@ -646,13 +646,16 @@
     const rows=[['価格基準',priceBasis().label+'。換算は候補帯・プランのみ。チャートと分析はBybitの元価格。'],['環境と狙い',`${map.trends.map(t=>`${t.name} 構造${t.structure}・MA${t.ma}`).join(' / ')}。新規は${map.entryState}`]];
     for(const z of map.candidates){
       const focus=window.MultiAnalyzerZoneFocus?.describe(a,z);
+      const higher=map.trends.find(t=>t.name==='4H');
+      const role=higher?.ma==='中立'&&higher?.structure==='中立'?'上位足の方向未確定':z.role;
       rows.push([`${z.direction==='SHORT'?'売り':'買い'}背景 ${mappedPrice(z.low)}～${mappedPrice(z.high)}`,
-        `${phase[z.phase]} / ${z.role}。${z.frame} ${z.type}。${z.condition}。15分終値${mappedPrice(z.invalidationClose)}${z.direction==='SHORT'?'超':'未満'}で背景帯の見立て無効。保護SL参考 ${mappedPrice(z.protectiveStop)}（再訪高安で再計算）。反応・利確候補 ${z.targets.map(t=>mappedPrice(t)).join(' / ')||'未確認'}`]);
+        `${phase[z.phase]} / ${role}。${z.frame} ${z.type}。${z.condition}。15分終値${mappedPrice(z.invalidationClose)}${z.direction==='SHORT'?'超':'未満'}で背景帯の見立て無効。保護SL参考 ${mappedPrice(z.protectiveStop)}（再訪高安で再計算）。反応・利確候補 ${z.targets.map(t=>mappedPrice(t)).join(' / ')||'未確認'}`]);
       if(focus?.available&&focus.windows.length)for(const w of focus.windows)rows.push([
         `局所${w.labels.length>1?'重合':'単独'} ${mappedPrice(w.low)}～${mappedPrice(w.high)}`,
-        `${w.inside?'局所帯内・反応を確認':'再訪待ち'}。${w.levels.map(r=>`${r.label} ${mappedPrice(r.price)}`).join(' / ')}。各水準の±${fmt(focus.radius)}（15分ATR×0.2）を背景帯内で比較。接触や根拠の数だけで入場しません。背景帯の無効化・SLは上記のまま。`]);
+        `${w.inside?'局所帯内・反応を確認':'再訪待ち'}。${w.levels.map(r=>`${r.label} ${mappedPrice(r.price)}`).join(' / ')}。各水準の±${fmt(focus.radius)}（15分ATR×0.2）を背景帯内で比較。`]);
       else rows.push(['局所観察','現在の背景帯内に、確定MA・BBの局所重合を確認できません。']);
     }
+    if(map.candidates.length)rows.push(['局所帯の見方','単独は1水準、重合は複数のMA・BBが近接する範囲。観察専用で、接触・重合数は入場条件や勝率ではありません。背景帯の無効化・SLは変更しません。']);
     if(!map.candidates.length)rows.push(['候補帯','現在有効なSMC帯なし。MA・BB接触だけでは候補を作りません。']);
     const events=map.eventRisk.events.map(e=>`${new Date(e.time).toLocaleString('ja-JP',{timeZone:'Asia/Tokyo',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false})} JST ${e.name}`).join(' / ');
     rows.push(['指標警戒',`${events||'最新予定を確認'}。${map.eventRisk.message}`]);

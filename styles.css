@@ -416,6 +416,11 @@ button { color: inherit; -webkit-tap-highlight-color: transparent; }
 .smc-context{padding:8px 14px;border-top:1px solid #29384a;background:#0c151f}
 .smc-context p{display:grid;grid-template-columns:64px minmax(0,1fr);gap:8px;margin:6px 0;font-size:12px;line-height:1.5}
 .smc-context strong{color:var(--gold)}.smc-context span{overflow-wrap:anywhere;color:#c0d0df}
+@media(max-width:760px){
+ .market-map p{display:block;margin:0;padding:10px 0;border-top:1px solid #29384a;font-size:13px;line-height:1.6}
+ .market-map p strong{display:block;margin-bottom:5px;font-size:13px}
+ .market-map p span{display:block}
+}
 @media(max-width:1024px){
  .terminal-main{padding:0}
  .chart-stage{border:0;border-radius:0;grid-template-rows:94px minmax(0,1fr)}
