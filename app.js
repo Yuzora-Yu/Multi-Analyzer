@@ -39,6 +39,7 @@
     snapshotError: false,
     monitor: null,
     monitorReceivedAt: 0,
+    servicesRequestId: 0,
     snapshotTimer: null,
     marketPaused: false,
     preview: null,
@@ -799,23 +800,23 @@
     const id = state.instrumentId;
     const loadId=state.loadId;
     if(pauseClosedMarket())return;
-    const results = await Promise.allSettled([
-      fetchJson(STATIC_HOST ? `https://api.gold-api.com/price/${id === 'gold' ? 'XAU' : 'BTC'}` : `/api/reference?asset=${id}`),
-      fetchJson(CLOUD+'/api/monitor')
-    ]);
-    if (id !== state.instrumentId||loadId!==state.loadId) return;
-    if (results[0].status === 'fulfilled') {
-      const q = results[0].value;
+    const requestId=++state.servicesRequestId;
+    const current=()=>id===state.instrumentId&&loadId===state.loadId&&requestId===state.servicesRequestId&&!state.marketPaused;
+    const monitorUnavailable=()=>{if(!current())return;state.monitor=null;state.monitorReceivedAt=0;$('monitorStatus').textContent='クラウド監視の状態を取得できません。';if(state.snapshot)analyzeAndRender();};
+    const reference=fetchJson(STATIC_HOST ? `https://api.gold-api.com/price/${id === 'gold' ? 'XAU' : 'BTC'}` : `/api/reference?asset=${id}`).then(q=>{
+      if(!current())return;
       const old = !q.updatedAt || Date.now() - Date.parse(q.updatedAt) > 120000;
       $('referenceQuote').textContent = `USD参考値 $${fmt(q.price)} / Gold API ${old ? '更新遅延' : new Date(q.updatedAt).toLocaleTimeString('ja-JP')}（分析には混用しません）`;
-    } else $('referenceQuote').textContent = 'USD参考値: 取得できません（分析はUSDT建て）';
-    if (results[1].status === 'fulfilled') {
-      const m = results[1].value;
-      if(!state.monitor||!(state.monitor.updatedAt>m.assets?.[id]?.updatedAt)){state.monitor=m.assets?.[id]||null;state.monitorReceivedAt=Date.now();}
+    },()=>{if(current())$('referenceQuote').textContent='USD参考値: 取得できません（分析はUSDT建て）';});
+    const monitor=fetchJson(CLOUD+'/api/monitor').then(m=>{
+      if(!m||!m.assets?.[id]){monitorUnavailable();return;}
+      if(!current()||state.monitor?.updatedAt>m.assets?.[id]?.updatedAt)return;
+      state.monitor=m.assets?.[id]||null;state.monitorReceivedAt=Date.now();
       const fresh = m.updatedAt && Date.now() - m.updatedAt < 420000;
       $('monitorStatus').textContent = `${fresh ? '● クラウド監視更新中' : '○ クラウド監視の更新遅延'} / ${m.channels?.join('・') || '通知検証中'} / ${m.summary || '未開始'} / ${m.source || ''}${m.error ? ' / ' + m.error : ''}（通知対象は15分足の共通判定）`;
-    } else {state.monitor=null;state.monitorReceivedAt=0;$('monitorStatus').textContent = 'クラウド監視の状態を取得できません。';}
-    if(state.snapshot)analyzeAndRender();
+      if(state.snapshot)analyzeAndRender();
+    },monitorUnavailable);
+    await Promise.allSettled([reference,monitor]);
   }
 
   function renderTfRow(prefix, tf) {
