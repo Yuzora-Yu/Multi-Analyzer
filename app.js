@@ -615,6 +615,7 @@
     $('confidenceRing').style.setProperty('--value', Math.round(a.confidence));
     $('decisionMessage').textContent = a.message;
     renderCheckpoints(a);
+    renderTrendContext(a);
     renderMarketMap(a);
     $('longScore').textContent = a.longScore;
     $('shortScore').textContent = a.shortScore;
@@ -649,6 +650,17 @@
       box.hidden=!records.length;
       box.innerHTML='<h3>前回固定したチェックポイント</h3>'+records.map(c=>'<section>'+C.describe(c).map(t=>`<p>${esc(t)}</p>`).join('')+`<button type="button" data-checkpoint-remove="${esc(c.id)}">この追跡を解除</button></section>`).join('');
     } catch(e) { box.hidden=false;box.textContent='追跡保存を更新できません：'+e.message; }
+  }
+
+  function renderTrendContext(a) {
+    const box=$('trendContext'),t=window.MultiAnalyzerTrendContext?.describe(a);if(!box||!t)return;
+    const expanded=box.querySelector('details')?.open===true;
+    const date=time=>new Date(time).toLocaleString('ja-JP',{timeZone:'Asia/Tokyo',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false})+' JST';
+    const rows=t.frames.map(f=>[`${f.name} 構造 ${f.structure} / MA ${f.ma}`,f.available?`確定 ${date(f.closedAt)}。15分確定価格は ${f.levels.map(l=>`${l.label} ${mappedPrice(l.price)} の${l.position}`).join(' / ')||'水準未取得'}。`:'データ不足・遅延。方向を推定しません。']);
+    const swingRows=t.frames.flatMap(f=>f.leg?[[`${f.name} ${f.leg.direction}からの${f.leg.direction==='下落脚'?'戻し':'押し'} ${fmt(f.leg.ratio,1)}％`,
+      `起点 ${mappedPrice(f.leg.start.price)}（${date(f.leg.start.time)}）→終点 ${mappedPrice(f.leg.end.price)}（${date(f.leg.end.time)}）。終点の確認 ${date(f.leg.end.confirmedAt)}。${f.leg.location}。38.2/50/61.8％水準 ${f.leg.levels.map(l=>`${fmt(l.percent,1)}％ ${mappedPrice(l.price)}`).join(' / ')}。${f.leg.note}`]]:[]);
+    const html=list=>list.map(([label,text])=>`<p><strong>${esc(label)}</strong><span>${esc(text)}</span></p>`).join('');
+    box.innerHTML='<h3>上位足と15分足の現在地</h3>'+`<p>15分確定価格 ${esc(mappedPrice(t.price))}${t.priceClosedAt?' / '+esc(date(t.priceClosedAt)):''}</p>`+html(rows)+`<details ${expanded?'open':''}><summary>確認済みスイングの戻し・押し水準</summary>${swingRows.length?html(swingRows):'<p>有効な確認済みの脚を取得できません。水準を推定しません。</p>'}</details><small>${esc(t.note)}</small>`;
   }
 
   function renderMarketMap(a) {
