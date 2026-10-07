@@ -626,7 +626,8 @@
       ? (a.exec.structure.bullSweep || a.exec.pattern.bullReject || a.exec.pattern.bullEngulf || ['BULL_BOS', 'BULL_CHOCH'].includes(a.exec.structure.event))
       : (a.exec.structure.bearSweep || a.exec.pattern.bearReject || a.exec.pattern.bearEngulf || ['BEAR_BOS', 'BEAR_CHOCH'].includes(a.exec.structure.event));
     $('triggerState').textContent = a.entryModel==='pullback-v1'?(a.exec.flow?.latest?.pullbackConfirmed?'P CONFIRMED':'P WAIT'):trigger?'CONFIRMED':'WAIT';
-    $('signalTime').textContent = a.exec.candles.at(-1) ? new Date(a.exec.candles.at(-1).time).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—';
+    const signalBar=a.exec.candles.at(-1);
+    $('signalTime').textContent = signalBar ? '確定 '+new Date(signalBar.time+a.exec.intervalMinutes*60000).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })+' JST' : '—';
 
     if (state.preview) {
       const p = state.preview;
@@ -648,8 +649,8 @@
       rows.push([`${z.direction==='SHORT'?'売り':'買い'}背景 ${mappedPrice(z.low)}～${mappedPrice(z.high)}`,
         `${phase[z.phase]} / ${z.role}。${z.frame} ${z.type}。${z.condition}。15分終値${mappedPrice(z.invalidationClose)}${z.direction==='SHORT'?'超':'未満'}で背景帯の見立て無効。保護SL参考 ${mappedPrice(z.protectiveStop)}（再訪高安で再計算）。反応・利確候補 ${z.targets.map(t=>mappedPrice(t)).join(' / ')||'未確認'}`]);
       if(focus?.available&&focus.windows.length)for(const w of focus.windows)rows.push([
-        `局所観察 ${mappedPrice(w.low)}～${mappedPrice(w.high)}`,
-        `${w.inside?'局所帯内・反応を確認':'再訪待ち'}。${w.levels.map(r=>`${r.label} ${mappedPrice(r.price)}`).join(' / ')}。15分ATRの20%以内で重なる範囲。接触や根拠の数だけで入場しません。背景帯の無効化・SLは上記のまま。`]);
+        `局所${w.labels.length>1?'重合':'単独'} ${mappedPrice(w.low)}～${mappedPrice(w.high)}`,
+        `${w.inside?'局所帯内・反応を確認':'再訪待ち'}。${w.levels.map(r=>`${r.label} ${mappedPrice(r.price)}`).join(' / ')}。各水準の±${fmt(focus.radius)}（15分ATR×0.2）を背景帯内で比較。接触や根拠の数だけで入場しません。背景帯の無効化・SLは上記のまま。`]);
       else rows.push(['局所観察','現在の背景帯内に、確定MA・BBの局所重合を確認できません。']);
     }
     if(!map.candidates.length)rows.push(['候補帯','現在有効なSMC帯なし。MA・BB接触だけでは候補を作りません。']);
