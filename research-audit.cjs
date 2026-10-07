@@ -12,6 +12,15 @@ function gaps(times){
   for(let i=1;i<a.length;i++)if(a[i]-a[i-1]>STEP)out.push({from:a[i-1]+STEP,to:a[i]-STEP,count:(a[i]-a[i-1])/STEP-1});
   return out;
 }
+function gapCoverage(intervals,asset,scope='observation'){
+  const result={scope,policyVersion:Feed.SESSION_VERSION,totalAbsentSlots:0,expectedMissingSlots:0,scheduledExcludedSlots:0,
+    interpretation:'Current session-policy attribution, not evidence of the historical collector policy or a fetch failure. Fixed wall-clock outcome windows remain unchanged.'};
+  for(const interval of intervals)for(let time=interval.from;time<=interval.to;time+=STEP){
+    const expected=scope==='observation'?Feed.collectionPolicy(asset,time+STEP+1).allowed:Feed.barExpected(asset,time,15);
+    result.totalAbsentSlots++;result[expected?'expectedMissingSlots':'scheduledExcludedSlots']++;
+  }
+  return result;
+}
 function indexSnapshots(records){
   const markets=new Map(),issues=[],ids=new Map();
   for(const r of [...records].sort((a,b)=>a.firstObservedAt-b.firstObservedAt||a.file.localeCompare(b.file))){
@@ -80,7 +89,9 @@ function audit(records,samples,{asOf=Date.now(),legacyOutcomes=[]}={}){
   }
   const byMarket={};
   for(const k of new Set(samples.map(key))){const subset=samples.filter(s=>key(s)===k),rr=rows.filter(s=>key(s)===k),times=subset.map(s=>s.bar).filter(finite);
-    byMarket[k]={samples:rr.length,observationGaps:gaps(times),outcomeBarGaps:gaps([...(index.markets.get(k)?.keys()||[])]),
+    const observationGaps=gaps(times),outcomeBarGaps=gaps([...(index.markets.get(k)?.keys()||[])]),asset=subset[0]?.asset;
+    byMarket[k]={samples:rr.length,observationGaps,outcomeBarGaps,
+      gapCoverage:{observations:gapCoverage(observationGaps,asset),outcomeBars:gapCoverage(outcomeBarGaps,asset,'outcome-bars')},
       observationClasses:Object.fromEntries(['near-close-receipt','delayed-receipt','clock-inconsistent','invalid'].map(c=>[c,rr.filter(r=>r.quality.observationClass===c).length])),
       groups:Object.fromEntries(['EXIT','P','no-sign'].map(g=>[g,rr.filter(r=>r.group===g).length])),
       horizons:Object.fromEntries(HORIZONS.map(h=>{const selected=nonOverlapping(rr.filter(r=>r.quality.valid),h),set=new Set(selected),os=rr.map(r=>r.outcomes.find(o=>o.horizon===h)).filter(Boolean);return [h,{statuses:Object.fromEntries(['resolved','pending','missing','conflicting-price'].map(status=>[status,os.filter(o=>o.status===status).length])),nonOverlappingWindowIds:selected,nonOverlappingResolved:rr.filter(r=>set.has(r.id)&&r.outcomes.find(o=>o.horizon===h)?.status==='resolved').length,prospectiveEligible:0}];}))};
@@ -136,7 +147,7 @@ function run({root=path.join(__dirname,'.runtime','hourly-observation'),now=Date
   atomicJSON(path.join(staging,'report.json'),result);
   atomicJSON(path.join(staging,'manifest.json'),{schema:1,startedAt:now,completedAt:Date.now(),evidenceCapturedAt,sourceFiles:manifest,codeSha256:hash(fs.readFileSync(__filename)),engineVersion:require('./strategy-core').VERSION,sourceMutation:false,collectorExecuted:false});
   fs.renameSync(staging,final); // Publish the complete report directory, never a partially written report.
-  return {directory:final,samples:result.rows.length,issues:result.issues.length,byMarket:Object.fromEntries(Object.entries(result.byMarket).map(([k,v])=>[k,{samples:v.samples,missingObservationBars:v.observationGaps.reduce((n,g)=>n+g.count,0),observationClasses:v.observationClasses,horizon2h:{...v.horizons[8],nonOverlappingWindowIds:undefined}}]))};
+  return {directory:final,samples:result.rows.length,issues:result.issues.length,byMarket:Object.fromEntries(Object.entries(result.byMarket).map(([k,v])=>[k,{samples:v.samples,absentObservationSlots:v.observationGaps.reduce((n,g)=>n+g.count,0),gapCoverage:v.gapCoverage,observationClasses:v.observationClasses,horizon2h:{...v.horizons[8],nonOverlappingWindowIds:undefined}}]))};
 }
 if(require.main===module){try{console.log(JSON.stringify(run(),null,2));}catch(e){console.error(e.message);process.exitCode=1;}}
-module.exports={validBar,gaps,indexSnapshots,classify,linkOutcome,nonOverlapping,audit,atomicJSON,auditSupplemental,run};
+module.exports={validBar,gaps,gapCoverage,indexSnapshots,classify,linkOutcome,nonOverlapping,audit,atomicJSON,auditSupplemental,run};

@@ -1,5 +1,5 @@
 const test=require('node:test'),assert=require('node:assert/strict');
-const {classify,indexSnapshots,linkOutcome,nonOverlapping,audit,gaps}=require('../research-audit.cjs');
+const {classify,indexSnapshots,linkOutcome,nonOverlapping,audit,gaps,gapCoverage}=require('../research-audit.cjs');
 const STEP=900000;
 function fixture(bar=0,received=STEP+30000,extra=[]){
  const id=`btc-${bar}-4.3.2`,snapshot={id,asset:'btc',version:'4.3.2',symbol:'BTCUSDT',createdAt:bar+STEP+20000,settings:{now:bar+STEP+1,market:'spot'},bars:{m15:[[bar,100,102,99,101,5],...extra]}};
@@ -32,4 +32,19 @@ test('invalid OHLC and market identity never enter the price index',()=>{
  const r=fixture();r.snapshot.bars.m15[0][2]=90;
  assert.equal(indexSnapshots([r]).markets.get('btc/spot/BTCUSDT').size,0);
  r.snapshot.symbol='XAUUSDT';assert.equal(indexSnapshots([r]).markets.size,0);
+});
+test('audit distinguishes GOLD collection pause from absent tradable bars without changing outcome horizons',()=>{
+ const fridayOpen=Date.parse('2026-10-02T20:00:00Z'); // NY16:00, JST Saturday05:00.
+ const intervals=[{from:fridayOpen,to:fridayOpen+STEP,count:2}];
+ const observation=gapCoverage(intervals,'gold'),bars=gapCoverage(intervals,'gold','outcome-bars');
+ assert.equal(observation.scheduledExcludedSlots,2);assert.equal(observation.expectedMissingSlots,0);
+ assert.equal(bars.expectedMissingSlots,2);assert.equal(bars.scheduledExcludedSlots,0);
+ const closed=gapCoverage([{from:fridayOpen+3600000,to:fridayOpen+3600000,count:1}],'gold','outcome-bars');
+ assert.equal(closed.scheduledExcludedSlots,1);
+ assert.equal(gapCoverage(intervals,'btc').expectedMissingSlots,2);
+ assert.match(observation.interpretation,/not evidence of the historical collector policy/);
+ assert.match(observation.interpretation,/outcome windows remain unchanged/);
+ const winter=Date.parse('2026-11-06T21:00:00Z'); // NY16:00 after DST ends.
+ assert.equal(gapCoverage([{from:winter,to:winter,count:1}],'gold','outcome-bars').expectedMissingSlots,1);
+ assert.equal(gapCoverage([],'gold').totalAbsentSlots,0);
 });
