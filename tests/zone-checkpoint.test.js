@@ -38,3 +38,26 @@ test('AI consultation freezes device records separately and excludes them from h
  const a=fixture(),c=C.create(a,zone,options),saved=JSON.stringify(c);global.MultiAnalyzerCheckpoint={...C,read:()=>[c,{...c,savedAt:STEP*10}]};
  try {const r=R.consultation({asset:'gold',signal:a},STEP);assert.equal(r.checkpoints.length,1);assert.equal(JSON.stringify(c),saved);assert.equal(R.consultation({asset:'gold',signal:a},STEP,{archived:true}).checkpoints.length,0);} finally {delete global.MultiAnalyzerCheckpoint;}
 });
+
+test('first saved touch retains its original timestamp and price source across later revisits',()=>{
+ const a=fixture();a.marketMap.price=102;const c=C.create(a,zone,options),e=structuredClone(c.observation.touchEvidence),n=next(a,[bar(STEP,103),bar(STEP*2,102)]);
+ const r=C.advance(c,n,{now:n.generatedAt});assert.equal(r.observation.touchedAt,c.observation.touchedAt);assert.equal(r.observation.touchSource,'保存時の分析価格');assert.deepEqual(r.observation.touchEvidence,e);
+ assert.match(C.describe(r).join(' '),/保存時の分析価格/);assert.equal(r.observation.status,'TOUCHED');
+});
+test('post-save full candle touch and reaction preserve separate closed-candle evidence',()=>{
+ const a=fixture(),c=C.create(a,zone,options),n=next(a,[bar(STEP,102,104,101),bar(STEP*2,93)]),r=C.advance(c,n,{now:n.generatedAt});
+ assert.deepEqual(r.observation.touchEvidence,{kind:'full-bar-range',observedAt:STEP*3,closedAt:STEP*2,barOpenAt:STEP,close:102,high:104,low:101});
+ assert.equal(r.observation.confirmationEvidence.close,93);assert.equal(r.observation.confirmationEvidence.closedAt,STEP*3);
+ assert.match(C.describe(r).join(' '),/この端末での確認/);
+ assert.match(C.describe(r).join(' '),/足内の到達順・時刻は不明/);assert.match(C.describe(r).join(' '),/反応条件の確定/);
+});
+test('partial pre-save candle records only the later close, never its earlier wick range',()=>{
+ const a=fixture(),c=C.create(a,zone,{...options,now:STEP+100000}),n=next(a,[bar(STEP,102,108,90)]),r=C.advance(c,n,{now:n.generatedAt});
+ assert.equal(r.observation.touchEvidence.kind,'post-save-close');assert.equal(r.observation.touchEvidence.high,undefined);assert.equal(r.observation.stopEvidence,null);
+ assert.match(C.describe(r).join(' '),/保存前を含むヒゲは根拠にしません/);
+});
+test('old records disclose absent price evidence without inventing it during a later visit',()=>{
+ const a=fixture();a.marketMap.price=102;const c=C.create(a,zone,options);delete c.observation.touchEvidence;
+ const n=next(a,[bar(STEP,103)]),r=C.advance(c,n,{now:n.generatedAt});assert.equal(r.observation.touchEvidence,undefined);assert.match(C.describe(r).join(' '),/旧記録は根拠価格を保存していません/);
+ assert.ok(C.describe(C.create(fixture(),zone,options)).every(x=>typeof x==='string'));
+});
