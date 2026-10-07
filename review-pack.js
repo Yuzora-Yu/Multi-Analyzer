@@ -16,18 +16,36 @@
     'この保存操作はメール送信・発注・個人の口座設定の送信を行いません。収益上の優位性は未確認です。'
   ];
   function crc32(bytes){let c=0xffffffff;for(const b of bytes){c^=b;for(let j=0;j<8;j++)c=(c>>>1)^((c&1)?0xedb88320:0);}return(c^0xffffffff)>>>0;}
-  // ZIP STORE: PNG is already compressed; no CDN dependency and one mobile download.
-  function zip(files){
+  function archiveEntry({name,data}){
+    if(!/^[a-zA-Z0-9_.-]+$/.test(name))throw Error('Unsafe archive filename');
+    const body=typeof data==='string'?new TextEncoder().encode(data):data;
+    return {name,body,originalLength:body.length,crc:crc32(body),method:0};
+  }
+  function zipEntries(entries){
     const chunks=[],central=[];let offset=0,size=0;
-    for(const {name,data} of files){
-      if(!/^[a-zA-Z0-9_.-]+$/.test(name))throw Error('Unsafe archive filename');
-      const n=new TextEncoder().encode(name),b=typeof data==='string'?new TextEncoder().encode(data):data,c=crc32(b);
-      const h=new Uint8Array(30+n.length),v=new DataView(h.buffer);v.setUint32(0,0x04034b50,true);v.setUint16(4,20,true);v.setUint16(12,33,true);v.setUint32(14,c,true);v.setUint32(18,b.length,true);v.setUint32(22,b.length,true);v.setUint16(26,n.length,true);h.set(n,30);
-      const d=new Uint8Array(46+n.length),w=new DataView(d.buffer);w.setUint32(0,0x02014b50,true);w.setUint16(4,20,true);w.setUint16(6,20,true);w.setUint16(14,33,true);w.setUint32(16,c,true);w.setUint32(20,b.length,true);w.setUint32(24,b.length,true);w.setUint16(28,n.length,true);w.setUint32(42,offset,true);d.set(n,46);
+    for(const {name,body:b,originalLength,crc:c,method} of entries){
+      const n=new TextEncoder().encode(name);
+      const h=new Uint8Array(30+n.length),v=new DataView(h.buffer);v.setUint32(0,0x04034b50,true);v.setUint16(4,20,true);v.setUint16(8,method,true);v.setUint16(12,33,true);v.setUint32(14,c,true);v.setUint32(18,b.length,true);v.setUint32(22,originalLength,true);v.setUint16(26,n.length,true);h.set(n,30);
+      const d=new Uint8Array(46+n.length),w=new DataView(d.buffer);w.setUint32(0,0x02014b50,true);w.setUint16(4,20,true);w.setUint16(6,20,true);w.setUint16(10,method,true);w.setUint16(14,33,true);w.setUint32(16,c,true);w.setUint32(20,b.length,true);w.setUint32(24,originalLength,true);w.setUint16(28,n.length,true);w.setUint32(42,offset,true);d.set(n,46);
       chunks.push(h,b);central.push(d);offset+=h.length+b.length;size+=d.length;
     }
-    const e=new Uint8Array(22),v=new DataView(e.buffer);v.setUint32(0,0x06054b50,true);v.setUint16(8,files.length,true);v.setUint16(10,files.length,true);v.setUint32(12,size,true);v.setUint32(16,offset,true);
+    const e=new Uint8Array(22),v=new DataView(e.buffer);v.setUint32(0,0x06054b50,true);v.setUint16(8,entries.length,true);v.setUint16(10,entries.length,true);v.setUint32(12,size,true);v.setUint32(16,offset,true);
     return new Blob([...chunks,...central,e],{type:'application/zip'});
+  }
+  // Preserve synchronous STORE compatibility; PNG remains untouched in either path.
+  function zip(files){return zipEntries(files.map(archiveEntry));}
+  async function zipCompressed(files,{CompressionStreamClass=globalThis.CompressionStream}={}){
+    const entries=[];
+    for(const file of files){const entry=archiveEntry(file);
+      if(/\.(json|txt)$/i.test(file.name)&&typeof CompressionStreamClass==='function'){
+        try{const stream=new Blob([entry.body]).stream().pipeThrough(new CompressionStreamClass('deflate-raw'));
+          const compressed=new Uint8Array(await new Response(stream).arrayBuffer());
+          if(compressed.length<entry.originalLength){entry.body=compressed;entry.method=8;}
+        }catch{ /* Unsupported format or compressor failure retains original bytes. */ }
+      }
+      entries.push(entry);
+    }
+    return zipEntries(entries);
   }
   function closed(rows,minutes,cutoff){return rows.filter(b=>b.time+minutes*60000<=cutoff);}
   function jst(t){return new Date(t).toLocaleString('ja-JP',{timeZone:'Asia/Tokyo',hour12:false})+' JST';}
@@ -211,10 +229,11 @@
         files.push({name:'consult-ai.txt',data:prompt(saved)},{name:'manifest.json',data:JSON.stringify(saved,null,2)});
         files.push({name:'decision.json',data:JSON.stringify(saved.assets.map(a=>decision(a,saved.capturedAt)),null,2)});const decisionBlob=await new Promise(resolve=>decisionImage(saved).toBlob(resolve,'image/png'));if(!decisionBlob)throw Error('条件画像の変換失敗');files.push({name:'decision.png',data:new Uint8Array(await decisionBlob.arrayBuffer())});
         const overviewBlob=await new Promise(resolve=>overviewImage(saved).toBlob(resolve,'image/png'));if(!overviewBlob)throw Error('一覧画像の変換失敗');files.push({name:'overview.png',data:new Uint8Array(await overviewBlob.arrayBuffer())});
-        if(downloadUrl)URL.revokeObjectURL(downloadUrl);downloadUrl=URL.createObjectURL(zip(files));const link=$('reviewDownload');link.href=downloadUrl;link.download=`multi-analyzer-${new Date(saved.capturedAt).toISOString().replace(/[:.]/g,'-')}.zip`;link.hidden=false;
+        status.textContent='保存データをまとめています';const archive=await zipCompressed(files);
+        if(downloadUrl)URL.revokeObjectURL(downloadUrl);downloadUrl=URL.createObjectURL(archive);const link=$('reviewDownload');link.href=downloadUrl;link.download=`multi-analyzer-${new Date(saved.capturedAt).toISOString().replace(/[:.]/g,'-')}.zip`;link.hidden=false;
         status.textContent=`保存の準備完了（${files.length}ファイル）。「ZIP保存」を押してください。AIには展開したPNGと相談文を添付できます。${saved.errors.length?'未取得の時間足はmanifestに記録しました。':''}`;
       }catch(e){status.textContent='保存失敗：'+e.message;}finally{button.disabled=false;$('reviewRefresh').disabled=false;$('reviewBoth').disabled=Boolean(getArchiveId());}
     });
   }
-  return{context,reasons,init,collect,zip,crc32,closed,frames,policy,facts,prompt,overview,decision,decisionText,consultation};
+  return{context,reasons,init,collect,zip,zipCompressed,crc32,closed,frames,policy,facts,prompt,overview,decision,decisionText,consultation};
 });
