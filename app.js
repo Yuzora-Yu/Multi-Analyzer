@@ -676,6 +676,7 @@
   function renderMarketMap(a) {
     const box=$('marketMap'),map=a.marketMap;
     if(!box)return;
+    const expandedGeometry=new Set([...(box.querySelectorAll?.('details[data-geometry-zone]')||[])].filter(d=>d.open).map(d=>d.dataset.geometryZone));
     if(!map?.valid){box.innerHTML='<p><strong>候補帯</strong><span>データ不足・更新停止。最新データで再確認します。</span></p>';return;}
     const phase={WAIT:'接近待ち',APPROACH:'接近・反応待ち',IN_ZONE:'帯内・反応待ち',ENTRY_CONFIRMED:'P条件も成立'};
     const rows=[['価格基準',priceBasis().label+'。換算は候補帯・プランのみ。チャートと分析はBybitの元価格。'],['環境と狙い',`${map.trends.map(t=>`${t.name} 構造${t.structure}・MA${t.ma}`).join(' / ')}。新規は${map.entryState}`]];
@@ -683,6 +684,7 @@
     const fields=list=>'<dl class="zone-fields">'+list.map(([label,text])=>`<div><dt>${esc(label)}</dt><dd>${esc(text)}</dd></div>`).join('')+'</dl>';
     const cards=map.candidates.map((z,i)=>{
       const focus=window.MultiAnalyzerZoneFocus?.describe(a,z);
+      const geometry=window.MultiAnalyzerZoneGeometry?.describe(a,z);
       const higher=map.trends.find(t=>t.name==='4H');
       const role=higher?.ma==='中立'&&higher?.structure==='中立'?'上位足の方向未確定':z.role;
       const local=[];
@@ -693,6 +695,7 @@
       const side=z.direction==='SHORT'?'売り':'買い';
       return `<section class="zone-card ${z.direction==='SHORT'?'zone-short':'zone-long'}"><h4>${side}背景 ${esc(mappedPrice(z.low))}～${esc(mappedPrice(z.high))}</h4><p class="zone-phase">${esc(`${phase[z.phase]} / ${z.frame} ${z.type} / ${role}`)}</p>`+
         fields([['確認条件',z.condition],['撤回条件',`15分終値${mappedPrice(z.invalidationClose)}${z.direction==='SHORT'?'超':'未満'}で背景帯の見立て無効`],['保護SL参考',`${mappedPrice(z.protectiveStop)}（再訪高安で再計算）`],['反応・利確候補',z.targets.map(t=>mappedPrice(t)).join(' / ')||'未確認']])+fields(local)+
+        (geometry?`<details data-geometry-zone="${esc(z.id)}" ${expandedGeometry.has(z.id)?'open':''}><summary>確認を待った場合の残り値幅</summary>${window.MultiAnalyzerZoneGeometry.text(geometry,mappedPrice).map(t=>`<p>${esc(t)}</p>`).join('')}</details>`:'')+
         `<button type="button" data-track-zone="${i}" ${canTrack?'':'disabled'}>${side}帯 ${esc(mappedPrice(z.low))}～${esc(mappedPrice(z.high))}を固定して追跡</button></section>`;
     }).join('');
     if(map.candidates.length)rows.push(['局所帯の見方','単独は1水準、重合は複数のMA・BBが近接する範囲。観察専用で、接触・重合数は入場条件や勝率ではありません。背景帯の無効化・SLは変更しません。']);
