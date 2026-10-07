@@ -486,7 +486,7 @@
   function renderChart() {
     initChart();
     if (!state.chart || !state.analysis?.exec?.series) return;
-    const candles = INITIAL_PARAMS.has('snapshot') && state.snapshot ? state.analysis.exec.candles : state.data.exec;
+    const candles = chartCandles();
     const visible = candles;
     $('historyCount').textContent = candles.length + '本';
     const offset = candles.length - visible.length;
@@ -539,9 +539,13 @@
     }
   }
 
+  function chartCandles() {
+    return INITIAL_PARAMS.has('snapshot') && state.snapshot ? state.analysis?.exec?.candles || [] : state.data.exec;
+  }
+
   function applyChartRange() {
     if(!state.chart)return;
-    const count=Number($('chartRange').value), n=state.data.exec.length;
+    const count=Number($('chartRange').value), n=chartCandles().length;
     if(!count)state.chart.timeScale().fitContent();
     else state.chart.timeScale().setVisibleLogicalRange({from:Math.max(0,n-count),to:n+3});
   }
@@ -550,9 +554,9 @@
     if(!state.chart)return;
     const range=state.chart.timeScale().getVisibleLogicalRange();
     if(!range)return;
-    const middle=(range.from+range.to)/2;
-    const span=Math.max(12,Math.min(Math.max(30,state.data.exec.length+6),(range.to-range.from)*factor));
-    state.chart.timeScale().setVisibleLogicalRange({from:middle-span/2,to:middle+span/2});
+    const next=window.MultiAnalyzerViewport.zoom(range,factor,chartCandles().length);
+    if(!next)return;
+    state.chart.timeScale().setVisibleLogicalRange(next);
     state.redrawFlow?.();
   }
 
