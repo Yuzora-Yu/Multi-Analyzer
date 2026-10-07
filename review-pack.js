@@ -98,7 +98,7 @@
       const geometry=G?.describe(a.signal,z)||null;
       const geometryText=geometry?G.text(geometry):[];
       return {zone:structuredClone(z),focus:Focus?.describe(a.signal,z)||null,geometry,geometryText,
-        geometryBasis:{sourceId:a.snapshot?.id??null,sourceClosedAt:a.signal.m15?.candles?.at(-1)?.time!=null?a.signal.m15.candles.at(-1).time+900000:null,calculatedAt:now,
+        geometryBasis:{sourceId:a.snapshot?.id??null,sourceClosedAt:a.signal.m15?.candles?.at(-1)?.time!=null?a.signal.m15.candles.at(-1).time+900000:null,reviewCapturedAt:now,calculatedAt:Date.now(),
           scope:archived?'saved-decision-reconstruction':'current-candidate-description',note:archived?'保存判定の元候補・確定スイングから後で計算した距離です。当時の表示・保存・約定の証拠ではなく、現在の水準でもありません。':'この候補から新しく追跡を始める場合の距離です。保存済みチェックポイントの条件は変更しません。'}};
     });
     const checkpoints=archived?[]:(C?.read()||[]).filter(c=>c.asset===a.asset&&c.savedAt<=now).map(c=>C.advance(c,a.signal,{now,allowed:!a.health?.blocked&&(globalThis.MultiAnalyzerFeed?.collectionPolicy(a.asset).allowed??true)}));

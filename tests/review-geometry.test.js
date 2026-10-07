@@ -3,8 +3,8 @@ const test=require('node:test'),assert=require('node:assert/strict'),R=require('
 function asset(){const z={id:'s',direction:'SHORT',low:100,high:110,protectiveStop:112,targets:[95,92],frame:'15m',type:'FVG',condition:'元の確認条件',invalidationClose:110};return{asset:'gold',snapshot:{id:'gold-0-test',settings:{now:900001}},signal:{generatedAt:900001,marketMap:{valid:true,candidates:[z]},m15:{ready:true,quality:{gaps:0,stale:false},candles:[{time:0}],swings:{lows:[{price:95}]}},exec:{},state:'NO_TRADE',direction:'SHORT'}};}
 test('AI manifest and consultation text preserve original geometry, boundaries and passed target',t=>{
  global.MultiAnalyzerZoneGeometry=G;t.after(()=>delete global.MultiAnalyzerZoneGeometry);
- const a=asset(),before=JSON.stringify(a);a.consultation=R.consultation(a,1000000);const z=a.consultation.zones[0];
- assert.deepEqual(z.geometry,G.describe(a.signal,a.signal.marketMap.candidates[0]));assert.equal(z.geometryBasis.sourceId,a.snapshot.id);assert.equal(z.geometryBasis.sourceClosedAt,900000);assert.equal(z.geometryBasis.calculatedAt,1000000);
+ const a=asset(),before=JSON.stringify(a),started=Date.now();a.consultation=R.consultation(a,1000000);const z=a.consultation.zones[0];
+ assert.deepEqual(z.geometry,G.describe(a.signal,a.signal.marketMap.candidates[0]));assert.equal(z.geometryBasis.sourceId,a.snapshot.id);assert.equal(z.geometryBasis.sourceClosedAt,900000);assert.equal(z.geometryBasis.reviewCapturedAt,1000000);assert.ok(z.geometryBasis.calculatedAt>=started&&z.geometryBasis.calculatedAt<=Date.now());
  const text=R.prompt({assets:[a],capturedAt:1000000});assert.match(text,/確認を待った場合の残り値幅/);assert.match(text,/距離比 0.18R/);assert.match(text,/確認境界以前に通過/);assert.match(text,/境界は入場価格ではありません/);
  assert.deepEqual(JSON.parse(JSON.stringify(a.consultation)).zones[0].geometry,z.geometry);delete a.consultation;assert.equal(JSON.stringify(a),before);
 });
