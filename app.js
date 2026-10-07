@@ -708,6 +708,8 @@
     if(!map.candidates.length)rows.push(['候補帯','現在有効なSMC帯なし。MA・BB接触だけでは候補を作りません。']);
     const cost=window.MultiAnalyzerReview?.costContext?.(state.snapshot&&!state.offlineCsv?state.snapshot.settings:state.settings);
     if(cost)rows.push(['RR計算の費用',cost.text]);
+    const execution=window.MultiAnalyzerReview?.executionContext?.(state.offlineCsv?null:state.snapshot);
+    if(execution)rows.push(['元市場と売買の区別',execution.text]);
     const events=map.eventRisk.events.map(e=>`${new Date(e.time).toLocaleString('ja-JP',{timeZone:'Asia/Tokyo',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false})} JST ${e.name}`).join(' / ');
     rows.push(['指標警戒',`${events||'最新予定を確認'}。${map.eventRisk.message}`]);
     const calendarChecked=map.eventRisk.checkedAt;
@@ -731,6 +733,7 @@
     $('quantityValue').textContent = p?.quantity != null ? `${fmt(p.quantity, 4)} ${state.instrumentId === 'gold' ? 'oz' : 'BTC'}` : '—';
     $('riskBudgetValue').textContent = p?.riskBudget != null ? `$${fmt(p.riskBudget, 2)}` : '—';
     const notes = [];
+    notes.push(window.MultiAnalyzerReview.executionContext(state.offlineCsv?null:state.snapshot).text);
     notes.push(window.MultiAnalyzerReview.costContext(state.snapshot&&!state.offlineCsv?state.snapshot.settings:state.settings).text);
     if (p) notes.push(`${p.orderType === 'CLOSE_CONFIRM' ? '確定足確認' : 'リテスト指値候補'}。無効化: ${p.invalidation}。`);
     if (a.vetoes.length) notes.push(`見送り: ${window.MultiAnalyzerReview.reasons(a).slice(0, 2).join(' / ')}`);

@@ -129,6 +129,14 @@
     return {available,feeBpsPerSide:available?fee:null,roundTripFeeBps:available?fee*2:null,spreadBps:available?spread:null,slippageBps:available?slippage:null,totalBps:available?fee*2+spread+slippage:null,
       text:available?`費用仮定：片道手数料 ${num(fee)}bps ×2 + スプレッド ${num(spread)}bps + 滑り ${num(slippage)}bps = 合計 ${num(fee*2+spread+slippage)}bps。${note}`:`費用仮定を確認できません。${note}`};
   }
+  function executionContext(snapshot){
+    const asset=snapshot?.asset,market=snapshot?.settings?.market,symbol=snapshot?.symbol;
+    const spot=asset==='btc'&&market==='spot'&&symbol==='BTCUSDT';
+    const perpetual=asset==='gold'&&market==='futures'&&symbol==='XAUUSDT';
+    return {available:spot||perpetual,asset:asset??null,market:market??null,symbol:symbol??null,shortRequiresBorrow:spot?true:null,accountExecutionVerified:false,
+      text:spot?'価格の元市場：Bybit BTCUSDT現物。保有BTCの売却と、新規ショートは別です。新規ショートには借入が必要で、口座の借入可否・数量・利息は未確認。SHORTの参考プランは下落方向の仮定であり、実行可能な注文や実損益を示しません。':perpetual?'価格の元市場：Bybit XAUUSDT無期限先物。利用口座の取引可否・契約数量・資金調達費用は未確認。ブローカーのGOLD/USDとは価格・契約条件が異なります。':
+      '元市場の銘柄・区分を確認できません。現物・先物や口座の売買可否は、このデータから確定しません。'};
+  }
   function decision(a,now=Date.now()){
     const s=a.signal,e=s.exec,f=e?.flow?.latest,d=f?.setup,settings=a.snapshot.settings;
     const stale=now-settings.now>20*60000;
@@ -141,7 +149,7 @@
       item('確定H1一致',f?.hourlyAligned,'H1と15分の保持方向が一致'),
       item('ADX',Number.isFinite(e?.values?.adx)?e.values.adx>=20:null,`${num(e?.values?.adx)} / 20以上`)];
     return {id:a.snapshot.id,stale,health:a.health||null,direction:context(s,'15m共通判定'),consultation:a.consultation||null,
-      checks,costAssumptions:costContext(a.snapshot.settings),levels:{ema13:d?.ema13??null,ema21:d?.ema21??null},
+      checks,costAssumptions:costContext(a.snapshot.settings),executionContext:executionContext(a.snapshot),levels:{ema13:d?.ema13??null,ema21:d?.ema21??null},
       exit:f?.exitLong?'買い保有の撤退注意':f?.exitShort?'売り保有の撤退注意':null,
       verdict:a.health?.blocked?'現在の判断保留・保存足の条件のみ':stale?'記録が古いため更新':s.actionable?'共通条件成立・研究用候補':'新規候補の条件待ち（検証中）',
       note:'新規候補の条件表示であり、保有の継続・決済判断ではありません。確定スイングと保持方向は転換確認まで以前の向きが残る場合があります。リボンとの不一致は押し目成立を意味しません。精度は検証中です。各条件は同じ15分確定足で評価。成立数は勝率ではありません。EMA価格は次の足で変動し、価格への到達だけではサインになりません。',
@@ -153,7 +161,7 @@
       ...(f?.windows||[]).map(w=>`局所観察 ${num(w.low)}～${num(w.high)}：${w.levels.map(r=>r.label+' '+num(r.price)).join(' / ')}（接触や重合数は勝率・入場条件ではありません）`),
       ...(geometryText?.length?['確認を待った場合の残り値幅',geometryBasis?.note||'',...geometryText]:[])
     ]),q.note]:[]),
-    ...(d.costAssumptions?[d.costAssumptions.text]:[]),
+    ...(d.executionContext?[d.executionContext.text]:[]),...(d.costAssumptions?[d.costAssumptions.text]:[]),
     `観察水準 EMA13 ${num(d.levels.ema13)} / EMA21 ${num(d.levels.ema21)}`,
     ...d.checks.map(c=>`${c.status}：${c.label} — ${c.detail}`),
     ...d.vetoes.map(v=>`最終判定の未成立条件：${v}`),d.plan?planText(d.plan):'参考プランなし',d.note];}
@@ -243,5 +251,5 @@
       }catch(e){status.textContent='保存失敗：'+e.message;}finally{button.disabled=false;$('reviewRefresh').disabled=false;$('reviewBoth').disabled=Boolean(getArchiveId());}
     });
   }
-  return{context,reasons,init,collect,zip,zipCompressed,crc32,closed,frames,policy,facts,prompt,overview,decision,decisionText,consultation,costContext};
+  return{context,reasons,init,collect,zip,zipCompressed,crc32,closed,frames,policy,facts,prompt,overview,decision,decisionText,consultation,costContext,executionContext};
 });
