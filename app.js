@@ -675,24 +675,28 @@
     if(!map?.valid){box.innerHTML='<p><strong>候補帯</strong><span>データ不足・更新停止。最新データで再確認します。</span></p>';return;}
     const phase={WAIT:'接近待ち',APPROACH:'接近・反応待ち',IN_ZONE:'帯内・反応待ち',ENTRY_CONFIRMED:'P条件も成立'};
     const rows=[['価格基準',priceBasis().label+'。換算は候補帯・プランのみ。チャートと分析はBybitの元価格。'],['環境と狙い',`${map.trends.map(t=>`${t.name} 構造${t.structure}・MA${t.ma}`).join(' / ')}。新規は${map.entryState}`]];
-    for(const z of map.candidates){
+    const canTrack=!state.offlineCsv&&!INITIAL_PARAMS.has('snapshot')&&!snapshotHealth()?.blocked&&a.m15?.ready&&!a.m15.quality?.stale&&Date.now()-a.generatedAt<=20*60000;
+    const fields=list=>'<dl class="zone-fields">'+list.map(([label,text])=>`<div><dt>${esc(label)}</dt><dd>${esc(text)}</dd></div>`).join('')+'</dl>';
+    const cards=map.candidates.map((z,i)=>{
       const focus=window.MultiAnalyzerZoneFocus?.describe(a,z);
       const higher=map.trends.find(t=>t.name==='4H');
       const role=higher?.ma==='中立'&&higher?.structure==='中立'?'上位足の方向未確定':z.role;
-      rows.push([`${z.direction==='SHORT'?'売り':'買い'}背景 ${mappedPrice(z.low)}～${mappedPrice(z.high)}`,
-        `${phase[z.phase]} / ${role}。${z.frame} ${z.type}。${z.condition}。15分終値${mappedPrice(z.invalidationClose)}${z.direction==='SHORT'?'超':'未満'}で背景帯の見立て無効。保護SL参考 ${mappedPrice(z.protectiveStop)}（再訪高安で再計算）。反応・利確候補 ${z.targets.map(t=>mappedPrice(t)).join(' / ')||'未確認'}`]);
-      if(focus?.available&&focus.windows.length)for(const w of focus.windows)rows.push([
+      const local=[];
+      if(focus?.available&&focus.windows.length)for(const w of focus.windows)local.push([
         `局所${w.labels.length>1?'重合':'単独'} ${mappedPrice(w.low)}～${mappedPrice(w.high)}`,
         `${w.inside?'局所帯内・反応を確認':'再訪待ち'}。${w.levels.map(r=>`${r.label} ${mappedPrice(r.price)}`).join(' / ')}。各水準の±${fmt(focus.radius)}（15分ATR×0.2）を背景帯内で比較。`]);
-      else rows.push(['局所観察','現在の背景帯内に、確定MA・BBの局所重合を確認できません。']);
-    }
+      else local.push(['局所観察','現在の背景帯内に、確定MA・BBの局所重合を確認できません。']);
+      const side=z.direction==='SHORT'?'売り':'買い';
+      return `<section class="zone-card ${z.direction==='SHORT'?'zone-short':'zone-long'}"><h4>${side}背景 ${esc(mappedPrice(z.low))}～${esc(mappedPrice(z.high))}</h4><p class="zone-phase">${esc(`${phase[z.phase]} / ${z.frame} ${z.type} / ${role}`)}</p>`+
+        fields([['確認条件',z.condition],['撤回条件',`15分終値${mappedPrice(z.invalidationClose)}${z.direction==='SHORT'?'超':'未満'}で背景帯の見立て無効`],['保護SL参考',`${mappedPrice(z.protectiveStop)}（再訪高安で再計算）`],['反応・利確候補',z.targets.map(t=>mappedPrice(t)).join(' / ')||'未確認']])+fields(local)+
+        `<button type="button" data-track-zone="${i}" ${canTrack?'':'disabled'}>${side}帯 ${esc(mappedPrice(z.low))}～${esc(mappedPrice(z.high))}を固定して追跡</button></section>`;
+    }).join('');
     if(map.candidates.length)rows.push(['局所帯の見方','単独は1水準、重合は複数のMA・BBが近接する範囲。観察専用で、接触・重合数は入場条件や勝率ではありません。背景帯の無効化・SLは変更しません。']);
     if(!map.candidates.length)rows.push(['候補帯','現在有効なSMC帯なし。MA・BB接触だけでは候補を作りません。']);
     const events=map.eventRisk.events.map(e=>`${new Date(e.time).toLocaleString('ja-JP',{timeZone:'Asia/Tokyo',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false})} JST ${e.name}`).join(' / ');
     rows.push(['指標警戒',`${events||'最新予定を確認'}。${map.eventRisk.message}`]);
-    const canTrack=!state.offlineCsv&&!INITIAL_PARAMS.has('snapshot')&&!snapshotHealth()?.blocked&&a.m15?.ready&&!a.m15.quality?.stale&&Date.now()-a.generatedAt<=20*60000;
-    const buttons=map.candidates.map((z,i)=>`<button type="button" data-track-zone="${i}" ${canTrack?'':'disabled'}>${z.direction==='SHORT'?'売り':'買い'}帯 ${esc(mappedPrice(z.low))}～${esc(mappedPrice(z.high))}を固定して追跡</button>`).join(' ');
-    box.innerHTML='<h3>環境・候補帯・無効化</h3>'+rows.map(([label,text])=>`<p><strong>${esc(label)}</strong><span>${esc(text)}</span></p>`).join('')+buttons+`<small>${esc(map.note)}</small>`;
+    const rowHtml=list=>list.map(([label,text])=>`<p><strong>${esc(label)}</strong><span>${esc(text)}</span></p>`).join('');
+    box.innerHTML='<h3>環境・候補帯・無効化</h3>'+rowHtml(rows.slice(0,2))+cards+rowHtml(rows.slice(2))+`<small>${esc(map.note)}</small>`;
   }
 
   function renderPlan() {

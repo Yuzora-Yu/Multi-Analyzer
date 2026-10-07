@@ -24,6 +24,16 @@
 .chart-focus .terminal-workspace { grid-template-columns:minmax(0,1fr); }
 .chart-focus .insight-panel,.chart-focus .market-hud { display:none; }
 .chart-focus #focusMode { color:var(--gold); border-color:var(--gold); }
+.zone-card {margin:12px 0;padding:12px;border:1px solid var(--border);border-left:3px solid var(--muted);border-radius:8px;min-width:0;}
+.zone-card.zone-short {border-left-color:var(--red)}
+.zone-card.zone-long {border-left-color:var(--green)}
+.zone-card h4 {margin:0 0 6px;font-size:14px;line-height:1.6;overflow-wrap:anywhere}
+.zone-card .zone-phase {margin:0 0 10px;font-size:12px;line-height:1.6;color:var(--muted)}
+.zone-fields {margin:0;}
+.zone-fields>div {padding:8px 0;border-top:1px solid var(--border);}
+.zone-fields dt {font-size:11px;line-height:1.6;color:var(--muted)}
+.zone-fields dd {margin:3px 0 0;font-size:12px;line-height:1.8;overflow-wrap:anywhere}
+.zone-card button {width:100%;min-height:44px;margin-top:12px;white-space:normal;overflow-wrap:anywhere}
 .review-dialog { width:min(1480px,98vw); height:94dvh; max-height:94dvh; max-width:98vw; padding:0; border:1px solid var(--border); border-radius:16px; color:var(--text); background:#0b1018; overflow:auto; }
 .review-dialog::backdrop { background:#000b; }
 .review-header { display:flex; justify-content:space-between; align-items:center; padding:16px; position:sticky; top:0; z-index:2; background:#0b1018f5; }
