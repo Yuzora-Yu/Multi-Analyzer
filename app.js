@@ -643,8 +643,15 @@
     if(!map?.valid){box.innerHTML='<p><strong>候補帯</strong><span>データ不足・更新停止。最新データで再確認します。</span></p>';return;}
     const phase={WAIT:'接近待ち',APPROACH:'接近・反応待ち',IN_ZONE:'帯内・反応待ち',ENTRY_CONFIRMED:'P条件も成立'};
     const rows=[['価格基準',priceBasis().label+'。換算は候補帯・プランのみ。チャートと分析はBybitの元価格。'],['環境と狙い',`${map.trends.map(t=>`${t.name} 構造${t.structure}・MA${t.ma}`).join(' / ')}。新規は${map.entryState}`]];
-    for(const z of map.candidates)rows.push([`${z.direction==='SHORT'?'売り':'買い'} ${mappedPrice(z.low)}～${mappedPrice(z.high)}`,
-      `${phase[z.phase]} / ${z.role}。${z.evidence.join('・')}。${z.condition}。15分終値${mappedPrice(z.invalidationClose)}${z.direction==='SHORT'?'超':'未満'}で帯の見立て無効。保護SL参考 ${mappedPrice(z.protectiveStop)}（再訪高安で再計算）。反応・利確候補 ${z.targets.map(t=>mappedPrice(t)).join(' / ')||'未確認'}`]);
+    for(const z of map.candidates){
+      const focus=window.MultiAnalyzerZoneFocus?.describe(a,z);
+      rows.push([`${z.direction==='SHORT'?'売り':'買い'}背景 ${mappedPrice(z.low)}～${mappedPrice(z.high)}`,
+        `${phase[z.phase]} / ${z.role}。${z.frame} ${z.type}。${z.condition}。15分終値${mappedPrice(z.invalidationClose)}${z.direction==='SHORT'?'超':'未満'}で背景帯の見立て無効。保護SL参考 ${mappedPrice(z.protectiveStop)}（再訪高安で再計算）。反応・利確候補 ${z.targets.map(t=>mappedPrice(t)).join(' / ')||'未確認'}`]);
+      if(focus?.available&&focus.windows.length)for(const w of focus.windows)rows.push([
+        `局所観察 ${mappedPrice(w.low)}～${mappedPrice(w.high)}`,
+        `${w.inside?'局所帯内・反応を確認':'再訪待ち'}。${w.levels.map(r=>`${r.label} ${mappedPrice(r.price)}`).join(' / ')}。15分ATRの20%以内で重なる範囲。接触や根拠の数だけで入場しません。背景帯の無効化・SLは上記のまま。`]);
+      else rows.push(['局所観察','現在の背景帯内に、確定MA・BBの局所重合を確認できません。']);
+    }
     if(!map.candidates.length)rows.push(['候補帯','現在有効なSMC帯なし。MA・BB接触だけでは候補を作りません。']);
     const events=map.eventRisk.events.map(e=>`${new Date(e.time).toLocaleString('ja-JP',{timeZone:'Asia/Tokyo',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false})} JST ${e.name}`).join(' / ');
     rows.push(['指標警戒',`${events||'最新予定を確認'}。${map.eventRisk.message}`]);
