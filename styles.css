@@ -180,15 +180,15 @@ button { color: inherit; -webkit-tap-highlight-color: transparent; }
 .market-hud strong { display: block; margin-top: 4px; font: 600 10px "JetBrains Mono", monospace; white-space: nowrap; }
 .chart-risk-note { position: absolute; z-index: 7; left: 12px; bottom: 8px; color: rgba(130,144,163,.68); font-size: 7px; letter-spacing: .05em; pointer-events: none; }
 
-.insight-panel { min-width: 0; min-height: 0; display: grid; grid-template-rows: 42px minmax(0,1fr); border-left: 1px solid var(--border-soft); background: rgba(11,16,22,.98); overflow: hidden; }
+.insight-panel { min-width: 0; min-height: 0; display: grid; grid-template-rows: 54px minmax(0,1fr); border-left: 1px solid var(--border-soft); background: rgba(11,16,22,.98); overflow: hidden; }
 .sheet-handle { display: none; }
-.insight-tabs { padding: 5px; display: grid; grid-template-columns: repeat(4,1fr); gap: 4px; border-bottom: 1px solid var(--border-soft); background: #090d12; }
-.insight-tabs button { min-height: 31px; padding: 6px 4px; font-size: 9px; font-weight: 700; }
+.insight-tabs { padding: 5px; display: grid; grid-template-columns: repeat(5,minmax(0,1fr)); gap: 4px; border-bottom: 1px solid var(--border-soft); background: #090d12; }
+.insight-tabs button { min-height: 44px; padding: 6px 4px; font-size: 10px; font-weight: 700; }
 .insight-tabs button.active { color: var(--gold); background: rgba(230,184,92,.10); }
 .insight-content { min-height: 0; overflow: hidden; }
 .insight-page { display: none; height: 100%; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: #344153 transparent; }
 .insight-page.active { display: block; }
-.decision-card, .trade-plan, .position-card { padding: 14px; min-height: 100%; }
+.decision-card, .trade-plan, .position-card, .zone-page { padding: 14px; min-height: 100%; }
 .detail-page { padding: 0 12px 16px; }
 .detail-section { padding: 14px 2px; border-bottom: 1px solid var(--border-soft); }
 .section-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
@@ -336,7 +336,7 @@ button { color: inherit; -webkit-tap-highlight-color: transparent; }
   .insight-panel:not(.sheet-collapsed) .sheet-chevron { transform:rotate(180deg); }
   .insight-tabs { padding:5px 7px; }
   .insight-tabs button { min-height:31px; font-size:9px; }
-  .decision-card,.trade-plan,.position-card { padding:12px; }
+  .decision-card,.trade-plan,.position-card,.zone-page { padding:12px; }
   .signal-badge { padding:11px; font-size:20px; }
   .confidence-ring { width:56px; height:56px; flex-basis:56px; }
   .decision-message { margin:9px 0; min-height:0; font-size:10px; }
@@ -448,7 +448,8 @@ button { color: inherit; -webkit-tap-highlight-color: transparent; }
  .action-compass #actionTargets{font-size:10px;line-height:1.4;max-height:28px;overflow:hidden}
  .action-compass small,.compass-legend{display:none}
  .market-hud{display:none}
- .insight-panel{position:absolute;z-index:30;left:0;right:0;bottom:0;height:min(65dvh,500px);min-height:0;display:grid;grid-template-rows:48px 42px minmax(0,1fr);border:1px solid #344153;border-radius:12px 12px 0 0;background:#0b1018;box-shadow:0 -10px 40px #0008;padding-bottom:env(safe-area-inset-bottom)}
+ .insight-panel{position:absolute;z-index:30;left:0;right:0;bottom:0;height:min(65dvh,500px);min-height:0;display:grid;grid-template-rows:48px 54px minmax(0,1fr);border:1px solid #344153;border-radius:12px 12px 0 0;background:#0b1018;box-shadow:0 -10px 40px #0008;padding-bottom:env(safe-area-inset-bottom)}
+ .insight-tabs button{min-height:44px;font-size:11px}
  .insight-panel.sheet-collapsed{height:calc(48px + env(safe-area-inset-bottom));grid-template-rows:48px 0 0}
  .insight-panel.sheet-collapsed .insight-tabs,.insight-panel.sheet-collapsed .insight-content{visibility:hidden;pointer-events:none}
  .sheet-handle{width:100%;min-height:48px;display:grid;grid-template-columns:36px 1fr 28px;align-items:center;border:0;background:transparent;padding:5px 10px}

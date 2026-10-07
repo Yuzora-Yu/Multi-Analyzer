@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=4.3.4-zones1">
+  <link rel="stylesheet" href="styles.css?v=4.3.4-zone-tab1">
   <script defer src="https://unpkg.com/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js"></script>
   <script defer src="market-feed.js?v=4.3.3-session"></script>
   <script defer src="price-basis.js?v=1"></script>
@@ -26,7 +26,7 @@
   <script defer src="snapshot-health.js?v=1"></script>
   <script defer src="review-pack.js?v=4.3.4-zip1"></script>
   <script defer src="chart-evidence.js?v=4.3.2-mobile10"></script>
-  <script defer src="app.js?v=4.3.4-geometry1"></script>
+  <script defer src="app.js?v=4.3.4-zone-tab1"></script>
 </head>
 <body>
   <div class="app-shell">
@@ -134,14 +134,22 @@
             </button>
 
             <nav class="insight-tabs" aria-label="分析パネル">
-              <button class="active" data-insight-tab="signal" type="button">シグナル</button>
+              <button class="active" data-insight-tab="zones" type="button">候補帯</button>
+              <button data-insight-tab="signal" type="button">シグナル</button>
               <button data-insight-tab="plan" type="button">プラン</button>
               <button data-insight-tab="position" type="button">保有</button>
               <button data-insight-tab="detail" type="button">詳細</button>
             </nav>
 
             <div class="insight-content">
-              <section class="insight-page active" data-insight-page="signal">
+              <section class="insight-page active" data-insight-page="zones" aria-label="候補帯と確認条件">
+                <article class="zone-page">
+                  <div class="smc-context market-map" id="checkpointStatus" aria-live="polite" hidden></div>
+                  <div class="smc-context market-map" id="marketMap" aria-live="polite"></div>
+                  <div class="smc-context market-map" id="trendContext" aria-live="polite"></div>
+                </article>
+              </section>
+              <section class="insight-page" data-insight-page="signal">
                 <article class="decision-card" id="decisionCard">
                   <div class="section-heading">
                     <div><span class="eyebrow">CONFIRMED CANDLE</span><h2>確定足シグナル</h2></div>
@@ -173,9 +181,6 @@
                     <span id="livePreviewText">価格更新待ち</span>
                   </div>
                   <div class="smc-context" id="smcContext" aria-live="polite"></div>
-                  <div class="smc-context market-map" id="checkpointStatus" aria-live="polite" hidden></div>
-                  <div class="smc-context market-map" id="trendContext" aria-live="polite"></div>
-                  <div class="smc-context market-map" id="marketMap" aria-live="polite"></div>
                   <div class="flow-summary" id="flowSummary" aria-live="polite"></div>
                   <p class="dialog-note">GOLD通知はSMC×MA・BBの候補帯への接近・再訪を案内します。接触だけでは入場条件成立になりません。既存P条件・収益検証とは別です。<a href="https://github.com/Yuzora-Yu/Multi-Analyzer/blob/main/RESEARCH_V43.md" target="_blank" rel="noopener">条件と検証結果</a></p>
                   <a id="currentSnapshotLink" href="?tf=15m">現在の共通判定を開く</a>

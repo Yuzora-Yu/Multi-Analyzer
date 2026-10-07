@@ -65,7 +65,7 @@
     chartResizeFrame: 0,
     chartSize: { width: 0, height: 0 },
     chartFitted: false,
-    insightTab: 'signal',
+    insightTab: 'zones',
     settings: loadSettings(),
     micro: { bid: null, ask: null, spreadBps: null, bookImbalance: 0, markPrice: null, indexPrice: null, basisBps: 0, fundingRate: 0, nextFundingTime: null },
     microTimer: null,
@@ -1135,7 +1135,7 @@
     qsa('.timeframes button').forEach(b => b.classList.toggle('active', b.dataset.tf === state.tf));
     bindEvents();
     restorePositionInputs();
-    setInsightTab('signal');
+    setInsightTab(state.insightTab);
     syncInsightLayout();
     startClock();
     loadAllData();
