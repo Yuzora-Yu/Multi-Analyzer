@@ -93,8 +93,14 @@
     });
   }
   function consultation(a,now,{archived=false}={}){
-    const Focus=globalThis.MultiAnalyzerZoneFocus,C=globalThis.MultiAnalyzerCheckpoint;
-    const zones=(a.signal.marketMap?.candidates||[]).map(z=>({zone:structuredClone(z),focus:Focus?.describe(a.signal,z)||null}));
+    const Focus=globalThis.MultiAnalyzerZoneFocus,C=globalThis.MultiAnalyzerCheckpoint,G=globalThis.MultiAnalyzerZoneGeometry;
+    const zones=(a.signal.marketMap?.candidates||[]).map(z=>{
+      const geometry=G?.describe(a.signal,z)||null;
+      const geometryText=geometry?G.text(geometry):[];
+      return {zone:structuredClone(z),focus:Focus?.describe(a.signal,z)||null,geometry,geometryText,
+        geometryBasis:{sourceId:a.snapshot?.id??null,sourceClosedAt:a.signal.m15?.candles?.at(-1)?.time!=null?a.signal.m15.candles.at(-1).time+900000:null,calculatedAt:now,
+          scope:archived?'saved-decision-reconstruction':'current-candidate-description',note:archived?'保存判定の元候補・確定スイングから後で計算した距離です。当時の表示・保存・約定の証拠ではなく、現在の水準でもありません。':'この候補から新しく追跡を始める場合の距離です。保存済みチェックポイントの条件は変更しません。'}};
+    });
     const checkpoints=archived?[]:(C?.read()||[]).filter(c=>c.asset===a.asset&&c.savedAt<=now).map(c=>C.advance(c,a.signal,{now,allowed:!a.health?.blocked&&(globalThis.MultiAnalyzerFeed?.collectionPolicy(a.asset).allowed??true)}));
     return {basis:'Bybit元市場価格。端末の固定帯は保存時の換算を別記。',trendContext:globalThis.MultiAnalyzerTrendContext?.describe(a.signal)||null,zones,checkpoints,checkpointText:checkpoints.flatMap(c=>C.describe(c)),note:archived?'過去判定に現在の端末チェックポイントを混入しません。':'端末内の観察記録。保存後の追跡であり、元の予測やPサインを書き換えません。'};
   }
@@ -117,9 +123,10 @@
       vetoes:reasons(s),plan:s.plan??null};
   }
   function decisionText(d){const q=d.consultation;return [...(q?.checkpointText?.length?['前回固定したチェックポイント（元条件で先に確認）',...q.checkpointText]:[]),...(d.health?[`鮮度確認 ${jst(d.health.assessedAt)}：${d.health.message}`]:[]),`${d.verdict} / ${d.direction}`,d.exit||'今回の足に黄EXITなし',
-    ...(q?[q.basis,...(q.trendContext?[`現在地の基準：15分確定価格 ${num(q.trendContext.price)} / ${q.trendContext.priceClosedAt?jst(q.trendContext.priceClosedAt):'未取得'}`]:[]),...(q.trendContext?.frames||[]).flatMap(f=>[`${f.name} 構造 ${f.structure} / MA ${f.ma} / ${f.available?'確定 '+jst(f.closedAt):'未取得・遅延'}：${f.levels.map(l=>`${l.label} ${num(l.price)} の${l.position}（15分確定価格比）`).join(' / ')}`,...(f.leg?[`${f.name} 確認済み${f.leg.direction} ${num(f.leg.start.price)}→${num(f.leg.end.price)}（終点確認 ${jst(f.leg.end.confirmedAt)}）から ${num(f.leg.ratio)}％ / ${f.leg.levels.map(l=>`${num(l.percent)}％ ${num(l.price)}`).join(' / ')}。${f.leg.note}`]:[])]),...q.zones.flatMap(({zone:z,focus:f})=>[
+    ...(q?[q.basis,...(q.trendContext?[`現在地の基準：15分確定価格 ${num(q.trendContext.price)} / ${q.trendContext.priceClosedAt?jst(q.trendContext.priceClosedAt):'未取得'}`]:[]),...(q.trendContext?.frames||[]).flatMap(f=>[`${f.name} 構造 ${f.structure} / MA ${f.ma} / ${f.available?'確定 '+jst(f.closedAt):'未取得・遅延'}：${f.levels.map(l=>`${l.label} ${num(l.price)} の${l.position}（15分確定価格比）`).join(' / ')}`,...(f.leg?[`${f.name} 確認済み${f.leg.direction} ${num(f.leg.start.price)}→${num(f.leg.end.price)}（終点確認 ${jst(f.leg.end.confirmedAt)}）から ${num(f.leg.ratio)}％ / ${f.leg.levels.map(l=>`${num(l.percent)}％ ${num(l.price)}`).join(' / ')}。${f.leg.note}`]:[])]),...q.zones.flatMap(({zone:z,focus:f,geometryText,geometryBasis})=>[
       `背景 ${z.direction} ${z.frame} ${z.type} ${num(z.low)}～${num(z.high)} / ${z.condition} / 15分終値 ${num(z.invalidationClose)}${z.direction==='SHORT'?'超':'未満'}で撤回 / SL参考 ${num(z.protectiveStop)}`,
-      ...(f?.windows||[]).map(w=>`局所観察 ${num(w.low)}～${num(w.high)}：${w.levels.map(r=>r.label+' '+num(r.price)).join(' / ')}（接触や重合数は勝率・入場条件ではありません）`)
+      ...(f?.windows||[]).map(w=>`局所観察 ${num(w.low)}～${num(w.high)}：${w.levels.map(r=>r.label+' '+num(r.price)).join(' / ')}（接触や重合数は勝率・入場条件ではありません）`),
+      ...(geometryText?.length?['確認を待った場合の残り値幅',geometryBasis?.note||'',...geometryText]:[])
     ]),q.note]:[]),
     `観察水準 EMA13 ${num(d.levels.ema13)} / EMA21 ${num(d.levels.ema21)}`,
     ...d.checks.map(c=>`${c.status}：${c.label} — ${c.detail}`),
