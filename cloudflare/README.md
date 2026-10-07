@@ -58,3 +58,5 @@ BinanceはCloudflareで403、OKXは金取得成功・BTC429、Bybitは双方成�
 - https://developers.cloudflare.com/durable-objects/platform/limits/
 - https://developers.cloudflare.com/email-service/platform/pricing/
 - https://bybit-exchange.github.io/docs/v5/market/kline
+
+取得障害の診断: `/api/monitor` に `diagnosticsVersion`、現在の `dataError`、回復後も残る `lastDataError` を追加。HTTP状態・Bybit数値コード・JSON/形式不備・タイムアウト等を区別します。`startedAt`/`finishedAt` はローカル観測時刻、`recoveredAt` は後続の監視成功時刻で、相場の足時刻ではありません。応答本文・URL・retMsgは保持しません。過去の汎用エラーに診断を後付けしません。判定条件・取得間隔・無料上限は従来通りです。

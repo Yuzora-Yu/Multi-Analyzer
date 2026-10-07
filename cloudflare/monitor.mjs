@@ -4,17 +4,11 @@ import Core from '../strategy-core.js';
 import { canReuse } from './logic.mjs';
 import Events from '../alert-event.js';
 import Feed from '../market-feed.js';
+import { fetchBybitCandles, responseDiagnostic, DIAGNOSTICS_VERSION } from './market-response.mjs';
 
 const ASSETS = {gold:'XAUUSDT',btc:'BTCUSDT'};
 const INTERVALS = {m15:15,h1:60,h4:240};
 const PAGE='https://yuzora-yu.github.io/Multi-Analyzer/';
-const safeJson = async response => {
-  if(!response.ok) throw new Error(`Data HTTP ${response.status}`);
-  const reader=response.body.getReader();const chunks=[];let size=0;
-  while(true){const {done,value}=await reader.read();if(done)break;size+=value.length;if(size>500000){await reader.cancel();throw new Error('Data too large');}chunks.push(value);}
-  const bytes=new Uint8Array(size);let off=0;for(const c of chunks){bytes.set(c,off);off+=c.length;}
-  return JSON.parse(new TextDecoder().decode(bytes));
-};
 const escapeHtml = text => text.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 export class MarketMonitor extends DurableObject {
   async start(asset){
@@ -43,6 +37,7 @@ export class MarketMonitor extends DurableObject {
     const policy=Events.alertPolicy(asset,now);
     const collectionSchedule=Feed.collectionPolicy(asset,now);
     const status={updatedAt:now,state:'DATA_ERROR',source:'Bybit',symbol:ASSETS[asset],pollMinutes:1,requestsToday:state.count,emailEnabled:this.env.ALERTS_ENABLED==='true' && policy.allowed&&collectionSchedule.allowed,alertSchedule:policy,collectionSchedule,dryRun,lastEmail:state.lastEmail||null};
+    Object.assign(status,{diagnosticsVersion:DIAGNOSTICS_VERSION,dataError:null,lastDataError:state.lastDataError||null});
     if(!collectionSchedule.allowed){Object.assign(status,{state:'MARKET_CLOSED',error:null});await this.ctx.storage.put({state,status});return status;}
     if(asset==='gold'&&state.sessionVersion!==Feed.SESSION_VERSION){state.cache={};state.sessionVersion=Feed.SESSION_VERSION;}
     try {
@@ -53,7 +48,7 @@ export class MarketMonitor extends DurableObject {
         const rows=Core.normalizeCandles(await Feed.load(asset,minutes,300,async url=>{
           if(state.count>=2000)throw new Error('FREE_DAILY_BUDGET_REACHED');
           state.count++;
-          return safeJson(await fetch(url,{signal:AbortSignal.timeout(12000)}));
+          return fetchBybitCandles(url,u=>fetch(u,{signal:AbortSignal.timeout(12000)}),{asset,interval:minutes});
         }));
         if(rows.length<220)throw new Error('INVALID_CANDLES');
         series[interval]=rows;state.cache[interval]={rows,fetchedAt:now};
@@ -106,7 +101,9 @@ export class MarketMonitor extends DurableObject {
       state.delivered=Object.fromEntries(Object.entries(state.delivered).sort((a,b)=>b[1]-a[1]).slice(0,200));
       if(exit && !dryRun)state.paperPosition=null;
       Object.assign(status,{state:analysis.state,marketMap:analysis.marketMap,notificationMode:asset==='gold'?'ZONE_ANALYSIS':'ENTRY_EXIT',bar:analysis.exec.candles.at(-1)?.time,checkedAt:now,error:null,snapshotId:id,engineVersion:Core.VERSION,volumeAvailable:closed.some(b=>b.volume>0),requestsToday:state.count});
+      if(state.lastDataError&&!state.lastDataError.recoveredAt){state.lastDataError={...state.lastDataError,recoveredAt:Date.now()};status.lastDataError=state.lastDataError;}
     }catch(error){status.error=String(error.message).replace(/apikey=[^&\s]+/g,'apikey=[REDACTED]').slice(0,100);status.requestsToday=state.count;
+      const diagnostic=responseDiagnostic(error);if(diagnostic){state.lastDataError={...diagnostic,recoveredAt:null};status.dataError=diagnostic;status.lastDataError=state.lastDataError;}
       if(error.message==='GOLD_MARKET_CLOSED'){status.state='MARKET_CLOSED';status.error=null;status.emailEnabled=false;status.collectionSchedule=Feed.collectionPolicy(asset,Date.now());}
     }
     await this.ctx.storage.put({state,status});
