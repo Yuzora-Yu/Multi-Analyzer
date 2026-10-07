@@ -18,4 +18,3 @@ test('blocked health overrides both reference and entered exit displays',()=>{
 test('archive exit remains labelled as a saved record; ordinary waiting stays unchanged',()=>{
  const r=render({archive:true});assert.match(r.elements.actionHeadline.textContent,/^保存記録｜× 参考候補/);assert.equal(render({exit:false}).elements.actionHeadline.textContent,'— 新規候補なし');
 });
-
