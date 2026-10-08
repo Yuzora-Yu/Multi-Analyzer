@@ -1,5 +1,17 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),os=require('node:os'),path=require('node:path'),crypto=require('node:crypto');
 const S=require('../research-zone-window-summary.cjs'),W=require('../research-zone-windows.cjs'),T=require('../research-zone-trades.cjs'),STEP=900000;
+test('a real short outcome with zero adverse excursion replays after JSON persistence',()=>{
+ const Z=require('../research-zones.cjs'),from=STEP,c={from,identity:{asset:'btc'},zone:{direction:'SHORT',low:100,high:105,invalidationClose:105,protectiveStop:107},pivot:94};
+ const bars=new Map(Array.from({length:16},(_,i)=>{const time=from+i*STEP,bar=i===0?{time,open:101,high:103,low:92,close:93}:{time,open:92,high:92,low:90,close:91};return [time,{bar,conflict:false,source:{firstObservedAt:time+STEP,file:'synthetic'}}];}));
+ const rows=[{outcomes:[Z.outcome(c,bars,16,from+16*STEP)]}],saved=JSON.parse(JSON.stringify(rows));
+ assert.ok(Object.is(rows[0].outcomes[0].movement.adverseBps,-0));assert.ok(Object.is(saved[0].outcomes[0].movement.adverseBps,0));
+ const before=structuredClone(rows);S.assertReplayRows(rows,saved);assert.deepEqual(rows,before);
+ for(const mutate of [r=>r[0].outcomes[0].movement.returnBps+=1e-9,r=>r[0].outcomes[0].movement.adverseBps='0',r=>delete r[0].outcomes[0].movement.adverseBps,r=>r[0].outcomes[0].status='missing']){const changed=structuredClone(saved);mutate(changed);assert.throws(()=>S.assertReplayRows(rows,changed),/replay changed/);}
+});
+test('JSON zero equivalence does not erase other lossy JSON differences',()=>{
+ const decorated=[];decorated.extra=1;
+ for(const rows of [[{x:undefined}],[{x:NaN}],[{x:Infinity}],[{x:new Date(0)}],[{[Symbol('original')]:1}],Array(1),decorated])assert.throws(()=>S.assertReplayRows(rows,JSON.parse(JSON.stringify(rows))),/replay changed/);
+});
 function fixture(){const report={asOf:STEP*100,registration:{spec:W.SPEC},rows:[]};
  for(let i=0;i<3;i++){const from=(i*16+1)*STEP,c={id:'s'+i+'/z',sourceId:'s'+i,from,primary:true,rank:0,identity:{asset:'gold',market:'futures',symbol:'XAUUSDT',codeHash:'c',configurationHash:'q'},zone:{id:'z',direction:'LONG'},eligibility:{eligible:true},flags:{P:false,EXIT_LONG:false,EXIT_SHORT:false,noSign:true}};
  const closed=(arm,exit)=>{const grossBps=(exit/100-1)*10000;return {arm,status:'closed',entry:100,exit,entryAt:from,exitAt:from+STEP,grossBps,costs:T.SPEC.costBps.map(costBps=>({costBps,assumedNetBps:grossBps-costBps}))};};

@@ -4,6 +4,18 @@ const fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypt
 const W=require('./research-zone-windows.cjs'),Z=require('./research-zones.cjs'),T=require('./research-zone-trades.cjs'),A=require('./research-zone-availability.cjs');
 const Core=require('./strategy-core'),Feed=require('./market-feed'),{indexSnapshots,atomicJSON}=require('./research-audit.cjs'),{stats}=require('./research-zone-trade-summary.cjs');
 const hash=b=>crypto.createHash('sha256').update(b).digest('hex'),STEP=900000;
+function assertReplayRows(rows,saved){
+  // JSON stores numeric -0 as 0. Preserve every other value and field difference.
+  function normalize(value){
+    if(Object.is(value,-0))return 0;
+    if(!Array.isArray(value)&&(!value||Object.getPrototypeOf(value)!==Object.prototype))return value;
+    const copy=Array.isArray(value)?new Array(value.length):{};
+    for(const key of Reflect.ownKeys(value))if(Object.prototype.propertyIsEnumerable.call(value,key))
+      Object.defineProperty(copy,key,{value:normalize(value[key]),enumerable:true,writable:true,configurable:true});
+    return copy;
+  }
+  assert.deepEqual(normalize(rows),saved,'Original forecast/outcome/execution replay changed');
+}
 function summarize(report){
   if(JSON.stringify(report.registration?.spec)!==JSON.stringify(W.SPEC)||!Number.isFinite(report.asOf))throw Error('Cohort protocol mismatch');
   const selected=W.select(report.rows.map(r=>r.forecast)),partitions=new Map();
@@ -65,7 +77,7 @@ function replay(report,manifest,read){
   const availability=A.audit(zoneReport,manifest,file=>bytes.get(file));
   const rows=zoneReport.rows.map((r,i)=>{const c=r.forecast,o=r.outcomes[0],coverage=availability.rows[i].windows[0],eligible=c.primary&&c.eligibility.eligible&&o.nonOverlapping&&o.status==='resolved'&&coverage.receiptComplete,result={...r,repeatedZoneKey:selected[i].repeatedZoneKey,coverage,eligible};
     if(eligible){const market=index.markets.get([c.identity.asset,c.identity.market,c.identity.symbol].join('/'));result.arms=T.SPEC.arms.map(arm=>T.simulate(c,Array.from({length:16},(_,j)=>market.get(c.from+j*STEP).bar),arm));}return result;});
-  assert.deepEqual(rows,report.rows,'Original forecast/outcome/execution replay changed');
+  assertReplayRows(rows,report.rows);
   for(const [file,raw] of bytes)if(hash(read(file))!==hash(raw))throw Error('Source changed during replay');
   for(const [file,h] of Object.entries(report.registration.codeHashes))if(hash(fs.readFileSync(path.join(__dirname,file)))!==h)throw Error('Registered code changed during replay');
   return {sources:bytes.size,replayMatched:true};
@@ -78,4 +90,4 @@ function run(directory){
   const root=path.join(__dirname,'.runtime/hourly-observation/research-zone-window-summaries');fs.mkdirSync(root,{recursive:true});const file=path.join(root,Date.now()+'-'+crypto.randomUUID()+'.json');atomicJSON(file,{...result,evidence,input:{reportSha256:hash(raw[0]),manifestSha256:hash(raw[1])},analysisHashes,collectorExecuted:false});return {file,...evidence,partitions:result.partitions.length,accuracyProven:false};
 }
 if(require.main===module){try{if(!process.argv[2])throw Error('Provide original private cohort report directory');console.log(JSON.stringify(run(path.resolve(process.argv[2])),null,2));}catch(e){console.error(e.message);process.exitCode=1;}}
-module.exports={summarize,replay,run};
+module.exports={summarize,replay,run,assertReplayRows};
