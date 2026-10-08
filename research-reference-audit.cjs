@@ -3,6 +3,7 @@
 const fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto');
 const Reference=require('./research-reference.cjs'),Sequence=require('./research-retest.cjs'),Ledger=require('./research-retest-outcomes.cjs');
 const Core=require('./strategy-core'),Feed=require('./market-feed'),Forward=require('./research-forward.cjs');
+const Lifecycle=require('./research-reference-lifecycle.cjs');
 const {atomicJSON,indexSnapshots}=require('./research-audit.cjs');
 const STEP=900000,hash=x=>crypto.createHash('sha256').update(x).digest('hex'),equal=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
 function replay(rows,registration,{asOf=Date.now(),loadSource=Ledger.readSource}={}){
@@ -75,10 +76,11 @@ function run(root=path.join(__dirname,'.runtime','hourly-observation','research-
   const index=indexSnapshots(records.filter(r=>r.firstObservedAt<=asOf)),candidates=extract(audits.flatMap(a=>a.rows)),outcomes=Ledger.evaluate(candidates,index.markets,asOf);
   for(const m of manifest)if(hash(fs.readFileSync(m.file))!==m.sha256)throw Error('Original changed during reference audit');
   const output=path.join(path.dirname(root),'research-reference-audit');fs.mkdirSync(output,{recursive:true});const staging=fs.mkdtempSync(path.join(output,'.staging-'));
-  const rows=audits.flatMap(a=>a.rows),summary={journals:rows.length,verified:rows.filter(r=>r.eligible).length,candidates:candidates.length,prospectiveCandidates:candidates.filter(c=>c.eligibility.eligible).length,
+  const rows=audits.flatMap(a=>a.rows),referenceLifecycles=Lifecycle.summarize(rows,{asOf}),summary={journals:rows.length,verified:rows.filter(r=>r.eligible).length,candidates:candidates.length,prospectiveCandidates:candidates.filter(c=>c.eligibility.eligible).length,
+    pReferences:referenceLifecycles.summary,
     controls:Object.fromEntries(['P','EXIT_LONG','EXIT_SHORT','noSign'].map(k=>[k,rows.filter(r=>r.eligible&&r.controls[k]).length])),
     note:'Controls overlap; no-sign observations are not zero-return trades. Full-horizon reservations are not statistical independence. Untouched future outcomes only; no adoption/precision claim.'};
-  atomicJSON(path.join(staging,'report.json'),{asOf,summary,audits,outcomes,sourceIssues:index.issues,collectorExecuted:false});atomicJSON(path.join(staging,'manifest.json'),{sources:manifest,auditCodeSha256:hash(fs.readFileSync(__filename))});
+  atomicJSON(path.join(staging,'report.json'),{asOf,summary,audits,outcomes,referenceLifecycles,sourceIssues:index.issues,collectorExecuted:false});atomicJSON(path.join(staging,'manifest.json'),{sources:manifest,auditCodeSha256:hash(fs.readFileSync(__filename)),lifecycleCodeSha256:hash(fs.readFileSync(path.join(__dirname,'research-reference-lifecycle.cjs')))});
   const directory=path.join(output,asOf+'-'+crypto.randomUUID());fs.renameSync(staging,directory);return {directory,...summary};
 }
 if(require.main===module)console.log(JSON.stringify(run(),null,2));
