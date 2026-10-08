@@ -819,7 +819,8 @@
     const basis = state.snapshot ? '15m共通判定' : currentTf().label;
     const closedBar = a.exec.candles.at(-1);
     const closeAt = closedBar ? closedBar.time + (state.snapshot ? 15 : currentTf().minutes) * 60000 : null;
-    $('actionContext').textContent = stale ? '構造表示を保留（更新停止）' : window.MultiAnalyzerReview.context(a, basis) + (closeAt ? ` / 確定 ${new Date(closeAt).toLocaleTimeString('ja-JP', {timeZone:'Asia/Tokyo', hour:'2-digit', minute:'2-digit'})} JST` : '');
+    const currentSMC=window.MultiAnalyzerEvidence.currentEventsText?.(a);
+    $('actionContext').textContent = stale ? '構造表示を保留（更新停止）' : window.MultiAnalyzerReview.context(a, basis) + (currentSMC ? ` / 最新SMC：${currentSMC}` : '') + (closeAt ? ` / 確定 ${new Date(closeAt).toLocaleTimeString('ja-JP', {timeZone:'Asia/Tokyo', hour:'2-digit', minute:'2-digit'})} JST` : '');
     if(f)$('flowSummary').innerHTML=`<strong>${f.direction>0?'↑ 上向き保持':f.direction<0?'↓ 下向き保持':'— 未確定'}</strong><span>高安構造 ${f.structure>0?'↑':f.structure<0?'↓':'→'} / EMA5対144 ${f.ribbon>0?'↑':f.ribbon<0?'↓':'→'} / 転換票 ${f.votes}/${f.requiredVotes}</span><span>H1一致 ${f.hourlyAligned?'あり':'なし'} ｜ 出来高 ${fmt(f.volumeRatio,2)}倍 ｜ ${f.rank||'—'}${f.badge?' +'+f.badge:''}</span><span>${f.pullbackConfirmed?'P：押し目・奪還・出来高・H1一致':f.absorption?'吸収候補：出来高に対して値幅が小さい（推定）':'P条件待ち'} / ADX ${fmt(a.exec.values.adx,1)} / リボン幅 ${fmt(f.widthATR,2)} ATR</span><small>矢印＝確定足のリボン転換／保持方向の転換。H1 OB＝現在有効な推定帯（過去の成立証拠ではありません）。黄EXIT注意＝EMA13を反対側で2本確定。反転エントリーではありません。S/A/B・V/VRは独自条件の分類で、勝率順位ではありません。POC/VAは直近96本のOHLCV近似。</small>`;
     const context=window.MultiAnalyzerEvidence.context(a);
     $('smcContext').innerHTML=Object.entries({環境:context.environment,位置:context.location,確認:context.confirmation,撤退注意:context.exit}).map(([label,value])=>`<p><strong>${label}</strong><span>${esc(value)}</span></p>`).join('');

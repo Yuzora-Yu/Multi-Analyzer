@@ -5,6 +5,18 @@ test('SMC context separates upper frames, current events, ribbon conflict and ex
  const c=E.context(a);assert.match(c.environment,/H4構造 下向き/);assert.match(c.confirmation,/不一致/);assert.match(c.exit,/売りEXIT/);assert.doesNotMatch(c.confirmation,/BOS/);
  a.exec.quality.stale=true;assert.equal(E.context(a).confirmation,'判定を保留');
 });
+test('a current confirmed CHoCH remains visible alongside a conflicting ribbon without changing the decision',()=>{
+ const time=1800000,a={generatedAt:time+900000,state:'NO_TRADE',actionable:false,exec:{ready:true,intervalMinutes:15,quality:{stale:false},candles:[{time,close:102}],flow:{latest:{time,structure:-1,direction:-1,ribbon:1}},smc:{events:[{time,type:'CHoCH',side:'bull',price:100}]}}};
+ const before=structuredClone(a),c=E.context(a);
+ assert.match(c.confirmation,/最新確定足：上向き CHoCH 100\.00/);assert.match(c.confirmation,/保持方向とリボンが不一致/);assert.match(c.confirmation,/新規入場の成立は別/);assert.deepEqual(a,before);
+});
+test('current event text excludes old, future, unfinished and malformed events',()=>{
+ const time=1800000,a={generatedAt:time+900000,exec:{intervalMinutes:15,quality:{stale:false},candles:[{time,close:102}],flow:{latest:{time}},smc:{events:[{time:time-900000,type:'BOS',side:'bull',price:100},{time:time+900000,type:'CHoCH',side:'bull',price:100},{time,type:'BOS',side:'unknown',price:100},{time,type:'ENTRY',side:'bull',price:100},{time,type:'SWEEP',side:'bear',price:103}]}}};
+ assert.equal(E.currentEventsText(a),'下向き SWEEP 103.00');
+ a.generatedAt--;assert.equal(E.currentEventsText(a),'');a.generatedAt++;a.exec.quality.stale=true;assert.equal(E.currentEventsText(a),'');
+ a.exec.quality.stale=false;a.exec.candles[0].time+=900000;assert.equal(E.currentEventsText(a),'');
+ a.exec.candles[0].time=time;delete a.generatedAt;assert.equal(E.currentEventsText(a),'');
+});
 test('label spacing preserves transition explanations over nearby exit notices without removing markers',()=>{
  const m=[{time:1,text:'リボン ↓'},{time:2,text:'売 EXIT注意'},{time:20,text:'方向転換 売 B'}];
  E.spaceLabels(m,5);assert.equal(m.length,3);assert.equal(m[0].text,'リボン ↓');assert.equal(m[1].text,'');assert.equal(m[2].text,'方向転換 売 B');
