@@ -25,7 +25,7 @@
     if(!monitor||!Number.isFinite(monitorReceivedAt)||monitorReceivedAt>now||now-monitorReceivedAt>90000)return out('MONITOR_UNKNOWN',true,'監視状態を確認できません。表示中の足で新しい判断をしません。');
     if(!Number.isFinite(monitor.updatedAt)||monitor.updatedAt>now+5000||now-monitor.updatedAt>180000)return out('MONITOR_DELAY',true,'監視更新が遅れています。価格配信と共通判定の更新は別です。');
     if(monitor.state==='MARKET_CLOSED')return out('MARKET_CLOSED',true,'市場休場。表示中の足は最終取得時点の記録です。');
-    if(monitor.state==='DATA_ERROR'&&sessionCandlePending(snapshot,monitor,closedAt,now))return out('SESSION_CANDLE_PENDING',true,'GOLD休場明け・新しい15分確定足待ち。監視のSTALE_MARKETは保持し、新しい売買判断は保留します。');
+    if(monitor.state==='DATA_ERROR'&&sessionCandlePending(snapshot,monitor,closedAt,now))return out('SESSION_CANDLE_PENDING',true,'GOLD休場明け・新しい15分確定足待ち。前回の足を表示しています。新しい売買判断は保留します。');
     if(monitor.state==='DATA_ERROR'||monitor.error)return out('DATA_ERROR',true,'監視のデータ取得エラー。表示中の足は前回の記録です。');
     if(monitor.snapshotId!==snapshot.id)return out('ID_MISMATCH',true,'画面と監視の判定IDが未一致。同期するまで判断を保留します。');
     if(closedAt<Math.floor((now-2000)/900000)*900000)return out('NEXT_CANDLE_PENDING',true,'新しい確定足の共通判定を取得待ち。前回の足を表示しています。');

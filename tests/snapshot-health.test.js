@@ -23,7 +23,7 @@ function reopenedGold(now='2026-10-09T07:04:00+09:00',closed='2026-10-09T05:45:0
 }
 test('scheduled Gold reopening explains a pending first candle while keeping the error and decision block',()=>{
  const f=reopenedGold(),before=JSON.stringify(f),r=H.assess(f);
- assert.equal(r.kind,'SESSION_CANDLE_PENDING');assert.equal(r.blocked,true);assert.match(r.message,/STALE_MARKET/);assert.equal(JSON.stringify(f),before);
+ assert.equal(r.kind,'SESSION_CANDLE_PENDING');assert.equal(r.blocked,true);assert.match(r.message,/前回の足を表示/);assert.equal(f.monitor.error,'STALE_MARKET');assert.equal(JSON.stringify(f),before);
  assert.equal(H.assess(reopenedGold('2026-10-09T07:15:01+09:00')).kind,'SESSION_CANDLE_PENDING');
  assert.equal(H.assess(reopenedGold('2026-10-09T07:15:03+09:00')).kind,'DATA_ERROR');
 });
