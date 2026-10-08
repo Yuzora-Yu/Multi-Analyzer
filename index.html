@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=4.3.4-chart-bands1">
+  <link rel="stylesheet" href="styles.css?v=4.3.4-demo1">
   <script defer src="https://unpkg.com/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js"></script>
   <script defer src="market-feed.js?v=4.3.3-session"></script>
   <script defer src="price-basis.js?v=1"></script>
@@ -26,7 +26,8 @@
   <script defer src="snapshot-health.js?v=1"></script>
   <script defer src="review-pack.js?v=4.3.4-capture-pages1"></script>
   <script defer src="chart-evidence.js?v=4.3.4-current-smc1"></script>
-  <script defer src="app.js?v=4.3.4-current-smc1"></script>
+  <script defer src="demo-panel.js?v=1"></script>
+  <script defer src="app.js?v=4.3.4-demo1"></script>
 </head>
 <body>
   <div class="app-shell">
@@ -139,6 +140,7 @@
               <button data-insight-tab="signal" type="button">シグナル</button>
               <button data-insight-tab="plan" type="button">プラン</button>
               <button data-insight-tab="position" type="button">保有</button>
+              <button data-insight-tab="demo" type="button">デモ</button>
               <button data-insight-tab="detail" type="button">詳細</button>
             </nav>
 
@@ -227,6 +229,10 @@
                   <div class="position-stats"><span>含みR <strong id="unrealizedR">—</strong></span><span>ライブ価格 <strong id="positionLivePrice">—</strong></span></div>
                   <ul class="compact-list" id="positionReasons"><li>方向・建値・ストップを入力すると、ライブ価格でHOLD / REDUCE / EXITを更新します。</li></ul>
                 </article>
+              </section>
+
+              <section class="insight-page" data-insight-page="demo" aria-label="デモ取引の比較">
+                <div class="demo-panel" id="demoPanel"><p>デモ記録は未取得です。</p></div>
               </section>
 
               <section class="insight-page detail-page" data-insight-page="detail">

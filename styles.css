@@ -185,8 +185,8 @@ button { color: inherit; -webkit-tap-highlight-color: transparent; }
 
 .insight-panel { min-width: 0; min-height: 0; display: grid; grid-template-rows: 54px minmax(0,1fr); border-left: 1px solid var(--border-soft); background: rgba(11,16,22,.98); overflow: hidden; }
 .sheet-handle { display: none; }
-.insight-tabs { padding: 5px; display: grid; grid-template-columns: repeat(5,minmax(0,1fr)); gap: 4px; border-bottom: 1px solid var(--border-soft); background: #090d12; }
-.insight-tabs button { min-height: 44px; padding: 6px 4px; font-size: 10px; font-weight: 700; }
+.insight-tabs { padding: 5px; display: flex; gap: 4px; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: thin; border-bottom: 1px solid var(--border-soft); background: #090d12; }
+.insight-tabs button { flex:1 0 52px; min-height: 44px; padding: 6px 4px; font-size: 10px; font-weight: 700; white-space:nowrap; }
 .insight-tabs button.active { color: var(--gold); background: rgba(230,184,92,.10); }
 .insight-content { min-height: 0; overflow: hidden; }
 .insight-page { display: none; height: 100%; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: #344153 transparent; }
@@ -484,3 +484,34 @@ button { color: inherit; -webkit-tap-highlight-color: transparent; }
  .chart-toolbar .quote-line{gap:4px}
  .chart-toolbar .price-change{font-size:9px;padding:3px}
 }
+
+/* Forward demo records stay inside the existing scrollable analysis sheet. */
+.demo-panel{padding:14px;min-width:0;font-size:12px;line-height:1.65}
+.demo-panel h2{margin:4px 0;font-size:17px}.demo-panel h3{margin:0;font-size:15px}
+.demo-panel p{margin:6px 0;overflow-wrap:anywhere}
+.demo-status{padding:12px;border:1px solid #40516a;border-radius:9px;background:#111d2b;margin:10px 0}
+.demo-status strong{font-size:14px}.demo-status p{color:#b9c7d5}
+.demo-status.demo-error{border-color:#8d545d;background:#2a171e}.demo-status.demo-paused{border-color:#545a65;background:#171c25}
+.demo-protocol{padding:10px 0;color:#b9c7d5}.demo-protocol>strong{color:var(--text)}
+.demo-provenance{margin:6px 0 14px;border-block:1px solid var(--border)}
+.demo-panel summary{min-height:44px;cursor:pointer;padding:11px 0;font-size:12px}
+.demo-provenance dl{margin:0 0 10px}.demo-provenance dl>div{padding:4px 0}
+.demo-provenance dt{color:var(--muted);font-size:11px}.demo-provenance dd{margin:2px 0;font-size:11px;overflow-wrap:anywhere}
+.demo-books{display:grid;gap:14px;min-width:0}
+.demo-book{border:1px solid #344153;border-radius:10px;background:#101923;padding:12px;min-width:0}
+.demo-book-heading,.demo-trade-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:0}
+.demo-book-heading h3{overflow-wrap:anywhere}.demo-phase{font-size:10px;padding:3px 6px;border:1px solid #435168;border-radius:6px;color:#b9c7d5;white-space:nowrap}
+.demo-result{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin:12px 0}.demo-result>span{color:var(--muted);font-size:11px}
+.demo-result>strong{font:700 22px "JetBrains Mono",monospace;overflow-wrap:anywhere;text-align:right}
+.demo-stats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 8px;margin:12px 0}
+.demo-stats dt{font-size:10px;color:var(--muted)}.demo-stats dd{margin:3px 0 0;font:600 12px/1.6 "JetBrains Mono",monospace;overflow-wrap:anywhere}
+.demo-positive{color:var(--green)}.demo-negative{color:var(--red)}
+.demo-plan{margin:12px 0;padding:10px;background:#192536;border:1px solid #41546e;border-radius:8px}.demo-plan>.demo-stats{grid-template-columns:1fr;margin:8px 0}
+.demo-plan p,.demo-time,.demo-note{font-size:11px;color:var(--muted)}
+.demo-reason{padding-top:8px;border-top:1px solid #29384a}
+.demo-sensitivity{margin:10px 0;padding-top:8px;border-top:1px solid #29384a}.demo-sensitivity>span{font-size:10px;color:var(--muted)}
+.demo-sensitivity>div{display:flex;justify-content:space-between;gap:8px;margin-top:4px;font-size:11px}.demo-sensitivity strong{font-family:"JetBrains Mono",monospace}
+.demo-history{border-top:1px solid #29384a;margin-top:12px}.demo-trade{padding:12px 0;border-top:1px solid #29384a}.demo-trade p{font-size:10px;color:#b9c7d5}
+.demo-trade-heading>span{font:600 13px "JetBrains Mono",monospace}.demo-footnote{font-size:11px;color:var(--muted);margin:16px 0}
+.demo-export{width:100%;min-height:44px}
+@media(max-width:1024px){.insight-tabs button{flex-basis:56px}.demo-panel{padding:12px 10px}.demo-panel .demo-book{padding:12px}.demo-panel .demo-status strong{font-size:15px}}

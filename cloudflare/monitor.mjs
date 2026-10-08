@@ -5,6 +5,7 @@ import { canReuse } from './logic.mjs';
 import Events from '../alert-event.js';
 import Feed from '../market-feed.js';
 import { fetchBybitCandles, responseDiagnostic, DIAGNOSTICS_VERSION } from './market-response.mjs';
+import { observeDemo, demoView, demoJournal, demoSource } from './demo-store.mjs';
 
 const ASSETS = {gold:'XAUUSDT',btc:'BTCUSDT'};
 const INTERVALS = {m15:15,h1:60,h4:240};
@@ -23,6 +24,9 @@ export class MarketMonitor extends DurableObject {
   }
   async snapshot(id){return (await this.ctx.storage.get(id ? 'snapshot:'+id : 'snapshot')) || (id ? this.ctx.storage.get('alert:'+id) : undefined);}
   async status(){ const status=await this.ctx.storage.get('status') || {state:'NOT_STARTED',updatedAt:0}; return {...status,nextRunAt:await this.ctx.storage.getAlarm()}; }
+  async demo(){const status=await this.ctx.storage.get('status');return {...await demoView(this.ctx.storage,await this.ctx.storage.get('asset'),Date.now(),status?.demoError?'DATA_ERROR':status?.state),...(status?.demoError?{errorCode:status.demoError}:{} )};}
+  async demoHistory(cursor,limit){return demoJournal(this.ctx.storage,cursor,limit);}
+  async demoOriginal(id){return demoSource(this.ctx.storage,id);}
   async tick(asset, dryRun=false){
     if(!ASSETS[asset]) throw new Error('Invalid asset');
     if(this.pending) return this.pending;
@@ -68,6 +72,11 @@ export class MarketMonitor extends DurableObject {
       }
       const analysis=Core.analyzeMarket(Feed.input(snapshot),snapshot.settings);
       await this.ctx.storage.put('snapshot',snapshot);
+      if(!dryRun){
+        // Demo failure cannot change production analysis, virtual alert references or delivery.
+        try{await observeDemo(this.ctx.storage,snapshot,analysis,Date.now(),t=>Feed.collectionPolicy(asset,t).allowed);status.demoError=null;}
+        catch{status.demoError='DEMO_RECORDING_ERROR';}
+      }
       const note='BybitのUSDT参考市場。金は無期限契約、BTCは現物です。出来高は同取引所の取引量で、XMのUSD価格・世界全体の出来高とは異なります。ランク・バッジ・スコアは勝率ではありません。撤退通知は前回の候補を保有している場合の案内で、実際の保有情報は取得していません。通知は15分確定足で確認し、ブローカーのSL注文を代行しません。';
       const position=snapshot.settings.position;
       const exit=analysis.positionDecision?.action.startsWith('EXIT');
@@ -129,6 +138,21 @@ export default {
       if(!ASSETS[asset] || (id && !/^(gold|btc)-[0-9]+-[0-9.]+$/.test(id)))return new Response('Invalid snapshot',{status:400});
       const snapshot=await env.MONITOR.getByName(asset).snapshot(id);
       return Response.json(snapshot||{error:'Snapshot expired or not ready'},{status:snapshot?200:404,headers:{'Access-Control-Allow-Origin':'*','Cache-Control':'public, max-age=15'}});
+    }
+    if(request.method==='GET' && ['/api/demo','/api/demo/journal','/api/demo/source'].includes(url.pathname)){
+      const asset=url.searchParams.get('asset');
+      if(!ASSETS[asset])return new Response('Invalid asset',{status:400});
+      const stub=env.MONITOR.getByName(asset);
+      if(url.pathname==='/api/demo/source'){
+        const id=url.searchParams.get('id');
+        if(!id||!id.startsWith(asset+'-')||!/^(gold|btc)-[0-9]+-[0-9.]+$/.test(id))return new Response('Invalid source',{status:400});
+        const source=await stub.demoOriginal(id);
+        return Response.json(source||{error:'Demo source unavailable'},{status:source?200:404,headers:{'Access-Control-Allow-Origin':'*','Cache-Control':'no-store'}});
+      }
+      const cursor=Number(url.searchParams.get('cursor')||0),limit=Number(url.searchParams.get('limit')||100);
+      if(!Number.isSafeInteger(cursor)||cursor<0||!Number.isSafeInteger(limit)||limit<1||limit>200)return new Response('Invalid page',{status:400});
+      const data=url.pathname==='/api/demo'?await stub.demo():await stub.demoHistory(cursor,limit);
+      return Response.json(data,{headers:{'Access-Control-Allow-Origin':'*','Cache-Control':'no-store'}});
     }
     if(!authorized(request,env))return new Response('Not found',{status:404});
     if(request.method!=='POST')return new Response('Method not allowed',{status:405});

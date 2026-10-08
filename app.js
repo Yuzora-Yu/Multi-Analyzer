@@ -81,6 +81,8 @@
     : '—';
   const pct = value => value != null && Number.isFinite(Number(value)) ? `${Number(value).toFixed(1)}%` : '—';
   const esc = value => String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+  let demoPanel = null;
+  function demoContext(){return {asset:state.instrumentId,offline:state.offlineCsv,archived:INITIAL_PARAMS.has('snapshot'),marketClosed:!Feed.collectionPolicy(state.instrumentId).allowed,snapshotId:state.snapshot?.id||null};}
 
   function currentInstrument() { return INSTRUMENTS[state.instrumentId]; }
   function loadChartBands(){try{return localStorage.getItem(CHART_BANDS_KEY)!=='off';}catch{return true;}}
@@ -159,6 +161,7 @@
 
   function pauseClosedMarket(){
     if(state.offlineCsv||INITIAL_PARAMS.has('snapshot')||Feed.collectionPolicy(state.instrumentId).allowed)return false;
+    demoPanel?.sync();
     stopRealtime();
     state.marketPaused=true;
     $('signalBadge').textContent='GOLD休場';
@@ -180,13 +183,14 @@
     if(loadId!==state.loadId)return;
     if(snapshot.version!==Core.VERSION||snapshot.asset!==state.instrumentId){state.snapshotError=true;if(state.snapshot)analyzeAndRender();throw new Error(snapshot.version!==Core.VERSION?'分析バージョンが更新されています。ページを再読み込みしてください':'通知の銘柄が一致しません');}
     state.snapshotError=false;
-    if(state.snapshot?.id===snapshot.id){analyzeAndRender();return;}
+    if(state.snapshot?.id===snapshot.id){demoPanel?.refresh();analyzeAndRender();return;}
     state.snapshot=snapshot;
     state.data=Feed.input(snapshot);
     state.analysisKey=null;
     state.livePrice=state.data.exec.at(-1).close;
     state.feedAt=Date.now();
     analyzeAndRender();renderChart();
+    demoPanel?.refresh();
   }
 
   async function loadAllData() {
@@ -219,6 +223,7 @@
     $('sourceNotice').textContent = `分析対象: ${currentInstrument().symbol} / USDT建て参考市場`;
     $('referenceQuote').textContent = 'USD参考価格を取得中';
     state.offlineCsv = false;
+    demoPanel?.sync();
     if(pauseClosedMarket())return;
     state.marketPaused=false;
     refreshServices();
@@ -853,6 +858,7 @@
     const id = state.instrumentId;
     const loadId=state.loadId;
     if(pauseClosedMarket())return;
+    demoPanel?.refresh();
     const requestId=++state.servicesRequestId;
     const current=()=>id===state.instrumentId&&loadId===state.loadId&&requestId===state.servicesRequestId&&!state.marketPaused;
     const monitorUnavailable=()=>{if(!current())return;state.monitor=null;state.monitorReceivedAt=0;$('monitorStatus').textContent='クラウド監視の状態を取得できません。';if(state.snapshot)analyzeAndRender();};
@@ -927,6 +933,7 @@
       state.loadId++;
       state.analysisKey = null;
       state.offlineCsv = true;
+      demoPanel?.sync();
       state.micro = { bid: null, ask: null, spreadBps: null, bookImbalance: 0, markPrice: null, indexPrice: null, basisBps: 0, fundingRate: 0, nextFundingTime: null };
       const minutes = Core.inferIntervalMinutes(candles) || currentTf().minutes;
       const match = Object.entries(TF).find(([, v]) => v.minutes === minutes);
@@ -1045,7 +1052,7 @@
 
   function setInsightTab(tab) {
     state.insightTab = tab;
-    qsa('[data-insight-tab]').forEach(button => button.classList.toggle('active', button.dataset.insightTab === tab));
+    qsa('[data-insight-tab]').forEach(button => {const active=button.dataset.insightTab===tab;button.classList.toggle('active',active);button.setAttribute('aria-pressed',String(active));});
     qsa('[data-insight-page]').forEach(page => page.classList.toggle('active', page.dataset.insightPage === tab));
     if (window.matchMedia('(max-width: 1024px)').matches) {
       $('insightPanel').classList.remove('sheet-collapsed');
@@ -1179,6 +1186,7 @@
   function init() {
     if (window.matchMedia('(max-width: 1024px)').matches) $('chartRange').value = '90';
     window.MultiAnalyzerReview.init({getAsset:()=>state.instrumentId,getArchiveId:()=>INITIAL_PARAMS.get('snapshot'),onLayout:scheduleChartResize});
+    demoPanel=window.MultiAnalyzerDemoPanel?.create({root:$('demoPanel'),fetchJson,getContext:demoContext,baseUrl:CLOUD})||null;
     qsa('.instrument-tab').forEach(b => b.classList.toggle('active', b.dataset.instrument === state.instrumentId));
     qsa('.timeframes button').forEach(b => b.classList.toggle('active', b.dataset.tf === state.tf));
     bindEvents();

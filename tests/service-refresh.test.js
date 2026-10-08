@@ -4,7 +4,7 @@ const source=app.slice(app.indexOf('  async function refreshServices()'),app.ind
 const deferred=()=>{let resolve,reject;const promise=new Promise((a,b)=>{resolve=a;reject=b;});return{promise,resolve,reject};};
 function setup(){
  const state={instrumentId:'gold',loadId:1,servicesRequestId:0,monitor:null,monitorReceivedAt:0,snapshot:{}},elements={},requests=[],renders=[];
- const refresh=vm.runInNewContext(source+';refreshServices',{state,STATIC_HOST:false,CLOUD:'cloud',pauseClosedMarket:()=>false,fetchJson:url=>{const d=deferred();requests.push({url,...d});return d.promise;},$:id=>elements[id]??=({textContent:''}),fmt:x=>String(x),analyzeAndRender:()=>renders.push(state.monitor),Date,Promise});
+ const refresh=vm.runInNewContext(source+';refreshServices',{state,demoPanel:null,STATIC_HOST:false,CLOUD:'cloud',pauseClosedMarket:()=>false,fetchJson:url=>{const d=deferred();requests.push({url,...d});return d.promise;},$:id=>elements[id]??=({textContent:''}),fmt:x=>String(x),analyzeAndRender:()=>renders.push(state.monitor),Date,Promise});
  return{state,elements,requests,renders,refresh};
 }
 const status=(at=Date.now())=>({updatedAt:at,assets:{gold:{updatedAt:at,state:'NO_TRADE',snapshotId:'gold-test'}}});
