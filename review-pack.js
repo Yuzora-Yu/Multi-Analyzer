@@ -214,31 +214,62 @@
     for(const a of items){x.fillStyle='#dbe7f2';y=lines(x,`${a.asset.toUpperCase()} | ${a.state} | ${a.stale?'保存時に20分超経過':'取得時点の記録'} | 基準 ${jst(a.cutoff)}`,30,y,1200);y=lines(x,`コスト後RR ${num(a.netRR)} / ${a.reasons.join(' / ')||'研究用候補の条件成立'}`,30,y,1200);y+=10;x.fillStyle='#92adc1';x.fillText('時間足         構造         リボン          ADX          出来高倍率',30,y);y+=30;for(const f of a.frames){x.fillStyle='#dbe7f2';x.fillText(f.missing?`${f.tf} — 取得不能`:`${f.tf.padEnd(5)}          ${f.structure==null?'?':dir(f.structure)}              ${f.ribbon==null?'?':dir(f.ribbon)}              ${num(f.adx)}             ${num(f.volume)}x`,30,y);y+=30;}y+=28;}
     x.fillStyle='#e6b85c';lines(x,'方向の一致は勝率ではありません。15分以外は環境比較用。保存後の現在相場は公開ページで更新してください。',30,y,1200);return c;}
   function prompt(pack){return pack.assets.map(a=>a.asset.toUpperCase()+'\n'+decisionText(decision(a,pack.capturedAt)).join('\n')).join('\n\n')+'\n\n'+`添付はMulti-Analyzerの確定足レビューです。利益が出るとの前提を置かず、データ鮮度、欠損、上位足構造、EMAリボン、出来高近似、コスト、反証条件から検討してください。EXITを即逆張りと解釈しないでください。\n比較対象：${pack.assets.map(a=>a.asset).join(', ')}。取得開始 ${jst(pack.capturedAt)}。各銘柄の基準時刻・設定・保存判定IDは manifest.json と画像に記載。通常表示の15分以外は取得開始時点の最新確定足で、15分判定後の情報を含みます。過去判定の評価材料に遡及混入しないでください。過去保存表示は当時の時刻を維持します。時間足ごとの終値時刻は異なります。\n1. 現状は待機/押し目/戻り/撤退注意のどれか、根拠と不成立条件\n2. 15分共通判定と1分/5分のタイミング、1時間/4時間/日足の環境は整合するか\n3. 参考SL/TPに対するコストと損益比、飛び乗りを避ける確認水準\n4. この1例から勝率を推定せず、今後記録すべき比較仮説\n画像は直近180本、JSONは全取得確定足を含みます。POCは直近96本の近似で、全世界の約定ではありません。\nhttps://yuzora-yu.github.io/Multi-Analyzer/\n${pack.assets.map(a=>`https://yuzora-yu.github.io/Multi-Analyzer/?asset=${a.asset}&snapshot=${a.snapshot.id}`).join('\n')}\n保存画像は過去の基準時刻の記録であり、現在価格ではありません。`;}
-  async function collect(assets,{signal,archivedId,onProgress=()=>{}}={}){
+  function captureTransport({signal,sharePages=true,fetcher=(url,options)=>fetch(url,options),now=Date.now,monotonic=()=>performance.now()}={}){
+    const pages=new Map(),trace={version:'capture-local-kline-sharing-v1',sharingEnabled:sharePages,requests:[],uses:[],frames:[],scope:'One capture only. Shared pages retain their original response receipt; no later fetch or historical forecast is inferred.'};
+    function shareable(url,data){
+      const u=new URL(url),list=data?.result?.list;
+      return u.origin==='https://api.bybit.com'&&u.pathname==='/v5/market/kline'&&data?.retCode===0&&Array.isArray(list)&&list.length>0&&
+        (!data.result.symbol||data.result.symbol===u.searchParams.get('symbol'))&&
+        (!data.result.category||data.result.category===u.searchParams.get('category'))&&
+        list.every(b=>Array.isArray(b)&&b.length>=6&&b.slice(0,6).every(v=>Number.isFinite(Number(v)))&&Number(b[0])>0&&Number(b[3])>0&&Number(b[5])>=0&&Number(b[2])>=Math.max(Number(b[1]),Number(b[4]))&&Number(b[3])<=Math.min(Number(b[1]),Number(b[4])));
+    }
+    function use(request,context,reused){trace.uses.push({id:trace.uses.length,requestId:request.id,...context,reused,usedAt:now(),originalRequestedAt:request.requestedAt,originalReceivedAt:request.receivedAt});}
+    async function get(url,context={}){
+      signal?.throwIfAborted();
+      const cached=sharePages?pages.get(url):null;
+      if(cached){use(cached.request,context,true);return structuredClone(cached.data);}
+      const request={id:trace.requests.length,url,...context,requestedAt:now(),receivedAt:null,httpStatus:null,status:'pending'},tick=monotonic();trace.requests.push(request);
+      try{
+        const response=await fetcher(url,{signal:AbortSignal.any([signal||new AbortController().signal,AbortSignal.timeout(15000)])});
+        request.httpStatus=Number.isFinite(response.status)?response.status:null;
+        if(!response.ok)throw Error(`HTTP ${response.status}`);
+        const data=await response.json();signal?.throwIfAborted();
+        request.receivedAt=now();request.status='received';request.serverTime=Number.isFinite(data.time)?data.time:null;
+        request.bybitCode=Number.isFinite(data.retCode)?data.retCode:null;request.shareable=sharePages&&shareable(url,data);
+        if(request.shareable)pages.set(url,{data:structuredClone(data),request});
+        use(request,context,false);return data;
+      }catch(error){request.status='failed';request.error=error.message;throw error;}
+      finally{request.completedAt=now();request.durationMs=monotonic()-tick;}
+    }
+    return {get,trace};
+  }
+  async function collect(assets,{signal,archivedId,onProgress=()=>{},sharePages=true}={}){
     const Core=globalThis.MultiAnalyzerCore,Feed=globalThis.MultiAnalyzerFeed,pack={schema:2,mode:archivedId?'archived':'latest',capturedAt:Date.now(),version:Core.VERSION,assets:[],records:[],errors:[],policy};
-    async function get(url){const r=await fetch(url,{signal:AbortSignal.any([signal||new AbortController().signal,AbortSignal.timeout(15000)])});if(!r.ok)throw Error(`HTTP ${r.status}`);return r.json();}
+    const transport=captureTransport({signal,sharePages});pack.acquisition=transport.trace;
     for(const asset of assets){
       signal?.throwIfAborted();
       if(!archivedId&&!Feed.collectionPolicy(asset).allowed){pack.errors.push({asset,tf:'all',error:'GOLD休場・データ取得停止'});continue;}
       signal?.throwIfAborted();onProgress(`${asset}: 共通判定を取得`);
-      let s;try{s=await get(`https://multi-analyzer-monitor.rikai-829.workers.dev/api/snapshot?asset=${asset}${archivedId?'&id='+encodeURIComponent(archivedId):''}`);}catch(e){if(signal?.aborted)throw e;pack.errors.push({asset,tf:'all',error:e.message});continue;}
+      let s;try{s=await transport.get(`https://multi-analyzer-monitor.rikai-829.workers.dev/api/snapshot?asset=${asset}${archivedId?'&id='+encodeURIComponent(archivedId):''}`,{asset,tf:'canonical'});}catch(e){if(signal?.aborted)throw e;pack.errors.push({asset,tf:'all',error:e.message});continue;}
       if(s.version!==Core.VERSION||!s.bars?.m15||s.asset!==asset)throw Error('共通判定の銘柄・バージョン不一致');
       const decisionCutoff=s.settings.now,input=Feed.input(s),marketSignal=Core.analyzeMarket(input,s.settings),entry={asset,snapshot:s,signal:marketSignal};pack.assets.push(entry);
       for(const [tf,minutes] of frames){
         signal?.throwIfAborted();onProgress(`${asset} ${tf}: 確定足を取得`);
+        const frame={asset,tf,startedAt:Date.now(),status:'pending',firstUseId:transport.trace.uses.length},frameTick=performance.now();transport.trace.frames.push(frame);
         try{
           const cutoff=archivedId||tf==='15m'?decisionCutoff:pack.capturedAt;
-          const rows=tf==='15m'?input.exec:closed(Core.normalizeCandles(await Feed.load(asset,minutes,1000,get,cutoff-1)),minutes,cutoff);
+          const rows=tf==='15m'?input.exec:closed(Core.normalizeCandles(await Feed.load(asset,minutes,1000,url=>transport.get(url,{asset,tf}),cutoff-1)),minutes,cutoff);
           if(!rows.length)throw Error('確定足なし');
           const analysis=tf==='15m'?marketSignal.exec:Core.analyzeTimeframe(rows,minutes,cutoff,asset);
-          pack.records.push({asset,tf,minutes,rows,analysis,signal:tf==='15m'?marketSignal:null,cutoff,decisionCutoff,timeBasis:archivedId?'archived-decision':tf==='15m'?'canonical-decision':'latest-closed',capturedAt:pack.capturedAt,snapshotId:s.id,version:Core.VERSION});
-        }catch(e){if(signal?.aborted)throw e;pack.errors.push({asset,tf,error:e.message});}
+          pack.records.push({asset,tf,minutes,rows,analysis,signal:tf==='15m'?marketSignal:null,cutoff,decisionCutoff,timeBasis:archivedId?'archived-decision':tf==='15m'?'canonical-decision':'latest-closed',capturedAt:pack.capturedAt,snapshotId:s.id,version:Core.VERSION,acquisitionUseIds:transport.trace.uses.slice(frame.firstUseId).map(u=>u.id)});frame.status='complete';
+        }catch(e){frame.status='failed';frame.error=e.message;if(signal?.aborted)throw e;pack.errors.push({asset,tf,error:e.message});}
+        finally{frame.completedAt=Date.now();frame.durationMs=performance.now()-frameTick;frame.useCount=transport.trace.uses.length-frame.firstUseId;}
       }
     }
     if(!pack.records.length)throw Error('取得できた時間足がありません');
     const Health=globalThis.MultiAnalyzerSnapshotHealth;
     if(Health){let monitor=null,receivedAt=0;
-      if(!archivedId){signal?.throwIfAborted();try{monitor=await get('https://multi-analyzer-monitor.rikai-829.workers.dev/api/monitor');receivedAt=Date.now();}catch(e){if(signal?.aborted)throw e;}}
+      if(!archivedId){signal?.throwIfAborted();try{monitor=await transport.get('https://multi-analyzer-monitor.rikai-829.workers.dev/api/monitor',{tf:'health'});receivedAt=Date.now();}catch(e){if(signal?.aborted)throw e;}}
       const assessedAt=Date.now();for(const a of pack.assets)a.health=Health.assess({snapshot:a.snapshot,monitor:monitor?.assets?.[a.asset],monitorReceivedAt:receivedAt,now:assessedAt,archived:Boolean(archivedId)});
     }
     for(const a of pack.assets)a.consultation=consultation(a,pack.capturedAt,{archived:Boolean(archivedId)});
@@ -288,5 +319,5 @@
       }catch(e){status.textContent='保存失敗：'+e.message;}finally{button.disabled=false;$('reviewRefresh').disabled=false;$('reviewBoth').disabled=Boolean(getArchiveId());}
     });
   }
-  return{context,reasons,init,collect,zip,zipCompressed,crc32,closed,frames,policy,facts,prompt,overview,decision,decisionText,calendarText,consultation,confirmationContext,costContext,executionContext,chartContextSeries,chartImage};
+  return{context,reasons,init,collect,captureTransport,zip,zipCompressed,crc32,closed,frames,policy,facts,prompt,overview,decision,decisionText,calendarText,consultation,confirmationContext,costContext,executionContext,chartContextSeries,chartImage};
 });

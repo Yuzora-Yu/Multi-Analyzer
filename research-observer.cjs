@@ -68,7 +68,7 @@ async function run(){
     global.MultiAnalyzerCore=Core;global.MultiAnalyzerFeed=Feed;
     try{
       const pack=await require('./review-pack').collect(['gold','btc']);
-      const capture={capturedAt:pack.capturedAt,version:pack.version,errors:pack.errors,records:pack.records.map(r=>({asset:r.asset,tf:r.tf,minutes:r.minutes,cutoff:r.cutoff,snapshotId:r.snapshotId,bars:Feed.pack(r.rows)}))};
+      const capture={capturedAt:pack.capturedAt,version:pack.version,errors:pack.errors,acquisition:pack.acquisition,records:pack.records.map(r=>({asset:r.asset,tf:r.tf,minutes:r.minutes,cutoff:r.cutoff,snapshotId:r.snapshotId,bars:Feed.pack(r.rows),acquisitionUseIds:r.acquisitionUseIds}))};
       const target=path.join(DIR,'multiframe');fs.mkdirSync(target,{recursive:true});
       const file=path.join(target,`${pack.capturedAt}.json.gz`);fs.writeFileSync(file,require('node:zlib').gzipSync(JSON.stringify(capture)),{flag:'wx'});summary.multiframe={records:capture.records.length,file:path.basename(file),errors:pack.errors};
     }catch(e){summary.multiframe={error:e.message};}
