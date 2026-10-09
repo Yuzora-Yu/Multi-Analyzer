@@ -129,19 +129,49 @@
   function consultation(a,now,{archived=false}={}){
     const Focus=globalThis.MultiAnalyzerZoneFocus,C=globalThis.MultiAnalyzerCheckpoint,G=globalThis.MultiAnalyzerZoneGeometry;
     const zones=(a.signal.marketMap?.candidates||[]).map(z=>{
-      const geometry=!archived&&a.health?.blocked?null:G?.describe(a.signal,z)||null;
+      const withdrawal=zoneWithdrawal(a.signal,z);
+      const geometry=withdrawal||(!archived&&a.health?.blocked)?null:G?.describe(a.signal,z)||null;
       const geometryText=geometry?G.text(geometry):[];
       const preview=confirmationContext(a.signal,z,num,archived?null:a.health);
       const confirmationPreview=archived?{...preview,scope:'saved-decision-checkpoint-reconstruction',text:'保存判定からの後日再構築。当時の表示・追跡成立や現在の条件を示すものではありません。'+preview.text.replace('今から固定追跡する場合','この保存判定を基準に固定する場合')}:preview;
-      return {zone:structuredClone(z),focus:Focus?.describe(a.signal,z)||null,geometry,geometryText,confirmationPreview,
+      return {zone:structuredClone(z),withdrawal,focus:Focus?.describe(a.signal,z)||null,geometry,geometryText,confirmationPreview,
         geometryBasis:{sourceId:a.snapshot?.id??null,sourceClosedAt:a.signal.m15?.candles?.at(-1)?.time!=null?a.signal.m15.candles.at(-1).time+900000:null,reviewCapturedAt:now,calculatedAt:Date.now(),
           scope:archived?'saved-decision-reconstruction':'current-candidate-description',note:archived?'保存判定の元候補・確定スイングから後で計算した距離です。当時の表示・保存・約定の証拠ではなく、現在の水準でもありません。':'この候補から新しく追跡を始める場合の距離です。保存済みチェックポイントの条件は変更しません。'}};
     });
     const checkpoints=archived?[]:(C?.read()||[]).filter(c=>c.asset===a.asset&&c.savedAt<=now).map(c=>C.advance(c,a.signal,{now,allowed:!a.health?.blocked&&(globalThis.MultiAnalyzerFeed?.collectionPolicy(a.asset).allowed??true)}));
     return {basis:'Bybit元市場価格。端末の固定帯は保存時の換算を別記。',trendContext:globalThis.MultiAnalyzerTrendContext?.describe(a.signal)||null,zones,checkpoints,checkpointText:checkpoints.flatMap(c=>C.describe(c)),note:archived?'過去判定に現在の端末チェックポイントを混入しません。':'端末内の観察記録。保存後の追跡であり、元の予測やPサインを書き換えません。'};
   }
+  // Presentation evidence only. The snapshot and its fixed engine verdict stay intact.
+  function zoneWithdrawal(a,z){
+    const step=900000,tf=a?.m15,minutes=({'15m':15,'1H':60,'4H':240})[z?.frame];
+    if(!tf?.ready||tf.intervalMinutes!==15||!Number.isFinite(a.generatedAt)||!minutes||
+      !['SHORT','LONG'].includes(z?.direction)||![z.time,z.low,z.high,z.invalidationClose].every(Number.isFinite)||
+      z.time<0||z.low<=0||z.high<z.low||z.invalidationClose<=0)return null;
+    // A zone was only known after its creation frame closed, never at its open.
+    const knownFrom=z.time+minutes*60000,short=z.direction==='SHORT',bars=new Map(),conflicts=new Set();
+    for(const b of tf.candles||[]){
+      if(![b.time,b.open,b.high,b.low,b.close].every(Number.isFinite)||b.time%step!==0||b.low<=0||
+        b.high<Math.max(b.open,b.close)||b.low>Math.min(b.open,b.close)||
+        b.time+step>a.generatedAt||b.time+step<=knownFrom)continue;
+      const prior=bars.get(b.time);
+      if(prior&&['open','high','low','close'].some(k=>prior[k]!==b[k]))conflicts.add(b.time);
+      else bars.set(b.time,b);
+    }
+    const broken=[...bars.values()].filter(b=>!conflicts.has(b.time)).sort((x,y)=>x.time-y.time)
+      .find(b=>short?b.close>z.invalidationClose:b.close<z.invalidationClose);
+    if(!broken)return null;
+    return {status:'WITHDRAWAL_OBSERVED',scope:'available-snapshot-closed-candles',zoneId:z.id??null,
+      direction:z.direction,invalidationClose:z.invalidationClose,knownFrom,closedAt:broken.time+step,
+      barOpenAt:broken.time,close:broken.close,sourceGeneratedAt:a.generatedAt,
+      note:'この保存判定に含まれる確定足での撤回条件通過です。元の共通判定・通知・保存済み追跡は変更しません。表示範囲外の過去は未確認です。'};
+  }
+  function withdrawalText(w,price=num){
+    return `${jst(w.closedAt)} の15分終値 ${price(w.close)} が元の撤回境界 ${price(w.invalidationClose)} を${w.direction==='SHORT'?'上回り':'下回り'}ました。帯内に戻っても、元の見立ては再開しません。新しい固定追跡・確認価格・残り値幅は表示しません。`;
+  }
   function confirmationContext(a,z,price=num,health=null){
     if(health?.blocked)return {available:false,minutes:15,scope:'suspended-checkpoint-preview',reason:health.kind||'PRESENTATION_BLOCKED',text:'判断保留中のため、新しい固定追跡の確認価格は表示しません。'+(health.message||'共通判定の状態を確認してください。')+' 保存済み追跡は元条件を維持します。'};
+    const withdrawal=zoneWithdrawal(a,z);
+    if(withdrawal)return {available:false,minutes:15,scope:'withdrawn-checkpoint-preview',reason:'WITHDRAWAL_OBSERVED',withdrawal,text:withdrawalText(withdrawal,price)};
     const g=globalThis.MultiAnalyzerZoneGeometry?.describe(a,z),short=z?.direction==='SHORT',closedAt=a?.m15?.candles?.at(-1)?.time+900000;
     if(!g?.available||!Number.isFinite(closedAt))return {available:false,minutes:15,text:'固定追跡の確認価格は未取得です。帯への接触だけでは成立と判定しません。'};
     return {available:true,minutes:15,sourceClosedAt:closedAt,direction:z.direction,zoneEdge:short?z.low:z.high,pivot:g.pivot,boundary:g.boundary,comparison:short?'strictly-below':'strictly-above',scope:'new-checkpoint-preview',
@@ -191,8 +221,8 @@
       basis?.note||'元判定の予定情報です。現在の予定を過去の判定に混入しません。'];
   }
   function decisionText(d){const q=d.consultation;return [...(q?.checkpointText?.length?['前回固定したチェックポイント（元条件で先に確認）',...q.checkpointText]:[]),...(d.health?[`鮮度確認 ${jst(d.health.assessedAt)}：${d.health.message}`]:[]),`${d.verdict} / ${d.direction}`,...calendarText(d),d.exit||'今回の足に黄EXITなし',
-    ...(q?[q.basis,...(q.trendContext?[`現在地の基準：15分確定価格 ${num(q.trendContext.price)} / ${q.trendContext.priceClosedAt?jst(q.trendContext.priceClosedAt):'未取得'}`]:[]),...(q.trendContext?.frames||[]).flatMap(f=>[`${f.name} 構造 ${f.structure} / MA ${f.ma} / ${f.available?'確定 '+jst(f.closedAt):'未取得・遅延'}：${f.levels.map(l=>`${l.label} ${num(l.price)} の${l.position}（15分確定価格比）`).join(' / ')}`,...(f.leg?[`${f.name} 確認済み${f.leg.direction} ${num(f.leg.start.price)}→${num(f.leg.end.price)}（終点確認 ${jst(f.leg.end.confirmedAt)}）から ${num(f.leg.ratio)}％ / ${f.leg.levels.map(l=>`${num(l.percent)}％ ${num(l.price)}`).join(' / ')}。${f.leg.note}`]:[])]),...q.zones.flatMap(({zone:z,focus:f,geometryText,geometryBasis,confirmationPreview})=>[
-      `背景 ${z.direction} ${z.frame} ${z.type} ${num(z.low)}～${num(z.high)} / ${z.condition} / 15分終値 ${num(z.invalidationClose)}${z.direction==='SHORT'?'超':'未満'}で撤回 / SL参考 ${num(z.protectiveStop)}`,
+    ...(q?[q.basis,...(q.trendContext?[`現在地の基準：15分確定価格 ${num(q.trendContext.price)} / ${q.trendContext.priceClosedAt?jst(q.trendContext.priceClosedAt):'未取得'}`]:[]),...(q.trendContext?.frames||[]).flatMap(f=>[`${f.name} 構造 ${f.structure} / MA ${f.ma} / ${f.available?'確定 '+jst(f.closedAt):'未取得・遅延'}：${f.levels.map(l=>`${l.label} ${num(l.price)} の${l.position}（15分確定価格比）`).join(' / ')}`,...(f.leg?[`${f.name} 確認済み${f.leg.direction} ${num(f.leg.start.price)}→${num(f.leg.end.price)}（終点確認 ${jst(f.leg.end.confirmedAt)}）から ${num(f.leg.ratio)}％ / ${f.leg.levels.map(l=>`${num(l.percent)}％ ${num(l.price)}`).join(' / ')}。${f.leg.note}`]:[])]),...q.zones.flatMap(({zone:z,focus:f,geometryText,geometryBasis,confirmationPreview,withdrawal})=>[
+      `${withdrawal?'撤回確認済み・元の':''}背景 ${z.direction} ${z.frame} ${z.type} ${num(z.low)}～${num(z.high)} / ${z.condition} / 15分終値 ${num(z.invalidationClose)}${z.direction==='SHORT'?'超':'未満'}で撤回 / SL参考 ${num(z.protectiveStop)}`,
       ...(confirmationPreview?[confirmationPreview.text]:[]),
       ...(f?.windows||[]).map(w=>`局所観察 ${num(w.low)}～${num(w.high)}：${w.levels.map(r=>r.label+' '+num(r.price)).join(' / ')}（接触や重合数は勝率・入場条件ではありません）`),
       ...(geometryText?.length?['確認を待った場合の残り値幅',geometryBasis?.note||'',...geometryText]:[])
@@ -341,5 +371,5 @@
       }catch(e){status.textContent='保存失敗：'+e.message;}finally{button.disabled=false;$('reviewRefresh').disabled=false;$('reviewBoth').disabled=Boolean(getArchiveId());}
     });
   }
-  return{context,reasons,init,collect,captureTransport,zip,zipCompressed,crc32,closed,frames,policy,facts,prompt,overview,decision,decisionText,calendarText,consultation,confirmationContext,costContext,executionContext,chartContextSeries,chartImage};
+  return{context,reasons,init,collect,captureTransport,zip,zipCompressed,crc32,closed,frames,policy,facts,prompt,overview,decision,decisionText,calendarText,consultation,zoneWithdrawal,withdrawalText,confirmationContext,costContext,executionContext,chartContextSeries,chartImage};
 });

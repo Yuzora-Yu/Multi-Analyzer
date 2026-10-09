@@ -747,8 +747,9 @@
     const canTrack=!state.offlineCsv&&!INITIAL_PARAMS.has('snapshot')&&!snapshotHealth()?.blocked&&a.m15?.ready&&!a.m15.quality?.stale&&Date.now()-a.generatedAt<=20*60000;
     const fields=list=>'<dl class="zone-fields">'+list.map(([label,text])=>`<div><dt>${esc(label)}</dt><dd>${esc(text)}</dd></div>`).join('')+'</dl>';
     const cards=map.candidates.map((z,i)=>{
+      const withdrawal=window.MultiAnalyzerReview?.zoneWithdrawal?.(a,z);
       const focus=window.MultiAnalyzerZoneFocus?.describe(a,z);
-      const geometry=health?.blocked?null:window.MultiAnalyzerZoneGeometry?.describe(a,z);
+      const geometry=health?.blocked||withdrawal?null:window.MultiAnalyzerZoneGeometry?.describe(a,z);
       const confirmation=window.MultiAnalyzerReview?.confirmationContext?.(a,z,mappedPrice,health);
       const higher=map.trends.find(t=>t.name==='4H');
       const role=higher?.ma==='中立'&&higher?.structure==='中立'?'上位足の方向未確定':z.role;
@@ -758,10 +759,11 @@
         `${w.inside?'局所帯内・反応を確認':'再訪待ち'}。${w.levels.map(r=>`${r.label} ${mappedPrice(r.price)}`).join(' / ')}。各水準の±${fmt(focus.radius)}（15分ATR×0.2）を背景帯内で比較。`]);
       else local.push(['局所観察','現在の背景帯内に、確定MA・BBの局所重合を確認できません。']);
       const side=z.direction==='SHORT'?'売り':'買い';
-      return `<section class="zone-card ${z.direction==='SHORT'?'zone-short':'zone-long'}"><h4>${side}背景 ${esc(mappedPrice(z.low))}～${esc(mappedPrice(z.high))}</h4><p class="zone-phase">${esc(`${phase[z.phase]} / ${z.frame} ${z.type} / ${role}`)}</p>`+
-        fields([['確認条件',z.condition],...(confirmation?[['固定追跡の確認価格',confirmation.text]]:[]),['撤回条件',`15分終値${mappedPrice(z.invalidationClose)}${z.direction==='SHORT'?'超':'未満'}で背景帯の見立て無効`],['保護SL参考',`${mappedPrice(z.protectiveStop)}（再訪高安で再計算）`],['反応・利確候補',z.targets.map(t=>mappedPrice(t)).join(' / ')||'未確認']])+fields(local)+
+      return `<section class="zone-card ${z.direction==='SHORT'?'zone-short':'zone-long'}"><h4>${withdrawal?'撤回確認済み・':''}${side}背景 ${esc(mappedPrice(z.low))}～${esc(mappedPrice(z.high))}</h4><p class="zone-phase">${esc(`${withdrawal?'元の見立ては再開しません':phase[z.phase]} / ${z.frame} ${z.type} / ${withdrawal?'保存判定の元候補':role}`)}</p>`+
+        (withdrawal?fields([['撤回した確定足',window.MultiAnalyzerReview.withdrawalText(withdrawal,mappedPrice)]]):'')+
+        fields([['確認条件',z.condition],...(confirmation&&!withdrawal?[['固定追跡の確認価格',confirmation.text]]:[]),['撤回条件',`15分終値${mappedPrice(z.invalidationClose)}${z.direction==='SHORT'?'超':'未満'}で背景帯の見立て無効`],[withdrawal?'保存判定のSL参考':'保護SL参考',`${mappedPrice(z.protectiveStop)}${withdrawal?'（撤回済み・新規追跡には使いません）':'（再訪高安で再計算）'}`],['反応・利確候補',z.targets.map(t=>mappedPrice(t)).join(' / ')||'未確認']])+fields(local)+
         (geometry?`<details data-geometry-zone="${esc(z.id)}" ${expandedGeometry.has(z.id)?'open':''}><summary>確認を待った場合の残り値幅</summary>${window.MultiAnalyzerZoneGeometry.text(geometry,mappedPrice).map(t=>`<p>${esc(t)}</p>`).join('')}</details>`:'')+
-        `<button type="button" data-track-zone="${i}" ${canTrack?'':'disabled'}>${side}帯 ${esc(mappedPrice(z.low))}～${esc(mappedPrice(z.high))}を固定して追跡</button></section>`;
+        `<button type="button" data-track-zone="${i}" ${canTrack&&!withdrawal?'':'disabled'}>${withdrawal?'撤回済みのため新規追跡を停止':`${side}帯 ${esc(mappedPrice(z.low))}～${esc(mappedPrice(z.high))}を固定して追跡`}</button></section>`;
     }).join('');
     if(map.candidates.length)rows.push(['局所帯の見方','単独は1水準、重合は複数のMA・BBが近接する範囲。観察専用で、接触・重合数は入場条件や勝率ではありません。背景帯の無効化・SLは変更しません。']);
     if(!map.candidates.length)rows.push(['候補帯','現在有効なSMC帯なし。MA・BB接触だけでは候補を作りません。']);
@@ -1122,6 +1124,7 @@
       const button=event.target.closest('[data-track-zone]');if(!button||button.disabled)return;
       try {
         const a=state.analysis,z=a.marketMap.candidates[Number(button.dataset.trackZone)],instrument=INSTRUMENTS[state.instrumentId];
+        if(window.MultiAnalyzerReview?.zoneWithdrawal?.(a,z))throw Error('この帯は元の撤回条件を通過しています。帯内に戻っても元の見立ては再開しません。');
         window.MultiAnalyzerCheckpoint.track(a,z,{asset:state.instrumentId,market:instrument.market,symbol:instrument.symbol,snapshotId:state.snapshot?.id,basis:priceBasis()});
         renderCheckpoints(a);
       } catch(e) { $('checkpointStatus').hidden=false;$('checkpointStatus').textContent='追跡を保存できません：'+e.message; }
