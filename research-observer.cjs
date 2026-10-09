@@ -34,6 +34,37 @@ function outcome(sample,bars,horizon){
     longNetBps:move-7,shortNetBps:-move-7,longMfeBps:(hi/entry-1)*10000,longMaeBps:(lo/entry-1)*10000,
     note:'固定保有の比較指標。往復7bps仮定。SL/TP、約定差、資金調達料を再現した取引損益ではない。'};
 }
+// Summarize existing capture metadata only; never fetch or repair failed frames.
+function multiframeErrorEvidence(pack){
+  const trace=pack?.acquisition,requests=trace?.requests||[],frames=trace?.frames||[];
+  const time=v=>Number.isFinite(v)&&v>=0;
+  return (pack?.errors||[]).map((error,errorIndex)=>{
+    const cfg=Feed.instruments[error.asset],tf=['1m','5m','15m','1h','4h','1d'].includes(error.tf)?error.tf:null;
+    const row={errorIndex,asset:cfg?error.asset:null,tf,evidenceStatus:'UNAVAILABLE',
+      scope:'Saved capture transport metadata only; not quota attribution, continuity or a replacement candle.'};
+    if(!cfg||!tf||!Array.isArray(requests)||!Array.isArray(frames))return row;
+    const matched=frames.filter(f=>f.asset===error.asset&&f.tf===tf&&f.status==='failed'&&f.error===error.error);
+    if(matched.length!==1)return row;
+    const frame=matched[0];if(!time(frame.startedAt)||!time(frame.completedAt)||frame.completedAt<frame.startedAt)return row;
+    const candidates=requests.filter(r=>r.asset===error.asset&&r.tf===tf);
+    if(!candidates.length||new Set(candidates.map(r=>r.id)).size!==candidates.length)return row;
+    for(const [i,r] of candidates.entries()){
+      let u;try{u=new URL(r.url);}catch{return row;}
+      if(u.origin!=='https://api.bybit.com'||u.pathname!=='/v5/market/kline'||u.username||u.password||
+        u.searchParams.get('symbol')!==cfg.symbol||u.searchParams.get('category')!==cfg.category||
+        !Number.isInteger(r.id)||r.id<0||!['received','failed'].includes(r.status)||
+        !time(r.requestedAt)||!time(r.completedAt)||r.requestedAt<frame.startedAt||r.completedAt>frame.completedAt||
+        r.completedAt<r.requestedAt||(i&&candidates[i-1].completedAt>r.requestedAt)||
+        (r.status==='received'&&(!time(r.receivedAt)||r.receivedAt<r.requestedAt||r.receivedAt>r.completedAt)))return row;
+    }
+    const r=candidates.at(-1),httpStatus=Number.isInteger(r.httpStatus)&&r.httpStatus>=100&&r.httpStatus<=599?r.httpStatus:null;
+    const bybitCode=r.status==='received'&&Number.isInteger(r.bybitCode)&&Math.abs(r.bybitCode)<=2147483647?r.bybitCode:null;
+    const kind=httpStatus!=null&&(httpStatus<200||httpStatus>=300)?'HTTP_STATUS':
+      httpStatus!=null&&bybitCode!=null&&bybitCode!==0?'BYBIT_RET_CODE':'UNCLASSIFIED_FRAME_FAILURE';
+    return {...row,evidenceStatus:'RECORDED',requestId:r.id,requestedAt:r.requestedAt,
+      receivedAt:r.status==='received'?r.receivedAt:null,completedAt:r.completedAt,httpStatus,bybitCode,kind};
+  });
+}
 async function run(){
   fs.mkdirSync(path.join(DIR,'snapshots'),{recursive:true});
   const specPath=path.join(DIR,'spec.json');
@@ -70,7 +101,7 @@ async function run(){
       const pack=await require('./review-pack').collect(['gold','btc']);
       const capture={capturedAt:pack.capturedAt,version:pack.version,errors:pack.errors,acquisition:pack.acquisition,records:pack.records.map(r=>({asset:r.asset,tf:r.tf,minutes:r.minutes,cutoff:r.cutoff,snapshotId:r.snapshotId,bars:Feed.pack(r.rows),acquisitionUseIds:r.acquisitionUseIds}))};
       const target=path.join(DIR,'multiframe');fs.mkdirSync(target,{recursive:true});
-      const file=path.join(target,`${pack.capturedAt}.json.gz`);fs.writeFileSync(file,require('node:zlib').gzipSync(JSON.stringify(capture)),{flag:'wx'});summary.multiframe={records:capture.records.length,file:path.basename(file),errors:pack.errors};
+      const file=path.join(target,`${pack.capturedAt}.json.gz`);fs.writeFileSync(file,require('node:zlib').gzipSync(JSON.stringify(capture)),{flag:'wx'});summary.multiframe={records:capture.records.length,file:path.basename(file),errors:pack.errors,errorEvidence:multiframeErrorEvidence(pack)};
     }catch(e){summary.multiframe={error:e.message};}
   }
   if(process.argv.includes('--multiframe')){
@@ -87,4 +118,4 @@ async function run(){
   fs.writeFileSync(path.join(DIR,'summary.json'),JSON.stringify(summary,null,2));console.log(JSON.stringify(summary));
 }
 if(require.main===module)run().catch(e=>{console.error(e.message);process.exitCode=1;});
-module.exports={features,outcome,archiveTargets};
+module.exports={features,outcome,archiveTargets,multiframeErrorEvidence};
