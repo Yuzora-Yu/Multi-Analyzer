@@ -16,7 +16,9 @@ if(require.main===module){
   }else{
     const actual=fs.readFileSync(target,'utf8').match(/DEMO_CODE_HASH = '([a-f0-9]{64})'/)?.[1];
     if(actual!==expected.hash)throw new Error('Demo code identity changed; freeze a new version before publication');
-    console.log(JSON.stringify({verified:true,hash:actual}));
+    const sourceAudit=require('./demo-source-audit.cjs').audit(__dirname,actual);
+    if(!sourceAudit.valid)throw new Error('Demo source supplement changed: '+sourceAudit.issues.map(x=>x.code+(x.file?':'+x.file:'')).join(', '));
+    console.log(JSON.stringify({verified:true,hash:actual,sourceAudit}));
   }
 }
 module.exports={identity,files};

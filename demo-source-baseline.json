@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "kind": "later-observed-local-source-supplement",
+  "protocolVersion": "demo-v1",
+  "legacyExecutionHash": "77217b9640b7a6e5943fb145f8de6e86fe7a57e6480ee2538da79b5845fb1b47",
+  "observedAt": "2026-10-09T00:06:30.296Z",
+  "referenceCommit": "adcac7bdc3f9c7becfb193b6547b482701b3e1a9",
+  "closureEvidence": {
+    "tool": "esbuild",
+    "version": "0.28.1",
+    "entry": "cloudflare/monitor.mjs",
+    "externalImports": [
+      "cloudflare:workers",
+      "node:crypto"
+    ]
+  },
+  "files": {
+    "alert-event.js": "7f40a30e36175b4421f078697109b611dcc911cd16668dee9abddb256a5aaffe",
+    "cloudflare/demo-code-version.mjs": "253edf6d32a65b1a3823a865d9d10d0d36a19fd78a3f77c3c393dfae16cd9584",
+    "cloudflare/demo-store.mjs": "0a995accde7d690687fbf3c3a766c1a6242e94a0bc961900fdd8fc71f2bccb27",
+    "cloudflare/logic.mjs": "02ab6c4d53711172dfb73b6a2bdcbf3b38c557ace8e8849ed252040b91e9a259",
+    "cloudflare/market-response.mjs": "bd2777bc81408c50d2a987a12a66afa0550d697a0f90aa6b473a8d315d6e8bea",
+    "cloudflare/monitor.mjs": "49a78d114da86fb457e83974d84edc6cf90867968f3df6a6843589821fc73c2b",
+    "demo-trading.cjs": "793950cb67cad6e59066bb7358958d37a8362226ba2870bfef6d973a708a3e82",
+    "flow-core.js": "cc30cfb6eeb534301b38fdf5c03b76a828a9d87f51085e0ebbd4e0caff27af59",
+    "market-feed.js": "a7a78a255f50b993b58567e2b5ba315fa21639e48cbb0b8e552edd10751d49d1",
+    "smc-core.js": "aabe535e5c129591605ac169f3016d262aa8b8668d6c5c611e4934d85a3ff094",
+    "strategy-core.js": "1c6c2e5d2367487029845576670e02df9299e4e6948f6c7dc84e9c859557599e"
+  },
+  "scope": "Local source files only. First observed after registration; not retroactive preregistration or proof of the deployed bundle, platform, configuration or bindings."
+}

@@ -394,12 +394,17 @@ function markdown(report) {
 }
 async function run(options={}) {
   const root=options.root??ROOT, captureStartedAt=options.now??Date.now(), assets=[];
+  const codeRoot=options.codeRoot??__dirname;
+  let sourceAudit;
+  try{sourceAudit=require('./demo-source-audit.cjs').audit(codeRoot,require('./demo-version.cjs').identity(codeRoot).hash);}
+  catch{sourceAudit={valid:false,issues:[{code:'LOCAL_SOURCE_IDENTITY_UNAVAILABLE'}]};}
   for(const asset of ['gold','btc']){
+    if(!sourceAudit.valid){assets.push({asset,valid:false,error:'LOCAL_SOURCE_UNVERIFIED',books:[],issues:[{code:'SOURCE_AUDIT_FAILED'}]});continue;}
     try{const input=await readLedger(asset,options);assets.push(audit(input.view,input.records,input.sources,{now:options.now??Date.now()}));}
     catch(e){assets.push({asset,valid:false,error:String(e.message).slice(0,160),books:[],issues:[{code:'READ_FAILED'}]});}
   }
   const generatedAt=options.now??Date.now();
-  const report={schemaVersion:1,captureStartedAt,generatedAt,assets,valid:assets.every(a=>a.valid),
+  const report={schemaVersion:1,captureStartedAt,generatedAt,assets,sourceAudit,valid:sourceAudit.valid&&assets.every(a=>a.valid),
     action:'ANALYSIS_ONLY_NO_AUTOMATIC_ADOPTION',source:'saved-monitor-demo-endpoints-only'};
   const reviews=path.join(root,'reviews');fs.mkdirSync(reviews,{recursive:true});
   const name=String(generatedAt)+'-'+crypto.randomUUID(), temp=path.join(reviews,'.'+name+'.tmp'), dest=path.join(reviews,name);
