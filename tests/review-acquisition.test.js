@@ -33,6 +33,79 @@ test('HTTP failures, Bybit errors and malformed candles are not retained as succ
  }
 });
 
+test('Bybit quota evidence reads only three numeric response headers before the original body receipt',async()=>{
+ let calls=0,wall=1000;const names=[],values={'X-Bapi-Limit':'10','X-Bapi-Limit-Status':'0','X-Bapi-Limit-Reset-Timestamp':'1791424800123'};
+ const data={...payload(),retCode:10006},t=Review.captureTransport({now:()=>wall++,fetcher:async()=>{
+  calls++;return{ok:true,status:200,headers:{get(name){names.push(name);return values[name];}},json:async()=>data};
+ }});
+ assert.deepEqual(await t.get(url(),{asset:'gold',tf:'1h'}),data);
+ assert.deepEqual(names,Object.keys(values));assert.equal(calls,1);
+ const r=t.trace.requests[0],e=r.rateLimit;
+ assert.deepEqual([e.limit,e.remaining,e.resetOrCurrentTimestampMs],[10,0,1791424800123]);
+ assert.equal(e.availability,'RECORDED');assert.equal(e.readErrors,0);assert.equal(e.inconsistentCounters,false);
+ assert.ok(r.requestedAt<e.observedAt&&e.observedAt<r.receivedAt&&r.receivedAt<r.completedAt);
+ assert.equal(r.bybitCode,10006);assert.equal(r.shareable,false);
+ assert.equal(e.scope.includes('quota scope is unverified'),true);
+});
+
+test('unavailable or malformed quota values remain null while conflicting numeric counters stay explicit',async()=>{
+ const cases=[
+  {values:{},expected:[null,null,null,'UNAVAILABLE',null]},
+  {values:{'X-Bapi-Limit':' -1 ','X-Bapi-Limit-Status':'NaN','X-Bapi-Limit-Reset-Timestamp':'0'},expected:[null,null,null,'UNAVAILABLE',null]},
+  {values:{'X-Bapi-Limit':'1000000001','X-Bapi-Limit-Status':'2.5','X-Bapi-Limit-Reset-Timestamp':'8640000000000001'},expected:[null,null,null,'UNAVAILABLE',null]},
+  {values:{'X-Bapi-Limit':'9'.repeat(33),'X-Bapi-Limit-Status':7,'X-Bapi-Limit-Reset-Timestamp':'private-value'},expected:[null,null,null,'UNAVAILABLE',null]},
+  {values:{'X-Bapi-Limit':' 10 ','X-Bapi-Limit-Status':'11'},expected:[10,11,null,'PARTIAL',true]}
+ ];
+ for(const {values,expected} of cases){
+  const t=Review.captureTransport({fetcher:async()=>({ok:true,status:200,headers:{get:name=>values[name]??null},json:async()=>payload()})});
+  await t.get(url());const e=t.trace.requests[0].rateLimit;
+  assert.deepEqual([e.limit,e.remaining,e.resetOrCurrentTimestampMs,e.availability,e.inconsistentCounters],expected);
+  assert.equal(e.readErrors,0);assert.equal(JSON.stringify(e).includes('private-value'),false);
+ }
+});
+
+test('header access failures cannot alter the body result or the original HTTP failure',async()=>{
+ for(const failure of ['property','method']){
+  const response={ok:true,status:200,json:async()=>payload()};
+  if(failure==='property')Object.defineProperty(response,'headers',{get(){throw Error('private-header-error');}});
+  else response.headers={get(){throw Error('private-header-error');}};
+  const t=Review.captureTransport({fetcher:async()=>response});
+  assert.deepEqual(await t.get(url()),payload());const r=t.trace.requests[0];
+  assert.equal(r.status,'received');assert.equal(r.rateLimit.availability,'UNAVAILABLE');
+  assert.equal(r.rateLimit.readErrors,failure==='property'?1:3);
+  assert.equal(JSON.stringify(r).includes('private-header-error'),false);
+ }
+ let parsed=false;const t=Review.captureTransport({fetcher:async()=>({ok:false,status:403,headers:{get:name=>name==='X-Bapi-Limit-Status'?'0':null},json:async()=>{parsed=true;return payload();}})});
+ await assert.rejects(t.get(url()),/HTTP 403/);const r=t.trace.requests[0];
+ assert.equal(parsed,false);assert.equal(r.status,'failed');assert.equal(r.receivedAt,null);assert.equal(r.bybitCode,undefined);
+ assert.equal(r.rateLimit.remaining,0);assert.equal(r.rateLimit.availability,'PARTIAL');assert.ok(r.rateLimit.observedAt<=r.completedAt);
+});
+
+test('capture-local page reuse retains the first quota observation without reading headers or fetching again',async()=>{
+ let calls=0,reads=0,wall=1000;const t=Review.captureTransport({now:()=>wall++,fetcher:async()=>{
+  calls++;return{ok:true,status:200,headers:{get(name){reads++;return name==='X-Bapi-Limit-Status'?'8':null;}},json:async()=>payload()};
+ }});
+ await t.get(url(),{asset:'gold',tf:'1h'});const original=structuredClone(t.trace.requests[0]);
+ await t.get(url(),{asset:'gold',tf:'4h'});
+ assert.equal(calls,1);assert.equal(reads,3);assert.deepEqual(t.trace.requests[0],original);
+ assert.equal(t.trace.uses[1].reused,true);assert.ok(t.trace.uses[1].usedAt>original.rateLimit.observedAt);
+});
+
+test('other origins, paths and credential-bearing URLs do not expose quota header metadata',async()=>{
+ for(const target of [
+  'https://multi-analyzer-monitor.rikai-829.workers.dev/api/snapshot?asset=gold',
+  'https://api.bybit.com/v5/market/time',
+  'https://api.bybit.com.example.test/v5/market/kline',
+  'http://api.bybit.com/v5/market/kline',
+  'https://user:password@api.bybit.com/v5/market/kline'
+ ]){
+  let reads=0;const response={ok:true,status:200,json:async()=>payload()};
+  Object.defineProperty(response,'headers',{get(){reads++;throw Error('must not access');}});
+  const t=Review.captureTransport({fetcher:async()=>response});await t.get(target);
+  assert.equal(reads,0);assert.equal(t.trace.requests[0].rateLimit,undefined);
+ }
+});
+
 test('cancellation applies even when the requested page is already shared',async()=>{
  const controller=new AbortController();let calls=0;
  const t=Review.captureTransport({signal:controller.signal,fetcher:async()=>{calls++;return{ok:true,status:200,json:async()=>payload()};}});

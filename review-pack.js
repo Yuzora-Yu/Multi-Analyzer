@@ -214,6 +214,27 @@
     for(const a of items){x.fillStyle='#dbe7f2';y=lines(x,`${a.asset.toUpperCase()} | ${a.state} | ${a.stale?'保存時に20分超経過':'取得時点の記録'} | 基準 ${jst(a.cutoff)}`,30,y,1200);y=lines(x,`コスト後RR ${num(a.netRR)} / ${a.reasons.join(' / ')||'研究用候補の条件成立'}`,30,y,1200);y+=10;x.fillStyle='#92adc1';x.fillText('時間足         構造         リボン          ADX          出来高倍率',30,y);y+=30;for(const f of a.frames){x.fillStyle='#dbe7f2';x.fillText(f.missing?`${f.tf} — 取得不能`:`${f.tf.padEnd(5)}          ${f.structure==null?'?':dir(f.structure)}              ${f.ribbon==null?'?':dir(f.ribbon)}              ${num(f.adx)}             ${num(f.volume)}x`,30,y);y+=30;}y+=28;}
     x.fillStyle='#e6b85c';lines(x,'方向の一致は勝率ではありません。15分以外は環境比較用。保存後の現在相場は公開ページで更新してください。',30,y,1200);return c;}
   function prompt(pack){return pack.assets.map(a=>a.asset.toUpperCase()+'\n'+decisionText(decision(a,pack.capturedAt)).join('\n')).join('\n\n')+'\n\n'+`添付はMulti-Analyzerの確定足レビューです。利益が出るとの前提を置かず、データ鮮度、欠損、上位足構造、EMAリボン、出来高近似、コスト、反証条件から検討してください。EXITを即逆張りと解釈しないでください。\n比較対象：${pack.assets.map(a=>a.asset).join(', ')}。取得開始 ${jst(pack.capturedAt)}。各銘柄の基準時刻・設定・保存判定IDは manifest.json と画像に記載。通常表示の15分以外は取得開始時点の最新確定足で、15分判定後の情報を含みます。過去判定の評価材料に遡及混入しないでください。過去保存表示は当時の時刻を維持します。時間足ごとの終値時刻は異なります。\n1. 現状は待機/押し目/戻り/撤退注意のどれか、根拠と不成立条件\n2. 15分共通判定と1分/5分のタイミング、1時間/4時間/日足の環境は整合するか\n3. 参考SL/TPに対するコストと損益比、飛び乗りを避ける確認水準\n4. この1例から勝率を推定せず、今後記録すべき比較仮説\n画像は直近180本、JSONは全取得確定足を含みます。POCは直近96本の近似で、全世界の約定ではありません。\nhttps://yuzora-yu.github.io/Multi-Analyzer/\n${pack.assets.map(a=>`https://yuzora-yu.github.io/Multi-Analyzer/?asset=${a.asset}&snapshot=${a.snapshot.id}`).join('\n')}\n保存画像は過去の基準時刻の記録であり、現在価格ではありません。`;}
+  function bybitRateLimitEvidence(url,response){
+    let u;try{u=new URL(url);}catch{return null;}
+    if(u.origin!=='https://api.bybit.com'||u.pathname!=='/v5/market/kline'||u.username||u.password)return null;
+    const result={version:'bybit-rate-limit-headers-v1',limit:null,remaining:null,resetOrCurrentTimestampMs:null,
+      availability:'UNAVAILABLE',readErrors:0,inconsistentCounters:null,
+      scope:'Response values only; public endpoint quota scope is unverified. Reset header may be current server time. Unavailable is not zero allowance.'};
+    let headers;try{headers=response?.headers;}catch{result.readErrors=1;return result;}
+    for(const [field,name,max] of [['limit','X-Bapi-Limit',1e9],['remaining','X-Bapi-Limit-Status',1e9],
+      ['resetOrCurrentTimestampMs','X-Bapi-Limit-Reset-Timestamp',8640000000000000]]){
+      try{
+        const raw=typeof headers?.get==='function'?headers.get(name):null;
+        if(typeof raw!=='string'||raw.length>32)continue;
+        const value=raw.trim();if(!/^\d{1,16}$/.test(value))continue;
+        const n=Number(value);if(Number.isSafeInteger(n)&&n<=max&&(field!=='resetOrCurrentTimestampMs'||n>0))result[field]=n;
+      }catch{result.readErrors++;}
+    }
+    const count=['limit','remaining','resetOrCurrentTimestampMs'].filter(k=>result[k]!==null).length;
+    result.availability=count===3?'RECORDED':count?'PARTIAL':'UNAVAILABLE';
+    if(result.limit!==null&&result.remaining!==null)result.inconsistentCounters=result.remaining>result.limit;
+    return result;
+  }
   function captureTransport({signal,sharePages=true,fetcher=(url,options)=>fetch(url,options),now=Date.now,monotonic=()=>performance.now()}={}){
     const pages=new Map(),trace={version:'capture-local-kline-sharing-v1',sharingEnabled:sharePages,requests:[],uses:[],frames:[],scope:'One capture only. Shared pages retain their original response receipt; no later fetch or historical forecast is inferred.'};
     function shareable(url,data){
@@ -232,6 +253,7 @@
       try{
         const response=await fetcher(url,{signal:AbortSignal.any([signal||new AbortController().signal,AbortSignal.timeout(15000)])});
         request.httpStatus=Number.isFinite(response.status)?response.status:null;
+        const rateLimit=bybitRateLimitEvidence(url,response);if(rateLimit)request.rateLimit={...rateLimit,observedAt:now()};
         if(!response.ok)throw Error(`HTTP ${response.status}`);
         const data=await response.json();signal?.throwIfAborted();
         request.receivedAt=now();request.status='received';request.serverTime=Number.isFinite(data.time)?data.time:null;
