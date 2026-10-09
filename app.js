@@ -193,6 +193,44 @@
     demoPanel?.refresh();
   }
 
+  function resetAnalysisView() {
+    // Full loads discard the analysis; discard its visible claims at the same time.
+    // Persisted checkpoints and user-entered position/settings fields stay intact.
+    for (const id of ['livePrice','positionLivePrice','priceChange','sessionName','regimeName','atrValue','adxValue','rsiValue','qualityValue',
+      'confidenceValue','longScore','shortScore','htfBias','structureEvent','triggerState','signalTime',
+      'entryValue','stopValue','tp1Value','tp2Value','tp3Value','rrValue','quantityValue','riskBudgetValue',
+      'positionUrgency','unrealizedR','emaDistance','vwapDistance','macdHist','diValue','volumeZ','atrRank','spreadEstimate','costRiskRatio']) $(id).textContent='—';
+    $('priceChange').className='price-change neutral';
+    $('htfBias').className='trend-neutral';
+    $('confidenceRing').style.setProperty('--value',0);
+    $('longScoreBar').style.width='0%';$('shortScoreBar').style.width='0%';
+    for (const prefix of ['tf4','tf1','tf15','tfExec']) {
+      $(`${prefix}Trend`).textContent='—';$(`${prefix}Trend`).className='trend-neutral';
+      $(`${prefix}Rsi`).textContent='—';$(`${prefix}Adx`).textContent='—';
+    }
+    for (const id of ['marketMap','trendContext','flowSummary','smcContext','smcDetails']) $(id).textContent='データ取得後に判定します。';
+    $('checkpointStatus').textContent='';$('checkpointStatus').hidden=true;
+    $('snapshotHealth').hidden=false;$('snapshotHealth').textContent='共通判定の確認待ち';
+    $('currentSnapshotLink').href='?asset='+state.instrumentId+'&tf=15m';
+    $('actionHeadline').textContent='データ取得中・判断待機';
+    $('actionCompass').className='action-compass wait';
+    $('actionTargets').textContent='価格と分析を更新中';
+    $('actionContext').textContent='価格構造を取得中';
+    $('sheetSummary').textContent='判断待機';$('sheetSummary').style.color='var(--muted)';
+    $('signalBadge').textContent='判断待機';$('signalBadge').className='signal-badge no-trade';
+    $('decisionMessage').textContent='データ取得後に判定します。';
+    $('livePreviewText').textContent='価格更新待ち';
+    $('planAction').textContent='WAIT / NO TRADE';$('planAction').style.color='var(--muted)';
+    $('planNote').textContent='データ取得後に候補を確認します。';
+    $('positionDecision').className='position-decision hold';
+    $('positionAction').textContent='判断待機';
+    $('positionReasons').innerHTML='<li>データ取得後に判定します。</li>';
+    $('reasonList').innerHTML='<li>分析待ち</li>';
+    $('spreadEstimate').title='';$('historyCount').textContent='';
+    $('lastUpdate').textContent='未更新';$('dataSource').textContent=currentInstrument().sourceLabel;
+    $('tfExecLabel').textContent=currentTf().label;
+  }
+
   async function loadAllData() {
     stopRealtime();
     const loadId = ++state.loadId;
@@ -200,23 +238,13 @@
     state.chartFitted = false;
     state.data = { exec: [], m15: [], h1: [], h4: [] };
     state.analysis = null;
+    state.preview = null;
     state.snapshot = null;
     state.snapshotError=false;state.monitor=null;state.monitorReceivedAt=0;
     state.livePrice = null;
     state.reference = null;
     state.feedAt = 0;
-    $('actionHeadline').textContent = 'データ取得中・判断待機';
-    $('actionCompass').className = 'action-compass wait';
-    $('actionTargets').textContent = '価格と分析を更新中';
-    $('actionContext').textContent = '価格構造を取得中';
-    $('sheetSummary').textContent = '判断待機';
-    $('signalBadge').textContent = '判断待機';
-    $('positionAction').textContent = '判断待機';
-    $('positionReasons').innerHTML = '<li>データ取得後に判定します。</li>';
-    $('positionUrgency').textContent = '—';
-    $('unrealizedR').textContent = '—';
-    $('livePrice').textContent = '—';
-    $('positionLivePrice').textContent = '—';
+    resetAnalysisView();
     $('symbolName').textContent = currentInstrument().name;
     $('symbolCode').textContent = currentInstrument().symbol;
     $('chartTitle').textContent = `${currentInstrument().name} / ${currentTf().label}`;
