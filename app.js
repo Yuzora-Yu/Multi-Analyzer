@@ -721,10 +721,10 @@
   }
 
   function renderTrendContext(a) {
-    const box=$('trendContext'),t=window.MultiAnalyzerTrendContext?.describe(a);if(!box||!t)return;
+    const box=$('trendContext'),t=window.MultiAnalyzerTrendContext?.describe(a,{asset:state.instrumentId});if(!box||!t)return;
     const expanded=box.querySelector('details')?.open===true;
     const date=time=>new Date(time).toLocaleString('ja-JP',{timeZone:'Asia/Tokyo',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false})+' JST';
-    const rows=t.frames.map(f=>[`${f.name} 構造 ${f.structure} / MA ${f.ma}`,f.available?`確定 ${date(f.closedAt)}。15分確定価格は ${f.levels.map(l=>`${l.label} ${mappedPrice(l.price)} の${l.position}`).join(' / ')||'水準未取得'}。`:'データ不足・遅延。方向を推定しません。']);
+    const rows=t.frames.map(f=>[`${f.name} 構造 ${f.structure} / MA ${f.ma}`,f.available?`確定 ${date(f.closedAt)}。15分確定価格は ${f.levels.map(l=>`${l.label} ${mappedPrice(l.price)} の${l.position}`).join(' / ')||'水準未取得'}。`:f.sessionWait?`GOLD休場明け・新しい4H確定足待ち。前回確定 ${date(f.sessionWait.closedAt)} / 次の確定予定 ${date(f.sessionWait.nextClosedAt)}。現行の古さ判定を維持し、方向・候補は保留します。`:'データ不足・遅延。方向を推定しません。']);
     const swingRows=t.frames.flatMap(f=>f.leg?[[`${f.name} ${f.leg.direction}からの${f.leg.direction==='下落脚'?'戻し':'押し'} ${fmt(f.leg.ratio,1)}％`,
       `起点 ${mappedPrice(f.leg.start.price)}（${date(f.leg.start.time)}）→終点 ${mappedPrice(f.leg.end.price)}（${date(f.leg.end.time)}）。終点の確認 ${date(f.leg.end.confirmedAt)}。${f.leg.location}。38.2/50/61.8％水準 ${f.leg.levels.map(l=>`${fmt(l.percent,1)}％ ${mappedPrice(l.price)}`).join(' / ')}。${f.leg.note}`]]:[]);
     const html=list=>list.map(([label,text])=>`<p><strong>${esc(label)}</strong><span>${esc(text)}</span></p>`).join('');

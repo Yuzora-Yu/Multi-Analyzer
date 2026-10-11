@@ -13,6 +13,20 @@ function archiveTargets(last,existing){
   for(let t=last;t>=start;t-=STEP)if(!seen.has(t))targets.push(t);
   return targets;
 }
+function archivePlan(asset,last,existing){
+  if(!Feed.instruments[asset])throw Error('Unsupported archive asset');
+  const targets=[],excluded=[];
+  for(const t of archiveTargets(last,existing)){
+    // The latest snapshot was actually received. Keep it even when its creation
+    // crossed a collection boundary; do not infer its absence from the schedule.
+    const decisionAt=t+STEP+1,policy=Feed.collectionPolicy(asset,decisionAt);
+    const expected=Feed.barExpected(asset,t,15);
+    if(t!==last&&(!policy.allowed||!expected))excluded.push({barOpenedAt:t,decisionAt,
+      reason:!policy.allowed?policy.reason:'NO_EXPECTED_MARKET_BAR'});
+    else targets.push(t);
+  }
+  return {targets,excluded};
+}
 function features(s,observedAt){
   const a=Core.analyzeMarket(Feed.input(s),s.settings),e=a.exec,f=e.flow?.latest||{},bar=e.candles.at(-1);
   return {id:s.id,asset:s.asset,version:s.version,bar:bar.time,asOf:s.settings.now,firstObservedAt:observedAt,sourceCreatedAt:s.createdAt,
@@ -72,14 +86,16 @@ async function run(){
     sample:'取得できる各15分共通判定。サインなしも含む。毎時直近4判定を取得し、観測遅延と欠測を保持。',horizons:[1,4,8,16],costBps:7,
     gates:'30件は評価開始の最低目安であり採用条件ではない。重複保有期間を除外し、銘柄・相場環境別、時系列未使用期間、複数仮説、コスト感度・期待値・最大DDを検証する。過去再構築と実時間観測を混ぜない。',
     confounds:'GoldはBybit XAUUSDT永続契約、BTCはBybit現物。XM価格・世界全体出来高とは異なる。イベントカレンダー/実スプレッド/資金調達の未取得値を推定で埋めない。'},null,2));
-  const errors=[];
+  const errors=[],archiveExclusions=[];
   async function get(asset,id){const r=await fetch('https://multi-analyzer-monitor.rikai-829.workers.dev/api/snapshot?asset='+asset+(id?'&id='+id:''),{signal:AbortSignal.timeout(15000)});if(!r.ok)throw Error('HTTP '+r.status);const s=await r.json();if(s.asset!==asset||s.version!==Core.VERSION||!s.bars?.m15)throw Error('snapshot mismatch');return s;}
   for(const asset of ['gold','btc']){
     if(!Feed.collectionPolicy(asset).allowed)continue;
     try{
       const latest=await get(asset),last=Feed.input(latest).exec.at(-1).time;
       const known=fs.readdirSync(path.join(DIR,'snapshots')).filter(n=>n.startsWith(asset+'-')&&n.endsWith('-'+Core.VERSION+'.json')).map(n=>Number(n.split('-')[1]));
-      for(const t of archiveTargets(last,known)){
+      const archive=archivePlan(asset,last,known);
+      archiveExclusions.push(...archive.excluded.map(x=>({asset,id:`${asset}-${x.barOpenedAt}-${Core.VERSION}`,...x})));
+      for(const t of archive.targets){
         const id=`${asset}-${t}-${Core.VERSION}`,file=path.join(DIR,'snapshots',id+'.json');if(fs.existsSync(file))continue;
         try{const snapshot=t===last?latest:await get(asset,id);if(snapshot.id!==id)throw Error('archive identity mismatch');fs.writeFileSync(file,JSON.stringify({firstObservedAt:Date.now(),snapshot}),{flag:'wx'});}catch(e){errors.push({id,error:e.message});}
       }
@@ -94,7 +110,10 @@ async function run(){
   const results=samples.map(s=>({id:s.id,asset:s.asset,outcomes:[1,4,8,16].map(h=>outcome(s,barMaps[s.asset],h))}));
   fs.writeFileSync(path.join(DIR,'samples.jsonl'),samples.map(s=>JSON.stringify(s)).join('\n')+'\n');
   fs.writeFileSync(path.join(DIR,'outcomes.json'),JSON.stringify(results,null,2));
-  const summary={updatedAt:new Date().toISOString(),samples:samples.length,byAsset:Object.fromEntries(['gold','btc'].map(asset=>[asset,{samples:samples.filter(s=>s.asset===asset).length,actionable:samples.filter(s=>s.asset===asset&&s.actionable).length,liveObserved:samples.filter(s=>s.asset===asset&&s.liveObservation).length,resolved2h:results.filter(s=>s.asset===asset&&s.outcomes[2].status==='resolved').length}])),errors,note:'分析専用。件数は重複する観測足を含む。勝率・優位性の推定にそのまま使わない。本番モデル変更なし。'};
+  const summary={updatedAt:new Date().toISOString(),samples:samples.length,byAsset:Object.fromEntries(['gold','btc'].map(asset=>[asset,{samples:samples.filter(s=>s.asset===asset).length,actionable:samples.filter(s=>s.asset===asset&&s.actionable).length,liveObserved:samples.filter(s=>s.asset===asset&&s.liveObservation).length,resolved2h:results.filter(s=>s.asset===asset&&s.outcomes[2].status==='resolved').length}])),errors,
+    archivePolicy:{version:'historical-collection-boundary-v1',sessionVersion:Feed.SESSION_VERSION,excluded:archiveExclusions,
+      scope:'未保存の過去判定への取得要求だけを予定境界で除外。受信した最新原本・既存欠測・価格経路・デモ評価は変更しない。'},
+    note:'分析専用。件数は重複する観測足を含む。勝率・優位性の推定にそのまま使わない。本番モデル変更なし。'};
   if(process.argv.includes('--multiframe')){
     global.MultiAnalyzerCore=Core;global.MultiAnalyzerFeed=Feed;
     try{
@@ -118,4 +137,4 @@ async function run(){
   fs.writeFileSync(path.join(DIR,'summary.json'),JSON.stringify(summary,null,2));console.log(JSON.stringify(summary));
 }
 if(require.main===module)run().catch(e=>{console.error(e.message);process.exitCode=1;});
-module.exports={features,outcome,archiveTargets,multiframeErrorEvidence};
+module.exports={features,outcome,archiveTargets,archivePlan,multiframeErrorEvidence};
