@@ -584,3 +584,32 @@ test('hash-consistent malicious fragments still require full privacy inspection,
   legacy.records[0].originalBytes++;
   assert.throws(()=>Archive.validateManifest(legacy),/MANIFEST_RECORD_INVALID/);
 });
+
+test('safe selected file restores from a legacy mixed pack while embedded mail is still rejected', async t => {
+ const f=fixture(t),remote=fakeGitHub();
+ const safe=Buffer.from('{ "close":4186.125,"decision":"WAIT" }\r\n');
+ const mail=Buffer.from(JSON.stringify({close:4186,lastEmail:{acceptedAt:1791729000000,asset:'gold',title:'sample'}}));
+ const records=[safe,mail].map((bytes,i)=>({alias:'hourly-observation',relative:i?'legacy-monitor.json':'safe-source.json',privacyPolicy:Archive.POLICY,
+  originalSha256:Archive.sha256(bytes),storedSha256:Archive.sha256(bytes),originalBytes:bytes.length,storedBytes:bytes.length,redacted:false,exactOriginalRestorable:true}));
+ const pack=Archive.buildPack([safe,mail].map(bytes=>({bytes,storedBytes:bytes.length,storedSha256:Archive.sha256(bytes)})));
+ const reference={path:`packs/${pack.sha256}.json.gz`,sha256:pack.sha256,gitSha:pack.gitSha,bytes:pack.bytes.length};
+ const manifest={schema:1,privacyPolicy:Archive.POLICY,pack:reference,records};
+ const raw=Buffer.from(JSON.stringify(manifest)),tree=remote.state.trees.get(remote.state.commits.get(remote.state.ref).tree);
+ tree.set(reference.path,reference.gitSha);remote.state.blobs.set(reference.gitSha,pack.bytes);
+ tree.set(`manifests/${Archive.sha256(raw)}.json`,Archive.gitBlobSha(raw));remote.state.blobs.set(Archive.gitBlobSha(raw),raw);
+ const original=f.write('hourly-observation','safe-source.json',safe);
+ await assert.rejects(Archive.verifiedPack(remote.api,await remote.api.treeAt(remote.state.ref),manifest),/ARCHIVED_FILE_PRIVACY_CHECK_FAILED/);
+ const copy=await Archive.restore({api:remote.api,workspace:f.workspace,alias:records[0].alias,relative:records[0].relative,originalSha256:records[0].originalSha256});
+ assert.deepEqual(fs.readFileSync(path.join(f.workspace,copy.destination)),safe);assert.deepEqual(fs.readFileSync(original),safe);
+ await assert.rejects(Archive.restore({api:remote.api,workspace:f.workspace,alias:records[1].alias,relative:records[1].relative,originalSha256:records[1].originalSha256,allowRedacted:true}),/ARCHIVED_FILE_PRIVACY_CHECK_FAILED/);
+ assert.equal(fs.existsSync(Archive.restoreTarget(f.workspace,records[1].alias,records[1].relative)),false);
+ assert.equal(remote.state.calls.filter(c=>c.method!=='GET').length,0);
+});
+
+test('selected record verifier rejects an unbound descriptor before pack access',async()=>{
+ const bytes=Buffer.from('{"close":4186}'),safe=Archive.sanitize(bytes,'hourly-observation','safe.json'),pack=Archive.buildPack([safe]);
+ const record={...safe,alias:'hourly-observation',relative:'safe.json',privacyPolicy:Archive.POLICY};delete record.bytes;
+ const manifest={schema:1,privacyPolicy:Archive.POLICY,pack:{path:`packs/${pack.sha256}.json.gz`,sha256:pack.sha256,gitSha:pack.gitSha,bytes:pack.bytes.length},records:[record]};
+ let calls=0;await assert.rejects(Archive.verifiedSelectedRecord({blob:async()=>{calls++;return pack.bytes;}},{entries:new Map([[manifest.pack.path,pack.gitSha]])},manifest,{...record}),/SELECTED_RECORD_NOT_IN_MANIFEST/);
+ assert.equal(calls,0);
+});

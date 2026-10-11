@@ -453,6 +453,22 @@ async function verifiedPack(api, tree, manifest) {
   return files;
 }
 
+async function verifiedSelectedRecord(api, tree, manifest, record) {
+  validateManifest(manifest);
+  if (manifest.schema !== SCHEMA) fail('FRAGMENTS_MUST_USE_WHOLE_FILE_VERIFICATION');
+  if (!manifest.records.includes(record)) fail('SELECTED_RECORD_NOT_IN_MANIFEST');
+  if (tree.entries.get(manifest.pack.path) !== manifest.pack.gitSha) fail('PACK_NOT_IN_CURRENT_REF');
+  // Check the complete pack and every compressed entry's integrity, but inflate
+  // and privacy-check only the requested file. An unsafe legacy neighbour must
+  // neither be restored nor block this independently verified safe file.
+  const files = unpack(await api.blob(manifest.pack.gitSha), manifest.pack);
+  const data = files.get(record.storedSha256);
+  if (!data || data.length !== record.storedBytes || (!record.redacted && sha256(data) !== record.originalSha256)) fail('MANIFEST_FILE_MISMATCH');
+  const safety = sanitize(data, record.alias, record.relative);
+  if (safety.reason || safety.redacted || safety.storedSha256 !== record.storedSha256) fail('ARCHIVED_FILE_PRIVACY_CHECK_FAILED');
+  return data;
+}
+
 async function verifiedFragmentRecord(api, tree, manifest) {
   validateManifest(manifest);
   if (manifest.schema !== FRAGMENT_SCHEMA) fail('EXPECTED_FRAGMENT_MANIFEST');
@@ -647,7 +663,7 @@ async function restore(options) {
     if (!selected) fail('RESTORE_VERSION_NOT_FOUND');
     if (selected.record.redacted && !allowRedacted) fail('REDACTED_COPY_IS_NOT_ORIGINAL_USE_EXPLICIT_FLAG');
     const data = selected.value.schema === FRAGMENT_SCHEMA ? await verifiedFragmentRecord(api, tree, selected.value) :
-      (await verifiedPack(api, tree, selected.value)).get(selected.record.storedSha256);
+      await verifiedSelectedRecord(api, tree, selected.value, selected.record);
     const target = restoreTarget(workspace, alias, relative);
     fs.mkdirSync(path.dirname(target), { recursive: true });
     // Publish only a fully written/verified file, atomically and without overwrite.
@@ -787,5 +803,5 @@ module.exports = { SCHEMA, FRAGMENT_SCHEMA, FRAGMENT_FORMAT, POLICY, REPOSITORY,
   PACK_PAYLOAD_BUDGET, MAX_FILE, MAX_SOURCE_FILE, FRAGMENT_BYTES, MAX_INFLATED, MAX_JSON_NODES, MAX_JSON_DEPTH, ROOT_PATHS, PRUNE_PREFIXES,
   sha256, gitBlobSha, within, cleanRelative, roots, resolveSource, excludedPath, walk, redactText, redactJson,
   sanitize, readSafeFile, recordKey, withLock, loadConfig, GitHub, validateManifest, manifests, buildPack,
-  unpack, verifiedPack, verifiedFragmentRecord, verifyArchiveManifest, manifestPacks,
+  unpack, verifiedPack, verifiedSelectedRecord, verifiedFragmentRecord, verifyArchiveManifest, manifestPacks,
   inventory, sync, restoreTarget, restore, evaluationRun, protectedEvaluations, prune };
