@@ -599,7 +599,8 @@ async function prune(options) {
     const allRoots = roots(workspace), protectedRuns = protectedEvaluations(allRoots);
     const cutoff = Date.now() - olderThanDays * 86400000;
     const result = { mode: apply ? 'PRUNE_VERIFIED_GENERATED_EVALUATIONS' : 'PRUNE_DRY_RUN',
-      verifiedRef: tree.commit, eligibleFiles: 0, eligibleBytes: 0, prunedFiles: 0, prunedBytes: 0, skipped: {}, originalObservationsPruned: 0 };
+      verifiedRef: tree.commit, verifiedPacks: 0, eligibleFiles: 0, eligibleBytes: 0,
+      prunedFiles: 0, prunedBytes: 0, skipped: {}, originalObservationsPruned: 0 };
     const candidates = [];
     for await (const m of manifests(api, tree)) {
       const records = m.value.records.filter(r => {
@@ -607,9 +608,21 @@ async function prune(options) {
         return run && run.at < cutoff && !protectedRuns.has(run.prefix + run.id) && !r.redacted && r.exactOriginalRestorable;
       });
       if (!records.length) continue;
+      // Already pruned/protected working copies do not need a pack read-back.
+      // This is only a prefilter: resolve/stat/hash/bytes are checked again after
+      // the network await, and once more before deletion. No local cache is proof.
+      const localRecords = [];
+      for (const record of records) {
+        let target;
+        try { target = resolveSource(record.alias, record.relative, allRoots); }
+        catch (error) { if (error.code === 'ENOENT') continue; throw error; }
+        if (fs.lstatSync(target).mtimeMs < cutoff) localRecords.push(record);
+      }
+      if (!localRecords.length) continue;
       // Verify every candidate against actual remote bytes before allowing any deletion.
       const data = await verifiedPack(api, tree, m.value);
-      for (const record of records) {
+      result.verifiedPacks++;
+      for (const record of localRecords) {
         let target;
         try { target = resolveSource(record.alias, record.relative, allRoots); }
         catch (error) { if (error.code === 'ENOENT') continue; throw error; }

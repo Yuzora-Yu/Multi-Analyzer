@@ -271,6 +271,57 @@ test('prune does not remove changed local version or any candidate after remote 
   assert.ok(targets.every(p=>fs.existsSync(p)));
 });
 
+test('repeat prune reads no historical packs after eligible local evaluations are gone', async t => {
+  const f=fixture(t), remote=fakeGitHub(), old=Date.now()-5*86400000;
+  for(let i=0;i<5;i++){
+    const target=f.write('hourly-observation',`research-forward/evaluation-${old+i*1000}.json`,{close:i});
+    fs.utimesSync(target,new Date(old),new Date(old));
+  }
+  const applied=await (async()=>{
+    await Archive.sync({...remote,workspace:f.workspace});
+    return Archive.prune({api:remote.api,workspace:f.workspace,apply:true});
+  })();
+  assert.equal(applied.prunedFiles,2); assert.equal(applied.verifiedPacks,1);
+  const tree=await remote.api.treeAt(remote.state.ref);
+  const packSha=[...tree.entries].find(([name])=>name.startsWith('packs/'))[1];
+  remote.state.tamperedBlob=packSha; remote.state.calls.length=0;
+  const again=await Archive.prune({api:remote.api,workspace:f.workspace,apply:true});
+  assert.equal(again.eligibleFiles,0); assert.equal(again.prunedFiles,0); assert.equal(again.verifiedPacks,0);
+  assert.equal(remote.state.calls.filter(c=>c.method==='GET'&&c.endpoint.endsWith('/git/blobs/'+packSha)).length,0);
+});
+
+test('one remaining local candidate still requires full pack integrity before any deletion', async t => {
+  const f=fixture(t), remote=fakeGitHub(), old=Date.now()-5*86400000, targets=[];
+  for(let i=0;i<5;i++){
+    const target=f.write('hourly-observation',`research-forward/evaluation-${old+i*1000}.json`,{close:i});
+    fs.utimesSync(target,new Date(old),new Date(old)); targets.push(target);
+  }
+  await Archive.sync({...remote,workspace:f.workspace});
+  fs.unlinkSync(targets[0]);
+  const tree=await remote.api.treeAt(remote.state.ref);
+  remote.state.tamperedBlob=[...tree.entries].find(([name])=>name.startsWith('packs/'))[1];
+  await assert.rejects(Archive.prune({api:remote.api,workspace:f.workspace,apply:true}),/REMOTE_BLOB_HASH_MISMATCH/);
+  assert.ok(targets.slice(1).every(target=>fs.existsSync(target)));
+  remote.state.tamperedBlob=null;
+  const applied=await Archive.prune({api:remote.api,workspace:f.workspace,apply:true});
+  assert.equal(applied.prunedFiles,1); assert.equal(applied.verifiedPacks,1);
+  assert.ok(targets.slice(2).every(target=>fs.existsSync(target)));
+});
+
+test('old evaluation timestamp with a recent local update skips pack retrieval', async t => {
+  const f=fixture(t), remote=fakeGitHub(), old=Date.now()-5*86400000;
+  let oldest;
+  for(let i=0;i<4;i++){
+    const target=f.write('hourly-observation',`research-forward/evaluation-${old+i*1000}.json`,{close:i});
+    fs.utimesSync(target,new Date(old),new Date(old)); if(!i)oldest=target;
+  }
+  await Archive.sync({...remote,workspace:f.workspace});
+  fs.utimesSync(oldest,new Date(),new Date());
+  const result=await Archive.prune({api:remote.api,workspace:f.workspace,apply:true});
+  assert.equal(result.verifiedPacks,0); assert.equal(result.eligibleFiles,0); assert.equal(result.prunedFiles,0);
+  assert.ok(fs.existsSync(oldest));
+});
+
 test('redacted archive restore requires explicit flag and never prunes that copy', async t => {
   const f=fixture(t), remote=fakeGitHub();
   const bytes=Buffer.from(JSON.stringify({close:4,email:'private@example.test'})); f.write('demo-lab','operations/review.json',bytes);
