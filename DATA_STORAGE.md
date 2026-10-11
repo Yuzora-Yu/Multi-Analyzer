@@ -24,6 +24,8 @@ JSONのメールアドレス、認証値、アカウント・チャット識別�
 
 ## 圧縮と差分保存
 
+通常の監視API JSONに埋め込まれた非nullの `lastEmail`・メール履歴も、ファイル全体を `MAIL_RECORD_REQUIRES_EXCLUSION` で除外します。送信記録を伏字コピーで蓄積する運用にはしません。過去に保存された版の変更・履歴書換はこの処理では行いません。
+
 従来のschema 1は、1ファイル20 MiB以下の安全なbytesをgzip化してpackへ詰めます。gzipのSHA256と原本サイズ、packのSHA256とGit blobのSHAを照合します。pack内のgzip payload合計18 MiB、packの展開済みJSON32 MiB、原本換算128 MiB、Git blob20 MiB、API応答32 MiBの上限を維持します。既圧縮データが混ざっても追加圧縮率へ依存せず区切ります。
 
 20 MiB超の入力、または単独gzip payloadが18 MiBを超える入力には、schema 2の `ordered-fragments-v1` を使用します。入力・保存コピーは各64 MiB以下、gzipの全体展開も64 MiB以下に制限します。完全なUTF-8/JSONを検査し、安全な保存用コピーを確定してから8 MiBごとの断片へ分けます。断片を単独JSONとして検査・認証せず、境界を跨ぐ秘密や絶対パスも全体検査で扱います。JSONの深さ128、走査ノード200万を超える入力は明示的に除外します。

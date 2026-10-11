@@ -38,6 +38,7 @@ const WINDOWS_PATH = /(?:(?<![A-Za-z0-9])[A-Za-z]:[\\/][^\r\n"<>|]*|\\\\[^\s"<>]
 const TOKENS = /(?:github_pat_[A-Za-z0-9_]{10,}|gh[pousr]_[A-Za-z0-9]{10,}|sk-(?:proj-)?[A-Za-z0-9_-]{16,}|Bearer\s+[A-Za-z0-9._~+\/-]+=*)/ig;
 const SECRET_ASSIGNMENT = /\b(?:api[_-]?key|access[_-]?token|password|secret|authorization|client[_-]?secret|smtp[_-]?password)\s*[:=]\s*["']?[^\s,"';}\]]+/ig;
 const SENSITIVE_KEY = /^(?:authorization|cookie|set-cookie|password|passwd|secret|clientSecret|privateKey|private_key|apiKey|api_key|accessToken|access_token|refreshToken|refresh_token|token|credential|credentials|email|emailAddress|fromEmail|toEmail|messageId|message_id|recipient|recipients|sender|username|userName|accountId|account_id|hostId|host_id|threadId|thread_id|ownerThreadId|connectionId|absolutePath|workspacePath|sourcePath|localPath|filePath|outputDirectory)$|(?:^|[_-])(?:password|secret|token|credential|private[_-]?key|api[_-]?key)(?:$|[_-])|(?:password|passwd|token|secret|credential[s]?|api[_-]?key|private[_-]?key)$/i;
+const MAIL_RECORD_KEY = /^(?:lastEmail|emailRecord|emailRecords|emailHistory|mailRecord|mailRecords|mailHistory)$/i;
 const PATH_METADATA_KEY = /(?:path|paths|directory|directories|workspace|cwd|root|file|files|folder|folders|location|locations|dir)$/i;
 const SHA256 = /^[a-f0-9]{64}$/, GIT_SHA = /^[a-f0-9]{40}$/;
 
@@ -124,6 +125,7 @@ function inspectJson(value, metadataKey = '') {
       if (next.done) { frames.pop(); continue; }
       const key = next.value;
       if (++nodes > MAX_JSON_NODES) fail('JSON_STRUCTURE_BUDGET_EXCEEDED');
+      if (!Array.isArray(frame.value) && MAIL_RECORD_KEY.test(key) && frame.value[key] != null) fail('MAIL_RECORD_REQUIRES_EXCLUSION');
       if (!Array.isArray(frame.value) && SENSITIVE_KEY.test(key)) {
         if (frame.value[key] !== '[REDACTED_METADATA]') changed = true;
         frame.value[key] = '[REDACTED_METADATA]'; continue;
@@ -179,7 +181,7 @@ function sanitize(bytes, alias, relative) {
       if (redactText(text) !== text) return { reason: 'TEXT_PRIVACY_REQUIRES_EXCLUSION' };
       updated = text;
     }
-  } catch (error) { return { reason: error.code === 'JSON_STRUCTURE_BUDGET_EXCEEDED' ? error.code : 'INVALID_JSON_OR_UNSAFE_KEY' }; }
+  } catch (error) { return { reason: ['JSON_STRUCTURE_BUDGET_EXCEEDED','MAIL_RECORD_REQUIRES_EXCLUSION'].includes(error.code) ? error.code : 'INVALID_JSON_OR_UNSAFE_KEY' }; }
   const redacted = updated !== text;
   if (redacted && integritySensitive(alias, relative, object)) return { reason: 'INTEGRITY_RECORD_REQUIRES_REDACTION' };
   let stored = bytes;

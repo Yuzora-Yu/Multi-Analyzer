@@ -127,6 +127,17 @@ test('integrity envelopes and prose requiring privacy changes are excluded rathe
   assert.equal(Archive.sanitize(Buffer.from(JSON.stringify({ decision: 'WAIT see C:\\Users\\private\\a.json' })), 'demo-lab','operations/review.json').reason, 'INVALID_JSON_OR_UNSAFE_KEY');
 });
 
+test('embedded mail history in otherwise ordinary monitor JSON never uploads and null markers are safe', async t => {
+  const f=fixture(t), remote=fakeGitHub();
+  const original=Buffer.from(JSON.stringify({body:{assets:{gold:{state:'MARKET_CLOSED',lastEmail:{acceptedAt:1791729000000,title:'saved notification'}}}}}));
+  const target=f.write('demo-lab','operations/monitor.json',original);
+  const result=await Archive.sync({...remote,workspace:f.workspace});
+  assert.equal(result.acceptedFiles,0); assert.equal(result.exclusions.MAIL_RECORD_REQUIRES_EXCLUSION,1);
+  assert.equal(remote.state.calls.filter(c=>c.method!=='GET').length,0); assert.deepEqual(fs.readFileSync(target),original);
+  const empty=Buffer.from(JSON.stringify({body:{state:'WAIT',lastEmail:null,emailEnabled:true}}));
+  assert.deepEqual(Archive.sanitize(empty,'demo-lab','operations/status.json').bytes,empty);
+});
+
 test('inventory excludes credentials/mail/media, never changes local originals, and includes all 3 persona outputs', async t => {
   const f = fixture(t);
   const source = f.write('hourly-observation','api-1.json', { close: 4, time: 10 });
