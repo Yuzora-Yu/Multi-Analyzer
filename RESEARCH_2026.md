@@ -1,5 +1,9 @@
 # Research log — Gold / BTC, 2026-09-14
 
+## Current storage policy — 2026-10-11
+
+The user requested Git-based accumulation for all independent research/demo reviewers. The dedicated PRIVATE `Yuzora-Yu/Multi-Analyzer-data` repository now supersedes earlier entries saying that observations remain outside Git. Those entries describe the former policy. Secrets, personal information and mail records remain excluded; runtime datasets never belong in the public application repository. `DATA_STORAGE.md` defines compressed differential storage, original/stored hashes, verified restoration and conservative cleanup of obsolete generated evaluation copies. The existing single collector remains responsible for routine synchronization. Storage changes do not alter any fixed experiment identity, trade rule, validation period or market acquisition.
+
 ## 2026-09-28: auditable prediction persistence
 
 `npm run audit:research` reads the existing private cohort without running its collector or rewriting originals. It publishes a complete private report directory atomically, with source hashes, exact outcome-price provenance, missing versus pending windows, clock anomalies, revised-price conflicts, and non-overlapping window IDs. Raw snapshot receipt does not prove that a derived prediction was saved at that time. Legacy rows therefore remain historical benchmarks; near-close receipt alone does not make the next candle open executable.

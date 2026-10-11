@@ -1,5 +1,11 @@
 # GOLD review workflow
 
+## Research storage policy (2026-10-11 user instruction)
+
+The user explicitly requested that the independent demo/research chats accumulate data in Git instead of growing local downloads. Research observations and sanitized research outputs belong in the dedicated PRIVATE `Yuzora-Yu/Multi-Analyzer-data` repository. This supersedes older instructions that excluded all observation data from Git; secrets, personal information and mail records remain excluded. Never add runtime datasets to the public application repository.
+
+Follow `DATA_STORAGE.md` and the shared `research-git-store.cjs` archiver. The collector task owns routine synchronization; persona tasks write their small output files for that archiver instead of cloning the dataset or creating another collector. Preserve original hashes, registration identities, timestamps and prediction records. Verify remote bytes and restoration before removing local generated copies. Keep working inputs needed by current evaluators; local working storage is not a separate permanent archive. Do not rewrite frozen demo dependencies to implement storage changes.
+
 When the user contacts us about the current GOLD market, first inspect the live analyzer and its current shared snapshot. Do not answer only from prior screenshots, prior messages, or emotional framing.
 
 - Re-fetch session-filtered closed candles for daily, H4, H1, M15, M5 and M1; inspect M30 when requested or provided. Record source and JST retrieval/last closed candle times. Distinguish live/forming quotes from confirmed analysis.
