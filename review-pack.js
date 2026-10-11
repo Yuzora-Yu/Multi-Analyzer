@@ -318,7 +318,12 @@
         finally{frame.completedAt=Date.now();frame.durationMs=performance.now()-frameTick;frame.useCount=transport.trace.uses.length-frame.firstUseId;}
       }
     }
-    if(!pack.records.length)throw Error('取得できた時間足がありません');
+    if(!pack.records.length){
+      const pausedOnly=pack.errors.length>0&&pack.errors.every(e=>e.asset==='gold'&&e.error==='GOLD休場・データ取得停止');
+      const error=Error(pausedOnly?'GOLD休場のため比較データの取得を停止しています。市場再開後に更新してください。':'取得できた時間足がありません');
+      if(pausedOnly)error.code='MARKET_COLLECTION_PAUSED';
+      throw error;
+    }
     const Health=globalThis.MultiAnalyzerSnapshotHealth;
     if(Health){let monitor=null,receivedAt=0;
       if(!archivedId){signal?.throwIfAborted();try{monitor=await transport.get('https://multi-analyzer-monitor.rikai-829.workers.dev/api/monitor',{tf:'health'});receivedAt=Date.now();}catch(e){if(signal?.aborted)throw e;}}
@@ -344,7 +349,7 @@
         const evidence=document.createElement('article');evidence.className='review-evidence';const heading=document.createElement('h3');heading.textContent='アラート条件・共通判定';const text=document.createElement('div');text.className='review-facts';for(const t of [...policy,...pack.assets.flatMap(a=>[`${a.asset.toUpperCase()} / ${a.signal.state}`,a.signal.plan?planText(a.signal.plan):'参考プランなし'])]){const p=document.createElement('p');p.textContent=t;text.append(p);}const image=evidenceImage(pack);image.hidden=true;evidence.append(heading,text,image);grid.append(evidence);
         status.textContent=`${pack.records.length}時間足を固定表示。${pack.errors.length?'未取得: '+pack.errors.map(e=>e.asset+'/'+e.tf+' '+e.error).join(', '):'全時間足の取得完了。'} ${pack.mode==='latest'?'環境足は取得開始 '+jst(pack.capturedAt)+' の最新確定足。':'過去再現。'} 15分判定基準 ${pack.assets.map(a=>a.asset+' '+jst(a.snapshot.settings.now)).join(' / ')}。更新するまで固定。`;
         $('reviewSave').disabled=false;$('reviewCopy').disabled=false;
-      }catch(e){if(current===controller)status.textContent=e.name==='AbortError'?'取得を中止しました。':'取得失敗：'+e.message;}
+      }catch(e){if(current===controller)status.textContent=e.name==='AbortError'?'取得を中止しました。':e.code==='MARKET_COLLECTION_PAUSED'?e.message:'取得失敗：'+e.message;}
       finally{if(current===controller)controller=null;}
     }
     $('reviewOpen').addEventListener('click',()=>{dialog.showModal();if(!pack||!pack.assets.some(a=>a.asset===getAsset()))refresh();});

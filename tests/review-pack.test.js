@@ -37,6 +37,19 @@ test('review uses exact canonical 15m input, excludes forming bars, and records 
 });
 
 test('cancelled capture makes no network request even when Gold collection is closed',async(t)=>{t.mock.method(global,'fetch',()=>{throw Error('unexpected network');});t.mock.method(Date,'now',()=>Date.parse('2026-10-04T12:00:00+09:00'));const c=new AbortController();c.abort();await assert.rejects(R.collect(['gold'],{signal:c.signal}),{name:'AbortError'});});
+test('scheduled Gold pause has an explicit pause status with no network requests',async(t)=>{
+ global.MultiAnalyzerCore=Core;global.MultiAnalyzerFeed=Feed;
+ t.mock.method(Date,'now',()=>Date.parse('2026-10-12T06:03:00+09:00'));
+ t.mock.method(global,'fetch',()=>{throw Error('unexpected network during closure');});
+ await assert.rejects(R.collect(['gold']),{code:'MARKET_COLLECTION_PAUSED',message:'GOLD休場のため比較データの取得を停止しています。市場再開後に更新してください。'});
+});
+test('Gold pause does not relabel a BTC acquisition failure as a scheduled pause',async(t)=>{
+ global.MultiAnalyzerCore=Core;global.MultiAnalyzerFeed=Feed;
+ t.mock.method(Date,'now',()=>Date.parse('2026-10-12T06:03:00+09:00'));
+ const urls=[];t.mock.method(global,'fetch',async url=>{urls.push(url);return {ok:false,status:503};});
+ await assert.rejects(R.collect(['gold','btc']),error=>error.message==='取得できた時間足がありません'&&error.code!=='MARKET_COLLECTION_PAUSED');
+ assert.equal(urls.length,1);assert.match(urls[0],/asset=btc/);
+});
 test('overview marks stale signals and missing timeframes without manufacturing alignment',()=>{
  const pack={assets:[{asset:'gold',snapshot:{id:'x',settings:{now:1000}},signal:{state:'READY_LONG',actionable:true,vetoes:[],plan:{netRR:2}}}],records:[]};
  const current=R.overview(pack,1000)[0],old=R.overview(pack,1000+21*60000)[0];
