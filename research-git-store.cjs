@@ -7,6 +7,7 @@ const zlib = require('node:zlib');
 const { execFileSync } = require('node:child_process');
 
 const SCHEMA = 1, POLICY = 'metadata-privacy-v1';
+const FRAGMENT_SCHEMA = 2, FRAGMENT_FORMAT = 'ordered-fragments-v1';
 const REPOSITORY = 'Yuzora-Yu/Multi-Analyzer-data';
 const MAX_BLOB = 20 * 1024 * 1024;
 const MAX_PLAIN_PACK = 32 * 1024 * 1024;
@@ -15,7 +16,10 @@ const MAX_RAW_PACK = 128 * 1024 * 1024;
 // headroom for base64/JSON/gzip overhead instead of relying on its compression ratio.
 const PACK_PAYLOAD_BUDGET = 18 * 1024 * 1024;
 const MAX_FILE = 20 * 1024 * 1024;
-const MAX_INFLATED = 48 * 1024 * 1024;
+const MAX_SOURCE_FILE = 64 * 1024 * 1024;
+const FRAGMENT_BYTES = 8 * 1024 * 1024;
+const MAX_INFLATED = MAX_SOURCE_FILE;
+const MAX_JSON_NODES = 2000000, MAX_JSON_DEPTH = 128;
 const MAX_REPLY = 32 * 1024 * 1024;
 const ROOT_PATHS = Object.freeze({
   'hourly-observation': '.runtime/hourly-observation',
@@ -108,31 +112,44 @@ function redactText(text) {
   if (/key|token|password|secret|authorization/i.test(updated)) updated = updated.replace(SECRET_ASSIGNMENT, '[REDACTED_CREDENTIAL]');
   return updated;
 }
-function redactJson(value, metadataKey = '') {
-  if (typeof value === 'string') {
-    WINDOWS_PATH.lastIndex = 0;
-    if (WINDOWS_PATH.test(value)) {
-      if (!PATH_METADATA_KEY.test(metadataKey) || !/^(?:[A-Za-z]:[\\/]|\\\\)/.test(value)) fail('NON_METADATA_LOCAL_PATH');
-      return '[REDACTED_LOCAL_PATH]';
-    }
-    if (redactText(value) !== value) fail('NON_METADATA_PRIVACY_DATA');
-    return value;
-  }
-  if (Array.isArray(value)) return value.map(item => redactJson(item, metadataKey));
-  if (value && typeof value === 'object') {
-    const result = Object.create(null);
-    for (const [key, item] of Object.entries(value)) {
-      if (SENSITIVE_KEY.test(key)) result[key] = '[REDACTED_METADATA]';
-      else {
-        const safeKey = redactText(key);
-        if (safeKey !== key) fail('UNSAFE_JSON_KEY');
-        result[key] = redactJson(item, key);
+function inspectJson(value, metadataKey = '') {
+  // Mutate only the parsed, private working copy; original file bytes are intact.
+  // Iterator frames avoid retaining one traversal item for every JSON element.
+  const holder = { value }, frames = [{ parent: holder, key: 'value', metadataKey, depth: 0 }];
+  let changed = false, nodes = 0;
+  while (frames.length) {
+    const frame = frames.at(-1);
+    if (frame.iterator) {
+      const next = frame.iterator.next();
+      if (next.done) { frames.pop(); continue; }
+      const key = next.value;
+      if (++nodes > MAX_JSON_NODES) fail('JSON_STRUCTURE_BUDGET_EXCEEDED');
+      if (!Array.isArray(frame.value) && SENSITIVE_KEY.test(key)) {
+        if (frame.value[key] !== '[REDACTED_METADATA]') changed = true;
+        frame.value[key] = '[REDACTED_METADATA]'; continue;
       }
+      if (!Array.isArray(frame.value) && redactText(key) !== key) fail('UNSAFE_JSON_KEY');
+      frames.push({ parent: frame.value, key, metadataKey: Array.isArray(frame.value) ? frame.metadataKey : key, depth: frame.depth + 1 });
+      continue;
     }
-    return result;
+    if (frame.depth > MAX_JSON_DEPTH) fail('JSON_STRUCTURE_BUDGET_EXCEEDED');
+    const item = frame.parent[frame.key];
+    if (typeof item === 'string') {
+      WINDOWS_PATH.lastIndex = 0;
+      if (WINDOWS_PATH.test(item)) {
+        if (!PATH_METADATA_KEY.test(frame.metadataKey) || !/^(?:[A-Za-z]:[\\/]|\\\\)/.test(item)) fail('NON_METADATA_LOCAL_PATH');
+        frame.parent[frame.key] = '[REDACTED_LOCAL_PATH]'; changed = true;
+      } else if (redactText(item) !== item) fail('NON_METADATA_PRIVACY_DATA');
+      frames.pop();
+    } else if (item && typeof item === 'object') {
+      frame.value = item;
+      frame.iterator = (function* keys() { if (Array.isArray(item)) { for (let i = 0; i < item.length; i++) yield String(i); }
+        else { for (const key in item) if (Object.hasOwn(item, key)) yield key; } })();
+    } else frames.pop();
   }
-  return value;
+  return { value: holder.value, changed };
 }
+function redactJson(value, metadataKey = '') { return inspectJson(value, metadataKey).value; }
 function integritySensitive(alias, relative, object) {
   if (alias === 'demo-lab' && /(?:^|\/)(?:ledger-cache|preregistration[^/]*|registration[^/]*)(?:\/|\.|$)/i.test(relative)) return true;
   // A changed embedded source/transport body must never masquerade as hash evidence.
@@ -140,33 +157,34 @@ function integritySensitive(alias, relative, object) {
   return /"(?:payloadHash|snapshotResponseText|snapshotResponseSha256|predictionHash|sourceHash|previousHash|journalHash)"\s*:/.test(text);
 }
 function sanitize(bytes, alias, relative) {
+  if (bytes.length > MAX_SOURCE_FILE) return { reason: 'SOURCE_FILE_TOO_LARGE' };
   const gzipped = relative.endsWith('.gz');
   let plain;
   try { plain = gzipped ? zlib.gunzipSync(bytes, { maxOutputLength: MAX_INFLATED }) : bytes; }
   catch { return { reason: 'INVALID_OR_OVERSIZED_GZIP' }; }
   if (plain.length > MAX_INFLATED) return { reason: 'INFLATED_FILE_TOO_LARGE' };
-  const text = plain.toString('utf8');
-  if (!Buffer.from(text, 'utf8').equals(plain) || text.includes('\0')) return { reason: 'NON_UTF8_TEXT' };
+  let text; try { text = new TextDecoder('utf-8', { fatal: true }).decode(plain); } catch { return { reason: 'NON_UTF8_TEXT' }; }
+  if (text.includes('\0')) return { reason: 'NON_UTF8_TEXT' };
   const inner = gzipped ? relative.slice(0, -3) : relative;
   let updated, object;
   try {
     if (inner.endsWith('.json')) {
-      object = JSON.parse(text); const redacted = redactJson(object);
-      updated = JSON.stringify(object) === JSON.stringify(redacted) ? text : JSON.stringify(redacted, null, 2) + '\n';
+      object = JSON.parse(text); const inspected = inspectJson(object);
+      updated = inspected.changed ? JSON.stringify(inspected.value) + '\n' : text;
     } else if (/\.(?:jsonl|ndjson)$/.test(inner)) {
       const lines = text.split(/\r?\n/), values = lines.filter(line => line.trim()).map(line => JSON.parse(line));
-      object = values; const redacted = values.map(redactJson);
-      updated = JSON.stringify(values) === JSON.stringify(redacted) ? text : redacted.map(v => JSON.stringify(v)).join('\n') + '\n';
+      object = values; const inspected = inspectJson(values);
+      updated = inspected.changed ? inspected.value.map(v => JSON.stringify(v)).join('\n') + '\n' : text;
     } else {
       if (redactText(text) !== text) return { reason: 'TEXT_PRIVACY_REQUIRES_EXCLUSION' };
       updated = text;
     }
-  } catch { return { reason: 'INVALID_JSON_OR_UNSAFE_KEY' }; }
+  } catch (error) { return { reason: error.code === 'JSON_STRUCTURE_BUDGET_EXCEEDED' ? error.code : 'INVALID_JSON_OR_UNSAFE_KEY' }; }
   const redacted = updated !== text;
   if (redacted && integritySensitive(alias, relative, object)) return { reason: 'INTEGRITY_RECORD_REQUIRES_REDACTION' };
   let stored = bytes;
   if (redacted) stored = gzipped ? zlib.gzipSync(Buffer.from(updated), { level: 6 }) : Buffer.from(updated);
-  if (stored.length > MAX_FILE) return { reason: 'STORED_FILE_TOO_LARGE' };
+  if (stored.length > MAX_SOURCE_FILE) return { reason: 'STORED_FILE_TOO_LARGE' };
   // Re-scan strings after transformation. Sensitive-key replacement is explicit metadata.
   if (redactText(updated) !== updated) return { reason: 'PRIVACY_SCAN_FAILED' };
   return { bytes: stored, originalSha256: sha256(bytes), storedSha256: sha256(stored),
@@ -178,10 +196,10 @@ function readSafeFile(alias, relative, allRoots) {
   const fd = fs.openSync(target, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0));
   try {
     const before = fs.fstatSync(fd);
-    if (!before.isFile() || before.size > MAX_FILE) return { reason: 'SOURCE_FILE_TOO_LARGE_OR_NON_REGULAR' };
+    if (!before.isFile() || before.size > MAX_SOURCE_FILE) return { reason: 'SOURCE_FILE_TOO_LARGE_OR_NON_REGULAR' };
     const bytes = fs.readFileSync(fd), after = fs.fstatSync(fd);
-    if (before.size !== after.size || before.mtimeMs !== after.mtimeMs || before.ino !== after.ino) return { reason: 'SOURCE_CHANGED_DURING_READ' };
-    if (bytes.length > MAX_FILE) return { reason: 'SOURCE_FILE_TOO_LARGE' };
+    if (statFingerprint(before) !== statFingerprint(after)) return { reason: 'SOURCE_CHANGED_DURING_READ' };
+    if (bytes.length > MAX_SOURCE_FILE) return { reason: 'SOURCE_FILE_TOO_LARGE' };
     return { ...sanitize(bytes, alias, relative), fingerprint: statFingerprint(after) };
   } finally { fs.closeSync(fd); }
 }
@@ -329,18 +347,37 @@ class GitHub {
   }
 }
 
+function validatePackReference(pack) {
+  if (!SHA256.test(pack?.sha256 || '') || !GIT_SHA.test(pack?.gitSha || '') ||
+      pack.path !== `packs/${pack.sha256}.json.gz` || !Number.isSafeInteger(pack.bytes) || pack.bytes < 1 || pack.bytes > MAX_BLOB) fail('MANIFEST_PACK_INVALID');
+}
+function manifestPacks(manifest) {
+  return manifest.schema === SCHEMA ? [manifest.pack] : manifest.records.flatMap(r => r.fragments.map(f => f.pack));
+}
 function validateManifest(manifest, filePath) {
-  if (manifest.schema !== SCHEMA || manifest.privacyPolicy !== POLICY || !Array.isArray(manifest.records) ||
-      !manifest.records.length || !SHA256.test(manifest.pack?.sha256 || '') || !GIT_SHA.test(manifest.pack?.gitSha || '') ||
-      manifest.pack.path !== `packs/${manifest.pack.sha256}.json.gz` || !Number.isSafeInteger(manifest.pack.bytes) || manifest.pack.bytes > MAX_BLOB) fail('MANIFEST_INVALID');
+  const fragmented = manifest.schema === FRAGMENT_SCHEMA;
+  if (![SCHEMA, FRAGMENT_SCHEMA].includes(manifest.schema) || manifest.privacyPolicy !== POLICY || !Array.isArray(manifest.records) ||
+      !manifest.records.length || (fragmented && (manifest.format !== FRAGMENT_FORMAT || manifest.records.length !== 1))) fail('MANIFEST_INVALID');
+  if (!fragmented) validatePackReference(manifest.pack);
   if (filePath && !/^manifests\/[a-f0-9]{64}\.json$/.test(filePath)) fail('MANIFEST_PATH_INVALID');
   for (const r of manifest.records) {
     if (!Object.hasOwn(ROOT_PATHS, r.alias) || !SHA256.test(r.originalSha256 || '') || !SHA256.test(r.storedSha256 || '') ||
         r.privacyPolicy !== POLICY || typeof r.redacted !== 'boolean' || r.exactOriginalRestorable !== !r.redacted ||
-        !Number.isSafeInteger(r.storedBytes) || r.storedBytes < 0 || r.storedBytes > MAX_FILE ||
-        !Number.isSafeInteger(r.originalBytes) || r.originalBytes < 0 || r.originalBytes > MAX_FILE ||
-        (!r.redacted && r.originalSha256 !== r.storedSha256)) fail('MANIFEST_RECORD_INVALID');
+        !Number.isSafeInteger(r.storedBytes) || r.storedBytes < 0 || r.storedBytes > (fragmented ? MAX_SOURCE_FILE : MAX_FILE) ||
+        !Number.isSafeInteger(r.originalBytes) || r.originalBytes < 0 || r.originalBytes > (fragmented ? MAX_SOURCE_FILE : MAX_FILE) ||
+        (!r.redacted && (r.originalSha256 !== r.storedSha256 || r.originalBytes !== r.storedBytes))) fail('MANIFEST_RECORD_INVALID');
     cleanRelative(r.relative);
+    if (fragmented) {
+      if (r.storage !== FRAGMENT_FORMAT || !Array.isArray(r.fragments) || !r.storedBytes ||
+          r.fragments.length !== Math.ceil(r.storedBytes / FRAGMENT_BYTES)) fail('MANIFEST_FRAGMENT_COUNT_INVALID');
+      let offset = 0;
+      for (const [index, fragment] of r.fragments.entries()) {
+        if (fragment.index !== index || fragment.offset !== offset || fragment.bytes !== Math.min(FRAGMENT_BYTES, r.storedBytes - offset) ||
+            !SHA256.test(fragment.sha256 || '')) fail('MANIFEST_FRAGMENT_ORDER_OR_SIZE_INVALID');
+        validatePackReference(fragment.pack); offset += fragment.bytes;
+      }
+      if (offset !== r.storedBytes) fail('MANIFEST_FRAGMENT_TOTAL_MISMATCH');
+    }
   }
   return manifest;
 }
@@ -351,7 +388,7 @@ async function* manifests(api, tree) {
     if (name !== `manifests/${sha256(bytes)}.json`) fail('MANIFEST_CONTENT_ADDRESS_MISMATCH');
     let value; try { value = JSON.parse(bytes.toString('utf8')); } catch { fail('MANIFEST_NOT_JSON'); }
     validateManifest(value, name);
-    if (tree.entries.get(value.pack.path) !== value.pack.gitSha) fail('MANIFEST_PACK_MISSING_FROM_REF');
+    for (const pack of manifestPacks(value)) if (tree.entries.get(pack.path) !== pack.gitSha) fail('MANIFEST_PACK_MISSING_FROM_REF');
     yield { value, path: name, gitSha: sha };
   }
 }
@@ -402,6 +439,7 @@ function unpack(bytes, expectedPack) {
   }, has: sha => compressedFiles.has(sha), size: compressedFiles.size, totalRawBytes: totalRaw };
 }
 async function verifiedPack(api, tree, manifest) {
+  if (manifest.schema !== SCHEMA) fail('FRAGMENTS_MUST_USE_WHOLE_FILE_VERIFICATION');
   if (tree.entries.get(manifest.pack.path) !== manifest.pack.gitSha) fail('PACK_NOT_IN_CURRENT_REF');
   const files = unpack(await api.blob(manifest.pack.gitSha), manifest.pack);
   for (const record of manifest.records) {
@@ -413,7 +451,32 @@ async function verifiedPack(api, tree, manifest) {
   return files;
 }
 
-function summarize() { return { scannedFiles: 0, scannedBytes: 0, acceptedFiles: 0, acceptedBytes: 0, redactedFiles: 0, alreadyArchived: 0, statCacheHits: 0, exclusions: {} }; }
+async function verifiedFragmentRecord(api, tree, manifest) {
+  validateManifest(manifest);
+  if (manifest.schema !== FRAGMENT_SCHEMA) fail('EXPECTED_FRAGMENT_MANIFEST');
+  const record = manifest.records[0], whole = Buffer.alloc(record.storedBytes);
+  const digest = crypto.createHash('sha256');
+  for (const fragment of record.fragments) {
+    if (tree.entries.get(fragment.pack.path) !== fragment.pack.gitSha) fail('PACK_NOT_IN_CURRENT_REF');
+    const files = unpack(await api.blob(fragment.pack.gitSha), fragment.pack);
+    const bytes = files.get(fragment.sha256);
+    if (!bytes || bytes.length !== fragment.bytes || sha256(bytes) !== fragment.sha256) fail('FRAGMENT_DATA_MISMATCH');
+    bytes.copy(whole, fragment.offset); digest.update(bytes);
+  }
+  if (digest.digest('hex') !== record.storedSha256 || sha256(whole) !== record.storedSha256 ||
+      (!record.redacted && record.originalSha256 !== record.storedSha256)) fail('REASSEMBLED_FILE_HASH_MISMATCH');
+  // A fragment is not a JSON file or standalone privacy certificate. Inspect the
+  // full reassembled file, including credentials spanning a fragment boundary.
+  const safety = sanitize(whole, record.alias, record.relative);
+  if (safety.reason || safety.redacted || safety.storedSha256 !== record.storedSha256) fail('ARCHIVED_FILE_PRIVACY_CHECK_FAILED');
+  return whole;
+}
+async function verifyArchiveManifest(api, tree, manifest) {
+  if (manifest.schema === SCHEMA) return verifiedPack(api, tree, manifest);
+  return verifiedFragmentRecord(api, tree, manifest);
+}
+
+function summarize() { return { scannedFiles: 0, scannedBytes: 0, acceptedFiles: 0, acceptedBytes: 0, redactedFiles: 0, fragmentedFiles: 0, fragments: 0, alreadyArchived: 0, statCacheHits: 0, exclusions: {} }; }
 function exclude(summary, reason) { summary.exclusions[reason] = (summary.exclusions[reason] || 0) + 1; }
 async function inventory(options = {}) {
   const allRoots = roots(options.workspace), aliases = options.aliases || Object.keys(ROOT_PATHS), summary = summarize();
@@ -431,6 +494,7 @@ async function sync(options) {
   return withLock(workspace, async () => {
     const verifiedRepository = await api.verifyPrivate();
     let tree = await api.treeAt(await api.ref());
+    const baseCommit = tree.commit;
     const known = new Set();
     for await (const m of manifests(api, tree)) for (const record of m.value.records) known.add(recordKey(record));
     const allRoots = roots(workspace), summary = summarize(), additions = [], stagedManifests = [];
@@ -448,23 +512,46 @@ async function sync(options) {
     if (!Number.isSafeInteger(batchByteLimit) || batchByteLimit < 1 || batchByteLimit > 1024 * 1024 * 1024 ||
         !Number.isSafeInteger(batchFileLimit) || batchFileLimit < 1 || batchFileLimit > 10000) fail('BATCH_LIMIT_INVALID');
     let batch = [], encodedEstimate = 0, rawBatchBytes = 0, payloadBatchBytes = 0, deferred = false;
-    async function flush() {
-      if (!batch.length) return;
-      const pack = buildPack(batch), packPath = `packs/${pack.sha256}.json.gz`;
-      if (tree.entries.has(packPath)) {
-        if (tree.entries.get(packPath) !== pack.gitSha) fail('IMMUTABLE_PACK_CONFLICT');
+    const stagedPacks = new Map();
+    async function storePack(pack) {
+      const packPath = `packs/${pack.sha256}.json.gz`, existing = stagedPacks.get(packPath) || tree.entries.get(packPath);
+      if (existing) {
+        if (existing !== pack.gitSha) fail('IMMUTABLE_PACK_CONFLICT');
       } else {
-        await api.putBlob(pack.bytes); additions.push({ path: packPath, sha: pack.gitSha });
+        await api.putBlob(pack.bytes); additions.push({ path: packPath, sha: pack.gitSha }); stagedPacks.set(packPath, pack.gitSha);
       }
-      const value = { schema: SCHEMA, privacyPolicy: POLICY, archivedAt: new Date().toISOString(),
-        repository: REPOSITORY, pack: { path: packPath, sha256: pack.sha256, gitSha: pack.gitSha,
-          bytes: pack.bytes.length, plainBytes: pack.plainBytes, rawBytes: pack.rawBytes, payloadBytes: pack.payloadBytes },
-        records: batch.map(({ bytes, payload, fingerprint, ...metadata }) => metadata) };
+      return { path: packPath, sha256: pack.sha256, gitSha: pack.gitSha, bytes: pack.bytes.length,
+        plainBytes: pack.plainBytes, rawBytes: pack.rawBytes, payloadBytes: pack.payloadBytes };
+    }
+    async function storeManifest(value) {
       validateManifest(value);
       const bytes = Buffer.from(JSON.stringify(value)), manifestPath = `manifests/${sha256(bytes)}.json`;
       const manifestSha = await api.putBlob(bytes);
-      additions.push({ path: manifestPath, sha: manifestSha });
-      stagedManifests.push({ path: manifestPath, sha: manifestSha });
+      additions.push({ path: manifestPath, sha: manifestSha }); stagedManifests.push({ path: manifestPath, sha: manifestSha });
+    }
+    async function stageFragmented(record) {
+      // Entire input is already UTF-8/JSON/privacy checked before any upload.
+      await flush();
+      const fragments = [];
+      for (let offset = 0, index = 0; offset < record.storedBytes; offset += FRAGMENT_BYTES, index++) {
+        const bytes = record.bytes.subarray(offset, Math.min(offset + FRAGMENT_BYTES, record.storedBytes));
+        const fragmentHash = sha256(bytes);
+        const pack = await storePack(buildPack([{ bytes, storedBytes: bytes.length, storedSha256: fragmentHash }]));
+        fragments.push({ index, offset, bytes: bytes.length, sha256: fragmentHash, pack });
+      }
+      const { bytes, fingerprint, ...metadata } = record;
+      await storeManifest({ schema: FRAGMENT_SCHEMA, format: FRAGMENT_FORMAT, privacyPolicy: POLICY,
+        archivedAt: new Date().toISOString(), repository: REPOSITORY,
+        records: [{ ...metadata, storage: FRAGMENT_FORMAT, fragments }] });
+      summary.fragmentedFiles++; summary.fragments += fragments.length;
+    }
+    async function flush() {
+      if (!batch.length) return;
+      const pack = await storePack(buildPack(batch));
+      const value = { schema: SCHEMA, privacyPolicy: POLICY, archivedAt: new Date().toISOString(),
+        repository: REPOSITORY, pack,
+        records: batch.map(({ bytes, payload, fingerprint, ...metadata }) => metadata) };
+      await storeManifest(value);
       batch = []; encodedEstimate = 0; rawBatchBytes = 0; payloadBatchBytes = 0;
     }
     outer: for (const alias of config.roots || Object.keys(ROOT_PATHS)) for (const entry of walk(alias, allRoots)) {
@@ -484,8 +571,12 @@ async function sync(options) {
       nextIndex[indexKey] = { fingerprint: file.fingerprint, originalSha256: file.originalSha256 };
       if (known.has(key)) { summary.alreadyArchived++; continue; }
       if (summary.acceptedFiles >= batchFileLimit || (summary.acceptedBytes && summary.acceptedBytes + file.storedBytes > batchByteLimit)) { deferred = true; break outer; }
-      const payload = zlib.gzipSync(file.bytes, { level: 6 });
-      if (payload.length > PACK_PAYLOAD_BUDGET) { exclude(summary, 'SOURCE_FILE_COMPRESSION_TOO_LARGE'); continue; }
+      const payload = file.originalBytes > MAX_FILE || file.storedBytes > MAX_FILE ? null : zlib.gzipSync(file.bytes, { level: 6 });
+      if (!payload || payload.length > PACK_PAYLOAD_BUDGET) {
+        await stageFragmented(record); known.add(key);
+        summary.acceptedFiles++; summary.acceptedBytes += file.storedBytes; summary.redactedFiles += Number(file.redacted);
+        continue;
+      }
       const estimate = Math.ceil(payload.length / 3) * 4 + 300;
       if (batch.length && (encodedEstimate + estimate > MAX_PLAIN_PACK - 1024 || rawBatchBytes + file.storedBytes > MAX_RAW_PACK ||
           payloadBatchBytes + payload.length > PACK_PAYLOAD_BUDGET)) await flush();
@@ -502,10 +593,10 @@ async function sync(options) {
       if (tree.entries.get(expected.path) !== expected.sha) fail('REMOTE_MANIFEST_NOT_REACHABLE');
       const bytes = await api.blob(expected.sha);
       if (sha256(bytes) !== path.posix.basename(expected.path, '.json')) fail('REMOTE_MANIFEST_READBACK_MISMATCH');
-      await verifiedPack(api, tree, validateManifest(JSON.parse(bytes.toString('utf8')), expected.path));
+      await verifyArchiveManifest(api, tree, validateManifest(JSON.parse(bytes.toString('utf8')), expected.path));
     }
     const result = { schema: SCHEMA, mode: 'SYNC_VERIFIED', completedAt: new Date().toISOString(),
-      repository: verifiedRepository, baseCommit: tree.commit, publishedCommit: commit, verifiedRef: tree.commit,
+      repository: verifiedRepository, baseCommit, publishedCommit: commit, verifiedRef: tree.commit,
       manifests: stagedManifests, deferred, rehash, contentWrites: api.contentWrites, quota: api.quota,
       ...summary, localOriginalsModified: false, localFilesPruned: 0 };
     // Bounded replaceable index. It is a scan optimization, never archive evidence.
@@ -553,16 +644,25 @@ async function restore(options) {
     }
     if (!selected) fail('RESTORE_VERSION_NOT_FOUND');
     if (selected.record.redacted && !allowRedacted) fail('REDACTED_COPY_IS_NOT_ORIGINAL_USE_EXPLICIT_FLAG');
-    const files = await verifiedPack(api, tree, selected.value), data = files.get(selected.record.storedSha256);
+    const data = selected.value.schema === FRAGMENT_SCHEMA ? await verifiedFragmentRecord(api, tree, selected.value) :
+      (await verifiedPack(api, tree, selected.value)).get(selected.record.storedSha256);
     const target = restoreTarget(workspace, alias, relative);
     fs.mkdirSync(path.dirname(target), { recursive: true });
-    // Do not overwrite originals or an earlier restoration, including through links.
-    const fd = fs.openSync(target, 'wx');
-    try { fs.writeFileSync(fd, data); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
-    if (sha256(fs.readFileSync(target)) !== selected.record.storedSha256) fail('RESTORE_WRITE_HASH_MISMATCH');
+    // Publish only a fully written/verified file, atomically and without overwrite.
+    // A same-directory exclusive hard link is atomic on the supported NTFS host.
+    const temp = `${target}.${crypto.randomUUID()}.tmp`;
+    const fd = fs.openSync(temp, 'wx', 0o600);
+    try {
+      try { fs.writeFileSync(fd, data); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+      if (sha256(fs.readFileSync(temp)) !== selected.record.storedSha256) fail('RESTORE_WRITE_HASH_MISMATCH');
+      restoreTarget(workspace, alias, relative);
+      fs.linkSync(temp, target);
+    } finally { fs.unlinkSync(temp); }
     return { mode: 'RESTORED_VERIFIED_COPY', alias, relative, originalSha256,
       storedSha256: selected.record.storedSha256, exactOriginalRestorable: !selected.record.redacted,
-      redacted: selected.record.redacted, destination: `.runtime/git-data-store/restored/${alias}/${relative}`,
+      redacted: selected.record.redacted, schema: selected.value.schema,
+      fragments: selected.value.schema === FRAGMENT_SCHEMA ? selected.record.fragments.length : 0,
+      destination: `.runtime/git-data-store/restored/${alias}/${relative}`,
       verifiedRef: tree.commit, overwrite: false };
   });
 }
@@ -603,6 +703,12 @@ async function prune(options) {
       prunedFiles: 0, prunedBytes: 0, skipped: {}, originalObservationsPruned: 0 };
     const candidates = [];
     for await (const m of manifests(api, tree)) {
+      // Large originals remain working inputs. This change does not enlarge the
+      // deletion policy; fragment archives must first have an operational review.
+      if (m.value.schema === FRAGMENT_SCHEMA) {
+        result.skipped.FRAGMENTED_ORIGINAL_RETAINED = (result.skipped.FRAGMENTED_ORIGINAL_RETAINED || 0) + m.value.records.length;
+        continue;
+      }
       const records = m.value.records.filter(r => {
         const run = r.alias === 'hourly-observation' && evaluationRun(r.relative);
         return run && run.at < cutoff && !protectedRuns.has(run.prefix + run.id) && !r.redacted && r.exactOriginalRestorable;
@@ -675,7 +781,9 @@ if (require.main === module) main().then(result => console.log(JSON.stringify(re
   console.error(JSON.stringify({ ok: false, code: safeErrorCode(error), originalsPreservedBySync: true }));
   process.exitCode = 1;
 });
-module.exports = { SCHEMA, POLICY, REPOSITORY, MAX_BLOB, MAX_PLAIN_PACK, MAX_RAW_PACK, PACK_PAYLOAD_BUDGET, MAX_FILE, ROOT_PATHS, PRUNE_PREFIXES,
+module.exports = { SCHEMA, FRAGMENT_SCHEMA, FRAGMENT_FORMAT, POLICY, REPOSITORY, MAX_BLOB, MAX_PLAIN_PACK, MAX_RAW_PACK,
+  PACK_PAYLOAD_BUDGET, MAX_FILE, MAX_SOURCE_FILE, FRAGMENT_BYTES, MAX_INFLATED, MAX_JSON_NODES, MAX_JSON_DEPTH, ROOT_PATHS, PRUNE_PREFIXES,
   sha256, gitBlobSha, within, cleanRelative, roots, resolveSource, excludedPath, walk, redactText, redactJson,
   sanitize, readSafeFile, recordKey, withLock, loadConfig, GitHub, validateManifest, manifests, buildPack,
-  unpack, verifiedPack, inventory, sync, restoreTarget, restore, evaluationRun, protectedEvaluations, prune };
+  unpack, verifiedPack, verifiedFragmentRecord, verifyArchiveManifest, manifestPacks,
+  inventory, sync, restoreTarget, restore, evaluationRun, protectedEvaluations, prune };

@@ -24,7 +24,13 @@ JSONのメールアドレス、認証値、アカウント・チャット識別�
 
 ## 圧縮と差分保存
 
-1ファイルずつ安全なbytesをgzip化し、gzipのSHA256と原本サイズを記録してpackへ詰めます。packはSHA256で名前を決め、Git blobのSHAも照合します。pack自体は再度gzipします。1ファイル20 MiB、pack内のgzip payload合計18 MiB、packの展開済みJSON32 MiB、原本換算128 MiB、Git blob20 MiB以下の上限を設けています。既圧縮データが混ざっても追加圧縮率へ依存せず区切ります。復元では全原本を一度に展開せず、1ファイルずつ照合します。大きすぎる入力は分割したふりをせず除外します。
+従来のschema 1は、1ファイル20 MiB以下の安全なbytesをgzip化してpackへ詰めます。gzipのSHA256と原本サイズ、packのSHA256とGit blobのSHAを照合します。pack内のgzip payload合計18 MiB、packの展開済みJSON32 MiB、原本換算128 MiB、Git blob20 MiB、API応答32 MiBの上限を維持します。既圧縮データが混ざっても追加圧縮率へ依存せず区切ります。
+
+20 MiB超の入力、または単独gzip payloadが18 MiBを超える入力には、schema 2の `ordered-fragments-v1` を使用します。入力・保存コピーは各64 MiB以下、gzipの全体展開も64 MiB以下に制限します。完全なUTF-8/JSONを検査し、安全な保存用コピーを確定してから8 MiBごとの断片へ分けます。断片を単独JSONとして検査・認証せず、境界を跨ぐ秘密や絶対パスも全体検査で扱います。JSONの深さ128、走査ノード200万を超える入力は明示的に除外します。
+
+schema 2のmanifestは1ファイルの原本・保存コピーのSHA256とサイズ、各断片の順序・offset・サイズ・SHA256・pack参照を記録します。読戻し時は断片を順番に照合して再組立し、全体SHA256と全体のプライバシーを再検査します。欠落、重複した順序番号、順序・offset・サイズ・hashの改ざんは拒否します。同じ内容の断片のpack再利用は可能ですが、位置の照合を省きません。従来のschema 1とschema 2は同じ保存履歴に共存でき、復元時は形式ごとに検証します。
+
+全履歴を一度に展開せず、全体検査に必要な入力は1ファイルずつ処理します。大容量JSONの検査は全体の解析オブジェクトと再組立Bufferを必要とするため、64 MiBはプロセス全体のメモリ使用量の上限ではありません。作業用の解析オブジェクトだけを変更し、巨大な複製の生成を抑えます。断片アップロードの途中失敗・競合ではmanifestの公開を完了扱いせず、原本を保持します。
 
 ```
 packs/<packのSHA256>.json.gz
@@ -32,6 +38,8 @@ manifests/<manifestのSHA256>.json
 ```
 
 manifestは追記専用です。同じ相対パスでも内容が変われば別バージョンを残します。同一原本SHA256・プライバシーポリシーの既保存版は再保存せず、同一packのblobも重複作成しません。データ履歴をcloneせず、APIから小さなmanifestと必要なpackだけを読みます。
+
+同期記録の `baseCommit` は読み始めたGitの版、`publishedCommit` は追加した版、`verifiedRef` は読戻しを照合した版です。これらを混同せず記録します。以前の同期記録は `baseCommit` に照合後の版を記録していたため、過去の開始版の証拠として使いません。
 
 手元の差分indexは、Gitで検証済みの原本ハッシュとファイルのsize/mtime/ctime/デバイス・inodeが一致した場合に再読込を省きます。indexは20 MiB以下で1ファイルを置換する性能用cacheです。archiveの証拠にはしません。外部が内容とファイル属性を同時に偽装した場合は検出できないので、監査時は `sync --rehash` で原本を再読込します。index破損・参照先不一致は再読込へ戻します。
 
@@ -41,7 +49,7 @@ manifestは追記専用です。同じ相対パスでも内容が変われば別
 
 GitHubのprimary rateヘッダーと書込予算を確認します。標準では書込間隔1.5秒、1実行80回以下、1回の同期256 MiB・5,000新規ファイルまでです。上限、429/403等、アップロード失敗、照合失敗で停止し、再試行を無制限に続けません。手動実行時も他のクライアントの共有制限を考慮します。[GitHubのrate limit仕様](https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api)、[Git Data API](https://docs.github.com/en/rest/git)。
 
-サイズによる除外は保存完了として扱いません。`SOURCE_FILE_TOO_LARGE_OR_NON_REGULAR`、`SOURCE_FILE_TOO_LARGE`、`STORED_FILE_TOO_LARGE`、`SOURCE_FILE_COMPRESSION_TOO_LARGE`、`INFLATED_FILE_TOO_LARGE`、`INVALID_OR_OVERSIZED_GZIP`等が1件でも発生したら、親の収集担当へ**保存障害として連携**し、原本を保持します。静かに無視してローカル増加を続ける運用にはしません。今の20 MiB上限を超えるevaluation等には、将来のファイル分割保存と完全な読戻しの実装・検証が必要です。その対応前に大きな原本を削除しません。
+サイズや構造による除外は保存完了として扱いません。`SOURCE_FILE_TOO_LARGE_OR_NON_REGULAR`、`SOURCE_FILE_TOO_LARGE`、`STORED_FILE_TOO_LARGE`、`INFLATED_FILE_TOO_LARGE`、`INVALID_OR_OVERSIZED_GZIP`、`JSON_STRUCTURE_BUDGET_EXCEEDED`等が1件でも発生したら、親の収集担当へ**保存障害として連携**し、原本を保持します。64 MiBを超える入力も黙って無視しません。上限を拡大する前に、検査・展開・復元の資源上限と追加検証が必要です。
 
 ## 実行
 
@@ -75,13 +83,15 @@ node --test tests/research-git-store.test.js
 
 `inventory`/`dry-run` は読取専用で、API書込もローカル保存も行いません。同期・復元・削除は共通のローカルlockを取得し、衝突時は停止します。古いlockを勝手に破棄しません。同期完了・失敗・prune記録は、Git対象外の `.runtime/git-data-store/` 内の固定名のJSONへ原子的に保存します。
 
-復元は別名、相対パス、原本SHA256で**版を明示**します。保存先は `.runtime/git-data-store/restored/<別名>/<相対パス>` に限定し、既存ファイルと原本を上書きしません。伏字コピーには `--allow-redacted` が必要で、完全な原本復元とは表示しません。
+復元は別名、相対パス、原本SHA256で**版を明示**します。保存先は `.runtime/git-data-store/restored/<別名>/<相対パス>` に限定し、既存ファイルと原本を上書きしません。全体検証後に同じディレクトリの一時ファイルへ書き、fsyncとSHA256を照合し、排他的なhardlinkで完成版だけを公開します。hardlinkを使用できない保存先では停止し、上書きrenameへ切り替えません。失敗時の一時ファイルは整理します。伏字コピーには `--allow-redacted` が必要で、完全な原本復元とは表示しません。
 
 ## ローカル容量
 
 ローカルは現在の作業に必要な入力、最新レビュー、差分index、検証用の一時復元だけを維持する方針です。長期のデータ蓄積を日々ローカルへ積み重ねないよう、保存・検証後に旧生成evaluationを整理します。
 
 今回削除可能なのは `hourly-observation/research-forward/evaluation-<epochMs>.json`（またはgzip）の旧生成レポートだけです。**最新3件、24時間以内、LATESTが指す版、原本・predictions・不変cache・登録・canonicalファイルは保持**します。削除前にGitの現在refからpackを再取得し、ローカル原本とbytes/SHA256が完全一致することを確認します。伏字済み版、未保存版、後から変わった版は削除しません。確認途中の失敗では削除を開始しません。これは生成レポートの個別削除で、観測原本の再帰削除は行いません。
+
+分割保存したschema 2の原本は、旧生成evaluationであっても今回のprune対象に含めません。`FRAGMENTED_ORIGINAL_RETAINED` として保持します。大容量の実Git読戻しを確認しても、この段階では削除範囲を拡大しません。
 
 既に整理済みでローカルに存在しない旧評価や、最近更新された保護対象だけのpackは読み戻しません。manifestと現在refを照合してローカル候補を絞り、必要なpackを検証した後にパス・更新時刻・SHA256・bytesを再確認します。実際のpack検証件数は `verifiedPacks` に記録します。対象がなければpack取得は0件ですが、Git全履歴を毎回再監査した意味ではありません。
 

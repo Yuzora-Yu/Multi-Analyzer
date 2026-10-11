@@ -31,7 +31,7 @@ function fakeGitHub() {
   const initialTree = nextSha(); trees.set(initialTree, new Map());
   const initialCommit = nextSha(); commits.set(initialCommit, { tree: initialTree, parents: [] });
   const state = { ref: initialCommit, private: true, visibility: 'private', login: 'Yuzora-Yu',
-    failUpload: false, mismatchUpload: false, patchMode: 'normal', tamperedBlob: null, blobs, trees, commits, calls };
+    failUpload: false, failAfterUploads: null, mismatchUpload: false, patchMode: 'normal', tamperedBlob: null, blobs, trees, commits, calls };
   const response = (value, status = 200) => new Response(JSON.stringify(value), { status, headers: { 'Content-Type': 'application/json' } });
   async function fetchImpl(url, options = {}) {
     const endpoint = new URL(url).pathname, method = options.method || 'GET';
@@ -57,6 +57,7 @@ function fakeGitHub() {
     }
     if (relative === '/git/blobs' && method === 'POST') {
       if (state.failUpload) return response({}, 503);
+      if (state.failAfterUploads != null && calls.filter(c => c.method === 'POST' && c.endpoint.endsWith('/git/blobs')).length > state.failAfterUploads) return response({},503);
       const bytes = Buffer.from(body.content, 'base64'), sha = Archive.gitBlobSha(bytes);
       blobs.set(sha, bytes);
       return response({ sha: state.mismatchUpload ? 'e'.repeat(40) : sha });
@@ -145,8 +146,11 @@ test('sync checks private repository/account, appends content addressed packs, r
   const f = fixture(t), remote = fakeGitHub();
   const bytes = Buffer.from('{"time":1791729000000,"close":4185.45,"decision":"WAIT"}\n');
   f.write('hourly-observation','api-1.json',bytes);
+  const initialRef = remote.state.ref;
   const result = await Archive.sync({ ...remote, workspace:f.workspace });
   assert.equal(result.mode,'SYNC_VERIFIED'); assert.equal(result.acceptedFiles,1); assert.equal(result.localFilesPruned,0);
+  assert.equal(result.baseCommit,initialRef); assert.notEqual(result.baseCommit,result.publishedCommit);
+  assert.equal(result.verifiedRef,remote.state.ref);
   const tree = await remote.api.treeAt(remote.state.ref);
   assert.equal([...tree.entries].filter(([name])=>name.startsWith('packs/')).length,1);
   assert.equal([...tree.entries].filter(([name])=>name.startsWith('manifests/')).length,1);
@@ -387,13 +391,185 @@ test('high-entropy JSON inputs are flushed before gzip payload exceeds budget, e
   for await(const m of Archive.manifests(remote.api,tree)) assert.ok(m.value.pack.payloadBytes<=Archive.PACK_PAYLOAD_BUDGET);
 });
 
-test('a single already-compressed payload over the pack budget is excluded with an explicit reason and retained locally', async t => {
+test('a single already-compressed payload over the pack budget now uses verified fragments and retains its original', async t => {
   const f=fixture(t), remote=fakeGitHub();
   const plain=Buffer.from(JSON.stringify({close:4186,padding:crypto.randomBytes(19*1024*1024).toString('base64')}));
   const source=zlib.gzipSync(plain);
   assert.ok(source.length<Archive.MAX_FILE);
   const target=f.write('hourly-observation','entropy.json.gz',source);
   const result=await Archive.sync({...remote,workspace:f.workspace});
-  assert.equal(result.acceptedFiles,0); assert.equal(result.exclusions.SOURCE_FILE_COMPRESSION_TOO_LARGE,1);
-  assert.deepEqual(fs.readFileSync(target),source); assert.equal(remote.state.blobs.size,0);
+  assert.equal(result.acceptedFiles,1); assert.equal(result.fragmentedFiles,1);
+  assert.equal(result.exclusions.SOURCE_FILE_COMPRESSION_TOO_LARGE,undefined);
+  assert.deepEqual(fs.readFileSync(target),source);
+  const r=await Archive.restore({api:remote.api,workspace:f.workspace,alias:'hourly-observation',relative:'entropy.json.gz',originalSha256:Archive.sha256(source)});
+  assert.equal(r.schema,2); assert.deepEqual(fs.readFileSync(path.join(f.workspace,r.destination)),source);
+});
+
+function largeDocument(mib = 23) {
+  return Buffer.from(JSON.stringify({time:1791750000000,close:4186.125,decision:'WAIT',
+    padding:'A'.repeat(8*1024*1024)+'B'.repeat(8*1024*1024)+'C'.repeat((mib-16)*1024*1024)}));
+}
+function fragmentManifest(remote) {
+  const tree=remote.state.trees.get(remote.state.commits.get(remote.state.ref).tree);
+  const [name,sha]=[...tree].find(([n,s])=>n.startsWith('manifests/') && JSON.parse(remote.state.blobs.get(s)).schema===2);
+  return { tree,name,sha,value:JSON.parse(remote.state.blobs.get(sha)) };
+}
+function replaceManifest(remote, mutate) {
+  const found=fragmentManifest(remote), value=structuredClone(found.value); mutate(value);
+  const bytes=Buffer.from(JSON.stringify(value)), sha=Archive.gitBlobSha(bytes), name=`manifests/${Archive.sha256(bytes)}.json`;
+  found.tree.delete(found.name); found.tree.set(name,sha); remote.state.blobs.set(sha,bytes);
+  return value;
+}
+
+test('55 MiB original uses schema2 and roundtrips exactly alongside a legacy schema1 archive', async t => {
+  const f=fixture(t), remote=fakeGitHub(), original=largeDocument(55);
+  const source=f.write('hourly-observation','research-forward/evaluation-1700000000000.json',original);
+  f.write('hourly-observation','api-small.json',Buffer.from('{ "close": 4186.125 }\r\n'));
+  const report=await Archive.sync({...remote,workspace:f.workspace});
+  assert.equal(report.acceptedFiles,2); assert.equal(report.fragmentedFiles,1); assert.equal(report.fragments,7);
+  const tree=await remote.api.treeAt(remote.state.ref), schemas=[];
+  for await(const m of Archive.manifests(remote.api,tree)) schemas.push(m.value.schema);
+  assert.deepEqual(new Set(schemas),new Set([1,2]));
+  const r=await Archive.restore({api:remote.api,workspace:f.workspace,alias:'hourly-observation',relative:'research-forward/evaluation-1700000000000.json',originalSha256:Archive.sha256(original)});
+  assert.equal(r.schema,2); assert.equal(r.exactOriginalRestorable,true); assert.equal(r.fragments,7);
+  assert.deepEqual(fs.readFileSync(path.join(f.workspace,r.destination)),original); assert.deepEqual(fs.readFileSync(source),original);
+  const old=await Archive.restore({api:remote.api,workspace:f.workspace,alias:'hourly-observation',relative:'api-small.json',originalSha256:Archive.sha256(Buffer.from('{ "close": 4186.125 }\r\n'))});
+  assert.equal(old.schema,1); assert.equal(old.fragments,0);
+  await assert.rejects(Archive.restore({api:remote.api,workspace:f.workspace,alias:'hourly-observation',relative:'research-forward/evaluation-1700000000000.json',originalSha256:Archive.sha256(original)}),/EEXIST/);
+  assert.equal(fs.readdirSync(path.dirname(path.join(f.workspace,r.destination))).filter(n=>n.endsWith('.tmp')).length,0);
+});
+
+test('privacy is inspected before fragmenting even when a credential key crosses the 8 MiB boundary', async t => {
+  const f=fixture(t), remote=fakeGitHub();
+  const prefix='{"close":4186.125,"time":1791750000000,"padding":"';
+  const splitKey='githubToken', keyStart=Archive.FRAGMENT_BYTES-5;
+  const leading=prefix+'A'.repeat(keyStart-prefix.length-3)+'","';
+  assert.equal(Buffer.byteLength(leading),keyStart);
+  const original=Buffer.from(leading+splitKey+'":"opaque-secret-crossing-boundary","suffix":"'+'B'.repeat(14*1024*1024)+'"}');
+  const source=f.write('hourly-observation','big-redacted.json',original);
+  const report=await Archive.sync({...remote,workspace:f.workspace}); assert.equal(report.redactedFiles,1); assert.equal(report.fragmentedFiles,1);
+  const found=fragmentManifest(remote), record=found.value.records[0];
+  assert.equal(record.originalSha256,Archive.sha256(original)); assert.notEqual(record.originalSha256,record.storedSha256);
+  const restored=await Archive.restore({api:remote.api,workspace:f.workspace,alias:'hourly-observation',relative:'big-redacted.json',originalSha256:Archive.sha256(original),allowRedacted:true});
+  const bytes=fs.readFileSync(path.join(f.workspace,restored.destination));
+  assert.doesNotMatch(bytes.toString(),/opaque-secret-crossing-boundary/); assert.equal(restored.exactOriginalRestorable,false);
+  assert.equal(JSON.parse(bytes).close,4186.125); assert.equal(JSON.parse(bytes).time,1791750000000);
+  assert.deepEqual(fs.readFileSync(source),original);
+});
+
+test('non-metadata credential spanning a fragment boundary is excluded before any API mutation', async t => {
+  const f=fixture(t), remote=fakeGitHub();
+  const prefix='{"close":4186,"padding":"';
+  const original=Buffer.from(prefix+'A'.repeat(Archive.FRAGMENT_BYTES-prefix.length-4)+'github_pat_ABCDEFGHIJKSECRET'+'B'.repeat(14*1024*1024)+'"}');
+  f.write('hourly-observation','private-prose.json',original);
+  const report=await Archive.sync({...remote,workspace:f.workspace});
+  assert.equal(report.acceptedFiles,0); assert.equal(report.exclusions.INVALID_JSON_OR_UNSAFE_KEY,1);
+  assert.equal(remote.state.calls.filter(c=>c.method!=='GET').length,0);
+});
+
+test('missing fragments, duplicate indexes, wrong order/offset/size are rejected without publishing restore', async t => {
+  const f=fixture(t), remote=fakeGitHub(), original=largeDocument();
+  f.write('hourly-observation','big.json',original); await Archive.sync({...remote,workspace:f.workspace});
+  const originalTree=new Map(fragmentManifest(remote).tree);
+  const mutations=[
+    ['missing', v=>v.records[0].fragments.pop(),/MANIFEST_FRAGMENT_COUNT_INVALID/],
+    ['duplicate-index', v=>v.records[0].fragments[1].index=0,/MANIFEST_FRAGMENT_ORDER_OR_SIZE_INVALID/],
+    ['order', v=>v.records[0].fragments.reverse(),/MANIFEST_FRAGMENT_ORDER_OR_SIZE_INVALID/],
+    ['offset', v=>v.records[0].fragments[1].offset++,/MANIFEST_FRAGMENT_ORDER_OR_SIZE_INVALID/],
+    ['size', v=>v.records[0].fragments[1].bytes--,/MANIFEST_FRAGMENT_ORDER_OR_SIZE_INVALID/]
+  ];
+  for(const [label,mutate,expected] of mutations){
+    await t.test(label,async()=>{
+      remote.state.trees.set(remote.state.commits.get(remote.state.ref).tree,new Map(originalTree));
+      replaceManifest(remote,mutate);
+      await assert.rejects(Archive.restore({api:remote.api,workspace:f.workspace,alias:'hourly-observation',relative:'big.json',originalSha256:Archive.sha256(original)}),expected);
+      assert.equal(fs.existsSync(path.join(f.workspace,'.runtime/git-data-store/restored')),false);
+    });
+  }
+});
+
+test('fragment tamper, duplicate content in wrong position, full-file hash and missing remote pack fail reassembly', async t => {
+  const f=fixture(t), remote=fakeGitHub(), original=largeDocument();
+  f.write('hourly-observation','big.json',original); await Archive.sync({...remote,workspace:f.workspace});
+  const originalTree=new Map(fragmentManifest(remote).tree), saved=structuredClone(fragmentManifest(remote).value);
+  const tree=await remote.api.treeAt(remote.state.ref);
+  const badHash=structuredClone(saved); badHash.records[0].fragments[0].sha256='f'.repeat(64);
+  await assert.rejects(Archive.verifiedFragmentRecord(remote.api,tree,badHash),/FRAGMENT_DATA_MISMATCH/);
+  const duplicate=structuredClone(saved);
+  duplicate.records[0].fragments[1]={...duplicate.records[0].fragments[0],index:1,offset:Archive.FRAGMENT_BYTES};
+  await assert.rejects(Archive.verifiedFragmentRecord(remote.api,tree,duplicate),/REASSEMBLED_FILE_HASH_MISMATCH/);
+  const badWhole=structuredClone(saved); badWhole.records[0].originalSha256=badWhole.records[0].storedSha256='f'.repeat(64);
+  await assert.rejects(Archive.verifiedFragmentRecord(remote.api,tree,badWhole),/REASSEMBLED_FILE_HASH_MISMATCH/);
+  remote.state.tamperedBlob=saved.records[0].fragments[0].pack.gitSha;
+  await assert.rejects(Archive.verifiedFragmentRecord(remote.api,tree,saved),/REMOTE_BLOB_HASH_MISMATCH/);
+  remote.state.tamperedBlob=null;
+  const missingTree=new Map(originalTree); missingTree.delete(saved.records[0].fragments[1].pack.path);
+  remote.state.trees.set(remote.state.commits.get(remote.state.ref).tree,missingTree);
+  await assert.rejects(Archive.restore({api:remote.api,workspace:f.workspace,alias:'hourly-observation',relative:'big.json',originalSha256:Archive.sha256(original)}),/MANIFEST_PACK_MISSING_FROM_REF/);
+  assert.equal(fs.existsSync(path.join(f.workspace,'.runtime/git-data-store/restored')),false);
+});
+
+test('partial fragment upload failure and optimistic conflict preserve original and publish no partial file', async t => {
+  const f=fixture(t), remote=fakeGitHub(), original=largeDocument(), source=f.write('hourly-observation','big.json',original);
+  const startingRef=remote.state.ref; remote.state.failAfterUploads=1;
+  await assert.rejects(Archive.sync({...remote,workspace:f.workspace}),/GITHUB_HTTP_503/);
+  assert.equal(remote.state.ref,startingRef); assert.deepEqual(fs.readFileSync(source),original);
+  assert.equal(fs.existsSync(path.join(f.workspace,'.runtime/git-data-store/INDEX.json')),false);
+  remote.state.failAfterUploads=null; remote.state.patchMode='conflict';
+  await assert.rejects(Archive.sync({...remote,workspace:f.workspace}),/REMOTE_UPDATE_CONFLICT_OR_UNRESOLVED/);
+  assert.equal(remote.state.ref,startingRef); assert.deepEqual(fs.readFileSync(source),original);
+  remote.state.patchMode='normal'; await Archive.sync({...remote,workspace:f.workspace});
+  const dir=path.join(f.workspace,'.runtime/git-data-store'); fs.writeFileSync(path.join(dir,'LOCK'),'other-process');
+  await assert.rejects(Archive.restore({api:remote.api,workspace:f.workspace,alias:'hourly-observation',relative:'big.json',originalSha256:Archive.sha256(original)}),/ARCHIVE_LOCK_BUSY/);
+  assert.equal(fs.existsSync(path.join(dir,'restored')),false); fs.unlinkSync(path.join(dir,'LOCK'));
+});
+
+test('prune retains schema2 large originals and still verifies eligible legacy reports', async t => {
+  const f=fixture(t), remote=fakeGitHub(), old=Date.now()-5*86400000;
+  const source=f.write('hourly-observation',`research-forward/evaluation-${old}.json`,largeDocument()); fs.utimesSync(source,new Date(old),new Date(old));
+  const small=[];
+  for(let i=1;i<5;i++){const target=f.write('hourly-observation',`research-forward/evaluation-${old+i*1000}.json`,{close:i}); fs.utimesSync(target,new Date(old),new Date(old)); small.push(target);}
+  await Archive.sync({...remote,workspace:f.workspace});
+  const report=await Archive.prune({api:remote.api,workspace:f.workspace,apply:true});
+  assert.equal(report.skipped.FRAGMENTED_ORIGINAL_RETAINED,1); assert.equal(report.prunedFiles,1); assert.ok(fs.existsSync(source));
+  assert.equal(fs.existsSync(small[0]),false); assert.ok(small.slice(1).every(target=>fs.existsSync(target)));
+});
+
+test('64 MiB source/inflation and JSON structure bounds reject larger data explicitly', () => {
+  const over=Buffer.alloc(Archive.MAX_SOURCE_FILE+1,65);
+  assert.equal(Archive.sanitize(over,'hourly-observation','big.txt').reason,'SOURCE_FILE_TOO_LARGE');
+  assert.equal(Archive.sanitize(zlib.gzipSync(over),'hourly-observation','big.txt.gz').reason,'INVALID_OR_OVERSIZED_GZIP');
+  let deep='1'; for(let i=0;i<Archive.MAX_JSON_DEPTH+2;i++)deep='['+deep+']';
+  assert.equal(Archive.sanitize(Buffer.from(deep),'hourly-observation','deep.json').reason,'JSON_STRUCTURE_BUDGET_EXCEEDED');
+});
+
+test('hash-consistent malicious fragments still require full privacy inspection, legacy checks remain separate', async t => {
+  const f=fixture(t), remote=fakeGitHub(), original=largeDocument();
+  f.write('hourly-observation','big.json',original); await Archive.sync({...remote,workspace:f.workspace});
+  const found=fragmentManifest(remote), record=found.value.records[0];
+  const prefix='{"close":4186,"padding":"';
+  const unsafe=Buffer.from(prefix+'A'.repeat(Archive.FRAGMENT_BYTES-prefix.length-5)+'github_pat_ABCDEFGHIJKLMNOPQRSTUV'+'B'.repeat(14*1024*1024)+'"}');
+  record.originalSha256=record.storedSha256=Archive.sha256(unsafe); record.originalBytes=record.storedBytes=unsafe.length;
+  record.fragments=[];
+  for(let offset=0,index=0;offset<unsafe.length;offset+=Archive.FRAGMENT_BYTES,index++) {
+    const bytes=unsafe.subarray(offset,Math.min(offset+Archive.FRAGMENT_BYTES,unsafe.length)), hash=Archive.sha256(bytes);
+    const pack=Archive.buildPack([{bytes,storedBytes:bytes.length,storedSha256:hash}]);
+    const reference={path:`packs/${pack.sha256}.json.gz`,sha256:pack.sha256,gitSha:pack.gitSha,bytes:pack.bytes.length};
+    found.tree.set(reference.path,reference.gitSha); remote.state.blobs.set(reference.gitSha,pack.bytes);
+    record.fragments.push({index,offset,bytes:bytes.length,sha256:hash,pack:reference});
+  }
+  const tree=await remote.api.treeAt(remote.state.ref);
+  await assert.rejects(Archive.verifiedFragmentRecord(remote.api,tree,found.value),/ARCHIVED_FILE_PRIVACY_CHECK_FAILED/);
+  await assert.rejects(Archive.verifiedPack(remote.api,tree,found.value),/FRAGMENTS_MUST_USE_WHOLE_FILE_VERIFICATION/);
+
+  const bytes=Buffer.from('{"close":4186,"apiToken":"opaque-private-value"}');
+  const pack=Archive.buildPack([{bytes,storedBytes:bytes.length,storedSha256:Archive.sha256(bytes)}]);
+  const reference={path:`packs/${pack.sha256}.json.gz`,sha256:pack.sha256,gitSha:pack.gitSha,bytes:pack.bytes.length};
+  found.tree.set(reference.path,reference.gitSha); remote.state.blobs.set(reference.gitSha,pack.bytes);
+  const legacy={schema:1,privacyPolicy:Archive.POLICY,pack:reference,records:[{alias:'hourly-observation',relative:'unsafe.json',
+    privacyPolicy:Archive.POLICY,originalSha256:Archive.sha256(bytes),storedSha256:Archive.sha256(bytes),originalBytes:bytes.length,
+    storedBytes:bytes.length,redacted:false,exactOriginalRestorable:true}]};
+  await assert.rejects(Archive.verifiedPack(remote.api,await remote.api.treeAt(remote.state.ref),legacy),/ARCHIVED_FILE_PRIVACY_CHECK_FAILED/);
+  legacy.records[0].originalBytes++;
+  assert.throws(()=>Archive.validateManifest(legacy),/MANIFEST_RECORD_INVALID/);
 });
