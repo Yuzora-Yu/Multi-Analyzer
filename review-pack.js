@@ -61,13 +61,15 @@
     }
     return [['EMA20','#e6b85c',[],s.ema20],['EMA50','#64a8ff',[],s.ema50],['BB上限','#64a8ffb3',[],s.bb?.upper],['BB中央','#7297c6',[4,4],s.bb?.mid],['BB下限','#64a8ffb3',[],s.bb?.lower]].map(([label,color,dash,values])=>({label,color,dash,values:bars.map(b=>{const i=indices.get(b.time),v=i==null||duplicates.has(b.time)?null:values?.[i];return Number.isFinite(v)?v:null;})}));
   }
-  function facts(r){const f=r.analysis.flow?.latest||{},v=r.analysis.values||{},p=r.analysis.flow?.profile;return[
+  function sessionWaitText(w){return `GOLD休場明け・新しい4H確定足待ち（前回 ${jst(w.closedAt)} / 次の確定予定 ${jst(w.nextClosedAt)}）。現行の古さ判定を維持し、方向・候補は保留`;}
+  function facts(r){const f=r.analysis.flow?.latest||{},v=r.analysis.values||{},p=r.analysis.flow?.profile,
+    wait=globalThis.MultiAnalyzerTrendContext?.sessionWait(r.analysis,r.cutoff,r.asset);return[
     `${r.tf} / ${r.rows.length}確定足 / 最終確定 ${jst(r.rows.at(-1).time+r.minutes*60000)}`,
     `構造 ${dir(f.structure)}　リボン ${dir(f.ribbon)}　保持方向 ${dir(f.direction)}　ADX ${num(v.adx)}　出来高 ${num(f.volumeRatio)}倍`,
     `POC ${num(p?.poc)}　VAH ${num(p?.vah)}　VAL ${num(p?.val)}　ATR ${num(v.atr)}`,
     chartContextSeries(r,r.rows.slice(-1)).map(s=>`${s.label} ${num(s.values[0])}`).join(' / ')+'（BB 20期間・±2σ、同じ時間足の確定値）',
     `時間基準：${r.timeBasis==='latest-closed'?'取得開始時点の最新確定足（15分判定後の情報を含みます）':'保存した15分判定の時点'} / 観測 ${jst(r.capturedAt)} / 判定基準 ${jst(r.decisionCutoff??r.cutoff)}`,
-    `品質：${r.analysis.ready?'計算可能':'履歴不足'} / 欠損 ${r.analysis.quality?.gaps??'不明'} / ${r.analysis.quality?.stale?'基準時刻に対して遅延':'取得基準まで確定'}。取得時の取得基準からの経過 ${Math.max(0,Math.round((r.capturedAt-r.cutoff)/60000))}分。`,
+    `品質：${r.analysis.ready?'計算可能':'履歴不足'} / 欠損 ${r.analysis.quality?.gaps??'不明'} / ${wait?sessionWaitText(wait):r.analysis.quality?.stale?'基準時刻に対して遅延':'取得基準まで確定'}。取得時の取得基準からの経過 ${Math.max(0,Math.round((r.capturedAt-r.cutoff)/60000))}分。`,
     r.tf==='15m'?`共通判定 ${r.signal.state} / ${r.signal.direction} / ${r.snapshotId}`:'環境・執行タイミングの比較用。独立したメール通知や売買推奨はありません。',
     ...(r.tf==='15m'?reasons(r.signal):[])
   ];}
@@ -221,7 +223,7 @@
       basis?.note||'元判定の予定情報です。現在の予定を過去の判定に混入しません。'];
   }
   function decisionText(d){const q=d.consultation;return [...(q?.checkpointText?.length?['前回固定したチェックポイント（元条件で先に確認）',...q.checkpointText]:[]),...(d.health?[`鮮度確認 ${jst(d.health.assessedAt)}：${d.health.message}`]:[]),`${d.verdict} / ${d.direction}`,...calendarText(d),d.exit||'今回の足に黄EXITなし',
-    ...(q?[q.basis,...(q.trendContext?[`現在地の基準：15分確定価格 ${num(q.trendContext.price)} / ${q.trendContext.priceClosedAt?jst(q.trendContext.priceClosedAt):'未取得'}`]:[]),...(q.trendContext?.frames||[]).flatMap(f=>[`${f.name} 構造 ${f.structure} / MA ${f.ma} / ${f.available?'確定 '+jst(f.closedAt):'未取得・遅延'}：${f.levels.map(l=>`${l.label} ${num(l.price)} の${l.position}（15分確定価格比）`).join(' / ')}`,...(f.leg?[`${f.name} 確認済み${f.leg.direction} ${num(f.leg.start.price)}→${num(f.leg.end.price)}（終点確認 ${jst(f.leg.end.confirmedAt)}）から ${num(f.leg.ratio)}％ / ${f.leg.levels.map(l=>`${num(l.percent)}％ ${num(l.price)}`).join(' / ')}。${f.leg.note}`]:[])]),...q.zones.flatMap(({zone:z,focus:f,geometryText,geometryBasis,confirmationPreview,withdrawal})=>[
+    ...(q?[q.basis,...(q.trendContext?[`現在地の基準：15分確定価格 ${num(q.trendContext.price)} / ${q.trendContext.priceClosedAt?jst(q.trendContext.priceClosedAt):'未取得'}`]:[]),...(q.trendContext?.frames||[]).flatMap(f=>[`${f.name} 構造 ${f.structure} / MA ${f.ma} / ${f.available?'確定 '+jst(f.closedAt):f.sessionWait?sessionWaitText(f.sessionWait):'未取得・遅延'}：${f.levels.map(l=>`${l.label} ${num(l.price)} の${l.position}（15分確定価格比）`).join(' / ')}`,...(f.leg?[`${f.name} 確認済み${f.leg.direction} ${num(f.leg.start.price)}→${num(f.leg.end.price)}（終点確認 ${jst(f.leg.end.confirmedAt)}）から ${num(f.leg.ratio)}％ / ${f.leg.levels.map(l=>`${num(l.percent)}％ ${num(l.price)}`).join(' / ')}。${f.leg.note}`]:[])]),...q.zones.flatMap(({zone:z,focus:f,geometryText,geometryBasis,confirmationPreview,withdrawal})=>[
       `${withdrawal?'撤回確認済み・元の':''}背景 ${z.direction} ${z.frame} ${z.type} ${num(z.low)}～${num(z.high)} / ${z.condition} / 15分終値 ${num(z.invalidationClose)}${z.direction==='SHORT'?'超':'未満'}で撤回 / SL参考 ${num(z.protectiveStop)}`,
       ...(confirmationPreview?[confirmationPreview.text]:[]),
       ...(f?.windows||[]).map(w=>`局所観察 ${num(w.low)}～${num(w.high)}：${w.levels.map(r=>r.label+' '+num(r.price)).join(' / ')}（接触や重合数は勝率・入場条件ではありません）`),

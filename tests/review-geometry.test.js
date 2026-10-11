@@ -14,3 +14,18 @@ test('archived export labels later reconstruction and excludes current device re
  delete global.MultiAnalyzerZoneGeometry;delete global.MultiAnalyzerCheckpoint;const old=R.consultation(a,2000000);assert.equal(old.zones[0].geometry,null);assert.deepEqual(old.zones[0].geometryText,[]);a.consultation=old;assert.doesNotThrow(()=>R.prompt({assets:[a],capturedAt:2000000}));
  a.signal.m15.quality.gaps=1;global.MultiAnalyzerZoneGeometry=G;const invalid=R.consultation(a,2000000);assert.equal(invalid.zones[0].geometry.available,false);assert.ok(!invalid.zones[0].geometryText.join('').includes('距離比'));
 });
+test('H4 scheduled wait survives comparison facts and human AI text while original quality remains stale',t=>{
+ const T=require('../trend-context');global.MultiAnalyzerTrendContext=T;t.after(()=>delete global.MultiAnalyzerTrendContext);
+ const now=Date.parse('2026-10-12T08:15:00+09:00')+1,candles=[{time:Date.parse('2026-10-10T05:00:00+09:00'),open:100,high:110,low:90,close:100}],
+  h4={ready:true,intervalMinutes:240,candles,quality:{stale:true,gaps:0},values:{close:100}},
+  m15={ready:true,intervalMinutes:15,quality:{stale:false,gaps:0},candles:[{time:now-1-900000,close:100}],values:{close:100}},
+  signal={generatedAt:now,m15,h4},before=JSON.stringify(signal);
+ const facts=R.facts({asset:'gold',tf:'4h',minutes:240,rows:candles,analysis:h4,cutoff:now,capturedAt:now}).join('\n');
+ assert.match(facts,/GOLD休場明け・新しい4H確定足待ち/);assert.match(facts,/方向・候補は保留/);
+ const consultation={basis:'Bybit',trendContext:T.describe(signal,{asset:'gold'}),zones:[],checkpointText:[],note:''};
+ const text=R.decisionText({consultation,levels:{},checks:[],vetoes:[],note:''}).join('\n');
+ assert.match(text,/4H 構造 未確認 \/ MA 未確認 \/ GOLD休場明け/);assert.match(text,/次の確定予定/);
+ assert.equal(JSON.stringify(signal),before);assert.equal(h4.quality.stale,true);
+ const late=R.facts({asset:'gold',tf:'4h',minutes:240,rows:candles,analysis:h4,cutoff:Date.parse('2026-10-12T09:00:00+09:00'),capturedAt:now}).join('\n');
+ assert.match(late,/基準時刻に対して遅延/);assert.doesNotMatch(late,/確定足待ち/);
+});
