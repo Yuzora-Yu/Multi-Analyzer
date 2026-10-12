@@ -47,4 +47,6 @@ EXITだけで逆張りを始めません。元の帯やSLを広げません。�
 
 `demo-archive-input.cjs` は非公開Gitの指定原本sourceを複製せず読み、元journalのpayload hash、原本ファイルhash、市場・ID・15分境界・元判定時刻を照合したうえで同じ時点の判定を再計算する分析専用モジュールです。過去再構築を新規予測や約定として登録しません。既定監査の入力読取、collector、口座、売買条件を置換せず、全入力の読戻しが統合・検証されるまで現行原本を保持します。上限と安全検査は `DATA_STORAGE.md` を参照してください。
 
+`demo-archive-ledger.cjs` は、保存済みの固定sequenceに対応するview・journal・source全体を、SHA256一覧と一つのGit commitで照合して独立口座監査へ渡します。入力一覧は後からの版選択であり、事前登録ではありません。監査は保存当時の時刻で再構築し、元の期間保留、費用感度、未評価、因果順序の検査を維持します。過去結果の再構築を新規取引、改善した予測、収益性の証拠として扱いません。両銘柄の保存済み区切りで元監査との完全一致を確認しましたが、既定監査とcollectorは現行入力を引き続き使用します。現在の原本整理や売買条件変更は行いません。
+
 一次資料：[Bybit Kline仕様](https://bybit-exchange.github.io/docs/v5/market/kline) のOHLCには足内の到達順序が含まれません。[Cloudflareの保存API](https://developers.cloudflare.com/durable-objects/api/sqlite-storage-api/) は状態・原本・記録をまとめて保存する基盤です。これらはデータ・実装の根拠であり、戦略の収益性の証明ではありません。

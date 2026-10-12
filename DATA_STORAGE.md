@@ -97,9 +97,17 @@ schema 1の個別復元は、現在ref・manifest・pack全体と各圧縮entry�
 
 上限は1回16入力、catalog 1,024 manifest・32 MiB、返却原本合計64 MiBです。呼出元は上限を小さくできますが拡大できません。schema 1の指定ファイル検査とschema 2の全断片再組立の安全検査を継承し、同じ直近packの読込は再利用します。catalogは現在commitのmanifestを走査するため、件数の増加で上限に達した場合は停止し、独立したindexの検証が必要です。64 MiBはプロセス全体のメモリ上限ではありません。
 
+全口座の再構築用には別の `readExactSet({inputs})` を使用できます。1回1,024入力まで、catalogと返却原本の上限は同じで、圧縮packの取得合計は256 MiBまでです。指定版を一つのcommitに固定し、pack単位で読んで、結果は指定した入力順に返します。直近一つの検証済み圧縮entry indexだけを再利用し、隣接する原本をまとめて展開しません。取得中にmainが進んでも固定commitの読取を続けます。上限・欠落・プライバシー検査に失敗したセットを部分成功として返しません。従来の16入力batchの上限は維持します。
+
 分析専用の `demo-archive-input.cjs` は、元journalから得た `asset`、`snapshotId`、`sourceHash` と、保存時の原本ファイルSHA256を要求します。任意の入力パスを採用せず、不変source envelopeの場所をIDから導きます。ファイルhash、payload hash、銘柄、市場、コード版、15分境界、元の判定時刻を照合し、固定実行依存の監査を通してから元の時刻で共通エンジンを再計算します。取得時刻や現在の価格を過去判断へ混ぜません。出力は `ARCHIVE_ANALYSIS_RECONSTRUCTION` で、新規の前向き予測、約定、利益の証拠として扱いません。保存された初回取得時刻は第三者の時刻証明ではありません。
 
-この追加はsource入力の読戻し基盤です。既定の `demo-review.cjs`、collector、本番通知、固定デモ条件は変更しません。journal/view等を含む全評価入力の読戻しと版選択はまだ統合していないため、**現行の観測原本と不変cacheは保持**します。必要範囲だけを読む評価の実装・検証を完了してから、別の安全な整理工程へ進めます。[GitHub Git blobs](https://docs.github.com/en/rest/git/blobs)、[Git trees](https://docs.github.com/en/rest/git/trees) はGitオブジェクト取得の仕様であり、市場原本や予測の正しさの証明ではありません。
+この追加はsource入力の読戻し基盤です。既定の `demo-review.cjs`、collector、本番通知、固定デモ条件は変更しません。既定auditorの入力読取にはjournal/view等を含む全評価入力のGit読戻しをまだ接続していないため、**現行の観測原本と不変cacheは保持**します。必要範囲だけを読む評価の統合・検証を完了してから、別の安全な整理工程へ進めます。[GitHub Git blobs](https://docs.github.com/en/rest/git/blobs)、[Git trees](https://docs.github.com/en/rest/git/trees) はGitオブジェクト取得の仕様であり、市場原本や予測の正しさの証明ではありません。
+
+`demo-archive-ledger.cjs` は分析専用の全口座読戻しを追加します。`buildPlan({asset, sequence, auditAt, workspace})` は保存済みの不変cacheからview・連続journal・必要sourceの正確なファイル／payload SHA256一覧を作ります。同じsequenceのviewが複数ある場合は `viewHash` が必要です。任意の入力パスは使いません。この一覧は後から作る版選択であり、予測の事前登録や第三者の時刻証明ではありません。
+
+`replay(plan, {expectedPlanHash})` は固定した一覧のSHA256、登録済み実行依存、初回取得時刻、全入力のハッシュ・銘柄・市場・判定IDとjournalの対応を照合します。Gitから全入力を取得後、既存の独立監査を元の `auditAt` で実行し、元判断、保存完了、未来の入口、固定SL/TP、費用、DD、未評価を再構築します。未来の監査時刻は拒否し、未終了の固定検証集計を開示しません。入力数はviewを含め1,024までで、上限を超える長期履歴には別途検証済みの区間・index設計が必要です。
+
+両銘柄の保存済み区切りで、全入力のGit読戻しと元監査の完全一致を確認しました。この補助モジュールは既定auditor／collectorへ接続していません。**現行入力は引き続き保持**し、今回の一致を原本削除や全将来区間の保証には使いません。ローカルへの復元原本ファイル、全履歴clone、市場追加取得は作りません。
 
 ローカルは現在の作業に必要な入力、最新レビュー、差分index、検証用の一時復元だけを維持する方針です。長期のデータ蓄積を日々ローカルへ積み重ねないよう、保存・検証後に旧生成evaluationを整理します。
 

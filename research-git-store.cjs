@@ -462,6 +462,9 @@ async function verifiedSelectedRecord(api, tree, manifest, record) {
   // and privacy-check only the requested file. An unsafe legacy neighbour must
   // neither be restored nor block this independently verified safe file.
   const files = unpack(await api.blob(manifest.pack.gitSha), manifest.pack);
+  return selectedRecordData(files, record);
+}
+function selectedRecordData(files, record) {
   const data = files.get(record.storedSha256);
   if (!data || data.length !== record.storedBytes || (!record.redacted && sha256(data) !== record.originalSha256)) fail('MANIFEST_FILE_MISMATCH');
   const safety = sanitize(data, record.alias, record.relative);
@@ -640,10 +643,20 @@ function safeErrorCode(error) {
 // Exact-version, bounded input reads for non-frozen research evaluators. No
 // restored dataset, local input mutation, Git write or market request is made.
 async function readExactBatch(options = {}) {
-  const { workspace = __dirname, inputs, maxInputs = 16, maxCatalogManifests = 1024,
-    maxCatalogBytes = 32 * 1024 * 1024, maxReturnedBytes = MAX_SOURCE_FILE } = options;
-  for (const [value, ceiling] of [[maxInputs, 16], [maxCatalogManifests, 1024],
-    [maxCatalogBytes, 32 * 1024 * 1024], [maxReturnedBytes, MAX_SOURCE_FILE]]) {
+  return readExactInputs(options, 16, false);
+}
+// A separately bounded full research input set. Pins one commit/catalog for
+// the entire replay; it is not a paginated continuation of a changing ref.
+async function readExactSet(options = {}) {
+  return readExactInputs(options, 1024, true);
+}
+async function readExactInputs(options, inputCeiling, groupPacks) {
+  const { workspace = __dirname, inputs, maxInputs = inputCeiling, maxCatalogManifests = 1024,
+    maxCatalogBytes = 32 * 1024 * 1024, maxReturnedBytes = MAX_SOURCE_FILE,
+    maxPackBytes = 256 * 1024 * 1024 } = options;
+  for (const [value, ceiling] of [[maxInputs, inputCeiling], [maxCatalogManifests, 1024],
+    [maxCatalogBytes, 32 * 1024 * 1024], [maxReturnedBytes, MAX_SOURCE_FILE],
+    [maxPackBytes, 256 * 1024 * 1024]]) {
     if (!Number.isSafeInteger(value) || value < 1 || value > ceiling) fail('READ_INPUT_BUDGET_INVALID');
   }
   if (!Array.isArray(inputs) || !inputs.length || inputs.length > maxInputs) fail('READ_INPUT_COUNT_EXCEEDED');
@@ -680,24 +693,49 @@ async function readExactBatch(options = {}) {
       const returnedBytes = [...selected.values()].reduce((sum, value) => sum + value.record.storedBytes, 0);
       if (!Number.isSafeInteger(returnedBytes) || returnedBytes > maxReturnedBytes) fail('READ_RETURN_BUDGET_EXCEEDED');
       // Reuse only the last pack bytes; do not retain every archive pack in RAM.
-      let lastSha, lastBytes, packFetches = 0;
+      const packs = new Map();
+      for (const chosen of selected.values()) for (const pack of manifestPacks(chosen.value)) {
+        if (packs.has(pack.gitSha) && packs.get(pack.gitSha) !== pack.bytes) fail('READ_PACK_METADATA_AMBIGUOUS');
+        packs.set(pack.gitSha, pack.bytes);
+      }
+      if ([...packs.values()].reduce((sum, bytes) => sum + bytes, 0) > maxPackBytes) fail('READ_PACK_BUDGET_EXCEEDED');
+      let lastSha, lastBytes, lastFiles, lastPackIdentity, packFetches = 0, fetchedPackBytes = 0;
       const packApi = { blob: async sha => {
-        if (sha !== lastSha) { lastBytes = await api.blob(sha); lastSha = sha; packFetches++; }
+        if (!packs.has(sha)) fail('READ_PACK_NOT_SELECTED');
+        if (sha !== lastSha) {
+          if (fetchedPackBytes + packs.get(sha) > maxPackBytes) fail('READ_PACK_BUDGET_EXCEEDED');
+          const bytes = await api.blob(sha);
+          fetchedPackBytes += bytes.length;
+          if (fetchedPackBytes > maxPackBytes) fail('READ_PACK_BUDGET_EXCEEDED');
+          lastBytes = bytes; lastSha = sha; lastFiles = undefined; lastPackIdentity = undefined; packFetches++;
+        }
         return lastBytes;
       } };
-      const values = [];
-      for (const [key, input] of requested) {
-        const chosen = selected.get(key), data = chosen.value.schema === FRAGMENT_SCHEMA
-          ? await verifiedFragmentRecord(packApi, tree, chosen.value)
-          : await verifiedSelectedRecord(packApi, tree, chosen.value, chosen.record);
+      const completed = new Map(), ordered = [...requested];
+      if (groupPacks) ordered.sort(([a], [b]) => manifestPacks(selected.get(a).value)[0].gitSha.localeCompare(manifestPacks(selected.get(b).value)[0].gitSha));
+      for (const [key, input] of ordered) {
+        const chosen = selected.get(key); let data;
+        if (chosen.value.schema === FRAGMENT_SCHEMA) data = await verifiedFragmentRecord(packApi, tree, chosen.value);
+        else {
+          validateManifest(chosen.value);
+          if (tree.entries.get(chosen.value.pack.path) !== chosen.value.pack.gitSha) fail('PACK_NOT_IN_CURRENT_REF');
+          const bytes = await packApi.blob(chosen.value.pack.gitSha), packIdentity = JSON.stringify(chosen.value.pack);
+          // Reuse one verified compressed-entry index, not expanded neighbouring
+          // files. Differing metadata always forces a fresh full pack check.
+          if (!lastFiles || lastPackIdentity !== packIdentity) {
+            lastFiles = unpack(bytes, chosen.value.pack); lastPackIdentity = packIdentity;
+          }
+          data = selectedRecordData(lastFiles, chosen.record);
+        }
         if (data.length !== chosen.record.originalBytes || sha256(data) !== input.originalSha256)
           fail('READ_ORIGINAL_HASH_MISMATCH');
-        values.push({ ...input, data, bytes: data.length, schema: chosen.value.schema,
+        completed.set(key, { ...input, data, bytes: data.length, schema: chosen.value.schema,
           manifestPath: chosen.path, manifestGitSha: chosen.gitSha, exactOriginalRestorable: true });
       }
       await api.verifyPrivate();
-      return { mode: 'READ_VERIFIED_EXACT_INPUTS', repository, verifiedRef: tree.commit,
-        catalogManifests, catalogBytes, packFetches, returnedBytes, values,
+      return { mode: groupPacks ? 'READ_VERIFIED_EXACT_INPUT_SET' : 'READ_VERIFIED_EXACT_INPUTS', repository, verifiedRef: tree.commit,
+        catalogManifests, catalogBytes, packFetches, fetchedPackBytes, returnedBytes,
+        values: [...requested.keys()].map(key => completed.get(key)),
         datasetCopiesWritten: 0, gitWrites: 0, originalsModified: false };
     });
   } finally { if (ownedApi) api.token = undefined; }
@@ -870,4 +908,4 @@ module.exports = { SCHEMA, FRAGMENT_SCHEMA, FRAGMENT_FORMAT, POLICY, REPOSITORY,
   sha256, gitBlobSha, within, cleanRelative, roots, resolveSource, excludedPath, walk, redactText, redactJson,
   sanitize, readSafeFile, recordKey, withLock, loadConfig, GitHub, validateManifest, manifests, buildPack,
   unpack, verifiedPack, verifiedSelectedRecord, verifiedFragmentRecord, verifyArchiveManifest, manifestPacks,
-  inventory, sync, readExactBatch, restoreTarget, restore, evaluationRun, protectedEvaluations, prune };
+  inventory, sync, readExactBatch, readExactSet, restoreTarget, restore, evaluationRun, protectedEvaluations, prune };

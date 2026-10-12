@@ -686,3 +686,38 @@ test('fragmented source is reconstructed in memory with whole-file verification 
  replaceManifest(remote,m=>{m.records[0].fragments[0].sha256='e'.repeat(64);});
  await assert.rejects(Archive.readExactBatch({api:remote.api,workspace:f.workspace,inputs:[input]}),/FRAGMENT_DATA_MISMATCH/);
 });
+
+test('full exact set groups packs, preserves caller order and stays on its pinned commit when main advances', async t => {
+ const f=fixture(t),remote=fakeGitHub(),inputs=[],originals=[];
+ for(let batch=0;batch<2;batch++) {
+   for(let i=0;i<10;i++) {const bytes=Buffer.from(JSON.stringify({batch,i,price:100+i}));originals.push(bytes);
+     const input={alias:'demo-lab',relative:`samples/set-${batch}-${i}.json`,originalSha256:Archive.sha256(bytes)};
+     inputs.push(input);f.write(input.alias,input.relative,bytes);}
+   await Archive.sync({...remote,workspace:f.workspace});
+ }
+ const pinned=remote.state.ref,previous=remote.state.commits.get(pinned).parents[0];
+ const order=Array.from({length:10},(_,i)=>[i,10+i]).flat().reverse();
+ remote.state.calls.length=0;const blob=remote.api.blob.bind(remote.api);
+ remote.api.blob=async sha=>{const bytes=await blob(sha);remote.state.ref=previous;return bytes;};
+ const out=await Archive.readExactSet({api:remote.api,workspace:f.workspace,inputs:order.map(i=>inputs[i])});
+ assert.equal(out.mode,'READ_VERIFIED_EXACT_INPUT_SET');assert.equal(out.verifiedRef,pinned);
+ assert.equal(out.packFetches,2);assert.ok(out.fetchedPackBytes>0);
+ for(const [i,value] of out.values.entries())assert.deepEqual(value.data,originals[order[i]]);
+ assert.ok(remote.state.calls.every(c=>c.method==='GET'));
+ assert.equal(remote.state.calls.filter(c=>c.endpoint.endsWith('/git/ref/heads/main')).length,1);
+ assert.equal(out.datasetCopiesWritten,0);assert.equal(out.gitWrites,0);
+ assert.equal(fs.existsSync(path.join(f.workspace,'.runtime/git-data-store/restored')),false);
+});
+
+test('full set cannot exceed input or compressed transport budgets, or return an incomplete subset', async t => {
+ const f=fixture(t),remote=fakeGitHub(),bytes=Buffer.from('{"price":100}');
+ const input={alias:'demo-lab',relative:'samples/budget.json',originalSha256:Archive.sha256(bytes)};
+ await assert.rejects(Archive.readExactSet({api:remote.api,workspace:f.workspace,inputs:Array.from({length:1025},(_,i)=>({...input,relative:`samples/${i}.json`}))}),/READ_INPUT_COUNT_EXCEEDED/);
+ assert.equal(remote.state.calls.length,0);
+ f.write(input.alias,input.relative,bytes);await Archive.sync({...remote,workspace:f.workspace});
+ remote.state.calls.length=0;
+ await assert.rejects(Archive.readExactSet({api:remote.api,workspace:f.workspace,inputs:[input],maxPackBytes:1}),/READ_PACK_BUDGET_EXCEEDED/);
+ assert.ok(remote.state.calls.every(c=>c.method==='GET'));
+ await assert.rejects(Archive.readExactSet({api:remote.api,workspace:f.workspace,inputs:[input,{...input,relative:'samples/missing.json'}]}),/READ_EXACT_VERSION_NOT_FOUND/);
+ assert.equal(fs.existsSync(path.join(f.workspace,'.runtime/git-data-store/LOCK')),false);
+});
