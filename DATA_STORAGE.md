@@ -51,6 +51,10 @@ manifestは追記専用です。同じ相対パスでも内容が変われば別
 
 GitHubのprimary rateヘッダーと書込予算を確認します。標準では書込間隔1.5秒、1実行80回以下、1回の同期256 MiB・5,000新規ファイルまでです。上限、429/403等、アップロード失敗、照合失敗で停止し、再試行を無制限に続けません。手動実行時も他のクライアントの共有制限を考慮します。[GitHubのrate limit仕様](https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api)、[Git Data API](https://docs.github.com/en/rest/git)。
 
+同期失敗の `FAILURE-LATEST.json` は、処理段階、読込済みmanifest数、開始commit、直近リクエストと直近失敗リクエストを記録します。リクエスト記録はGET/POST/PATCH、操作分類、開始・終了時刻、所要時間、HTTP status、応答ヘッダー／本文読込／JSON解析の段階と、許可済みの通信エラー分類だけです。URL、body、認証情報、例外message・stack・cause全体は残しません。HTTP応答がない、途中で本文が途切れた、HTTPで拒否された、内容が不正だった場合を区別します。`RESPONSE_RECEIVED` はAPIのJSONを受け取った意味で、保存データの照合成功ではありません。
+
+`contentWrites:0` はその実行でPOST/PATCHを試行していないことを示します。書込試行があって応答不明なら、既存のremote ref/readback照合を維持します。通信エラーだけで障害原因や保存成功を断定せず、過去の詳細がない失敗記録を後から書き換えません。自動再試行やLOCK破棄は追加しません。[GitHub REST APIの障害確認](https://docs.github.com/en/rest/using-the-rest-api/troubleshooting-the-rest-api)。
+
 サイズや構造による除外は保存完了として扱いません。`SOURCE_FILE_TOO_LARGE_OR_NON_REGULAR`、`SOURCE_FILE_TOO_LARGE`、`STORED_FILE_TOO_LARGE`、`INFLATED_FILE_TOO_LARGE`、`INVALID_OR_OVERSIZED_GZIP`、`JSON_STRUCTURE_BUDGET_EXCEEDED`等が1件でも発生したら、親の収集担当へ**保存障害として連携**し、原本を保持します。64 MiBを超える入力も黙って無視しません。上限を拡大する前に、検査・展開・復元の資源上限と追加検証が必要です。
 
 ## 実行
@@ -75,6 +79,7 @@ GitHubのprimary rateヘッダーと書込予算を確認します。標準で�
 ```powershell
 node research-git-store.cjs inventory
 node research-git-store.cjs dry-run
+node research-git-store.cjs inspect
 node research-git-store.cjs sync
 node research-git-store.cjs sync --rehash
 node research-git-store.cjs prune
@@ -84,6 +89,8 @@ node --test tests/research-git-store.test.js
 ```
 
 `inventory`/`dry-run` は読取専用で、API書込もローカル保存も行いません。同期・復元・削除は共通のローカルlockを取得し、衝突時は停止します。古いlockを勝手に破棄しません。同期完了・失敗・prune記録は、Git対象外の `.runtime/git-data-store/` 内の固定名のJSONへ原子的に保存します。
+
+`inspect` は同じLOCKで直列化したGETのみの接続点検です。アカウント・非公開保存先、mainのcommit・treeの完全性と点検前後のref一致を確認します。通常8 GETで、manifest・packの本文や市場データを取得せず、保存・復元・削除や再同期を行いません。出力は `REMOTE_METADATA_VERIFIED`、`dataIntegrityVerified:false` です。これは接続とGitメタデータの確認であり、停止した同期の成功、全原本の保存や予測精度の証拠には使いません。
 
 復元は別名、相対パス、原本SHA256で**版を明示**します。保存先は `.runtime/git-data-store/restored/<別名>/<相対パス>` に限定し、既存ファイルと原本を上書きしません。全体検証後に同じディレクトリの一時ファイルへ書き、fsyncとSHA256を照合し、排他的なhardlinkで完成版だけを公開します。hardlinkを使用できない保存先では停止し、上書きrenameへ切り替えません。失敗時の一時ファイルは整理します。伏字コピーには `--allow-redacted` が必要で、完全な原本復元とは表示しません。
 

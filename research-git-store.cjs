@@ -248,6 +248,27 @@ function credential() {
   return password;
 }
 
+function requestOperation(method, route, base) {
+  if (route === '/user') return 'ACCOUNT_CHECK';
+  if (route === base) return 'PRIVATE_REPOSITORY_CHECK';
+  const relative = route.startsWith(base + '/') ? route.slice(base.length) : '';
+  if (relative.startsWith('/git/ref/heads/')) return 'READ_REF';
+  if (relative.startsWith('/git/refs/heads/')) return 'UPDATE_REF';
+  if (relative.startsWith('/git/blobs/')) return 'READ_BLOB';
+  if (relative.startsWith('/git/trees/')) return 'READ_TREE';
+  if (relative.startsWith('/git/commits/')) return 'READ_COMMIT';
+  if (relative.startsWith('/compare/')) return 'READ_ANCESTRY';
+  if (method === 'POST') return ({'/git/blobs':'CREATE_BLOB','/git/trees':'CREATE_TREE','/git/commits':'CREATE_COMMIT'})[relative] || 'OTHER';
+  return 'OTHER';
+}
+function transportKind(error) {
+  // Do not retain messages, stack, cause objects, URLs or response bodies.
+  const allowed = new Set(['UND_ERR_CONNECT_TIMEOUT','UND_ERR_HEADERS_TIMEOUT','UND_ERR_BODY_TIMEOUT',
+    'UND_ERR_SOCKET','ETIMEDOUT','ECONNRESET','ECONNREFUSED','ENOTFOUND','EAI_AGAIN','ABORT_ERR']);
+  if (['TimeoutError','AbortError'].includes(error?.name)) return error.name === 'TimeoutError' ? 'TIMEOUT' : 'ABORTED';
+  for (const code of [error?.code,error?.cause?.code]) if (allowed.has(code)) return code;
+  return 'UNKNOWN_TRANSPORT';
+}
 class GitHub {
   constructor(token, config, fetchImpl = fetch, scheduler = {}) {
     this.token = token; this.config = config; this.fetchImpl = fetchImpl;
@@ -264,26 +285,48 @@ class GitHub {
       if (pause > 0) await this.scheduler.sleep(pause);
       this.lastWriteAt = this.scheduler.now(); this.contentWrites++;
     }
-    let response;
-    try { response = await this.fetchImpl(`https://api.github.com${route}`, { method,
-      headers: { Authorization: `Bearer ${this.token}`, Accept: 'application/vnd.github+json',
-        'X-GitHub-Api-Version': '2022-11-28', 'User-Agent': 'Multi-Analyzer-private-research',
-        ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
-      ...(body === undefined ? {} : { body: JSON.stringify(body) }), signal: AbortSignal.timeout(60000) }); }
-    catch { fail('GITHUB_REQUEST_AMBIGUOUS'); }
-    const integerHeader = name => { const value = response.headers?.get(name); return value != null && /^\d+$/.test(value) ? Number(value) : null; };
-    this.quota = { remaining: integerHeader('x-ratelimit-remaining'), resetEpochSeconds: integerHeader('x-ratelimit-reset'),
-      retryAfterSeconds: integerHeader('retry-after') };
-    if (!response.ok) { const e = new Error(`GITHUB_HTTP_${response.status}`); e.status = response.status; throw e; }
-    let text = '', length = 0; const decoder = new TextDecoder('utf-8', { fatal: true });
-    if (response.body && response.body[Symbol.asyncIterator]) {
-      for await (const chunk of response.body) {
-        length += chunk.length; if (length > MAX_REPLY) fail('GITHUB_REPLY_TOO_LARGE');
-        text += decoder.decode(chunk, { stream: true });
+    const startedAt = this.scheduler.now();
+    const diagnostic = { method: ['GET','POST','PATCH'].includes(method) ? method : 'OTHER',
+      operation: requestOperation(method, route, this.base()), phase: 'FETCH_HEADERS', startedAt,
+      outcome: 'IN_PROGRESS', status: null };
+    this.lastRequest = diagnostic;
+    try {
+      let response;
+      try { response = await this.fetchImpl(`https://api.github.com${route}`, { method,
+        headers: { Authorization: `Bearer ${this.token}`, Accept: 'application/vnd.github+json',
+          'X-GitHub-Api-Version': '2022-11-28', 'User-Agent': 'Multi-Analyzer-private-research',
+          ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }), signal: AbortSignal.timeout(60000) }); }
+      catch (error) { diagnostic.transport = transportKind(error); fail('GITHUB_REQUEST_AMBIGUOUS'); }
+      const integerHeader = name => { const value = response.headers?.get(name); return value != null && /^\d+$/.test(value) ? Number(value) : null; };
+      this.quota = { remaining: integerHeader('x-ratelimit-remaining'), resetEpochSeconds: integerHeader('x-ratelimit-reset'),
+        retryAfterSeconds: integerHeader('retry-after') };
+      diagnostic.status = response.status; diagnostic.phase = 'HTTP_STATUS';
+      if (!response.ok) { const e = new Error(`GITHUB_HTTP_${response.status}`); e.status = response.status; throw e; }
+      diagnostic.phase = 'READ_RESPONSE';
+      let text = '', length = 0; const decoder = new TextDecoder('utf-8', { fatal: true });
+      try {
+        if (response.body && response.body[Symbol.asyncIterator]) {
+          for await (const chunk of response.body) {
+            length += chunk.length; if (length > MAX_REPLY) fail('GITHUB_REPLY_TOO_LARGE');
+            text += decoder.decode(chunk, { stream: true });
+          }
+          text += decoder.decode();
+        } else { text = await response.text(); if (Buffer.byteLength(text) > MAX_REPLY) fail('GITHUB_REPLY_TOO_LARGE'); }
+      } catch (error) {
+        if (error.code === 'GITHUB_REPLY_TOO_LARGE') throw error;
+        if (error.code === 'ERR_ENCODING_INVALID_ENCODED_DATA') fail('GITHUB_REPLY_INVALID_UTF8');
+        diagnostic.transport = transportKind(error); fail('GITHUB_REQUEST_AMBIGUOUS');
       }
-      text += decoder.decode();
-    } else { text = await response.text(); if (Buffer.byteLength(text) > MAX_REPLY) fail('GITHUB_REPLY_TOO_LARGE'); }
-    try { return JSON.parse(text); } catch { fail('GITHUB_REPLY_INVALID_JSON'); }
+      diagnostic.phase = 'DECODE_JSON';
+      let value; try { value = JSON.parse(text); } catch { fail('GITHUB_REPLY_INVALID_JSON'); }
+      diagnostic.outcome = 'RESPONSE_RECEIVED'; return value;
+    } catch (error) {
+      diagnostic.outcome = 'FAILED'; diagnostic.code = safeErrorCode(error);
+      this.lastFailure = diagnostic; throw error;
+    } finally {
+      diagnostic.finishedAt = this.scheduler.now(); diagnostic.elapsedMs = Math.max(0, diagnostic.finishedAt - startedAt);
+    }
   }
   base() { return `/repos/${this.config.repository}`; }
   async verifyPrivate() {
@@ -512,12 +555,20 @@ async function inventory(options = {}) {
 }
 async function sync(options) {
   const { api, workspace = __dirname, config, rehash = false } = options;
+  const progress = { phase: 'ACQUIRE_LOCK', catalogManifestsRead: 0, baseCommit: null };
   return withLock(workspace, async () => {
+    progress.phase = 'VERIFY_PRIVATE_REPOSITORY';
     const verifiedRepository = await api.verifyPrivate();
+    progress.phase = 'READ_REMOTE_TREE';
     let tree = await api.treeAt(await api.ref());
     const baseCommit = tree.commit;
+    progress.baseCommit = baseCommit; progress.phase = 'READ_CATALOG';
     const known = new Set();
-    for await (const m of manifests(api, tree)) for (const record of m.value.records) known.add(recordKey(record));
+    for await (const m of manifests(api, tree)) {
+      progress.catalogManifestsRead++;
+      for (const record of m.value.records) known.add(recordKey(record));
+    }
+    progress.phase = 'SCAN_LOCAL_INPUTS';
     const allRoots = roots(workspace), summary = summarize(), additions = [], stagedManifests = [];
     const indexPath = path.join(workspace, '.runtime/git-data-store/INDEX.json');
     let previousIndex = {};
@@ -539,6 +590,7 @@ async function sync(options) {
       if (existing) {
         if (existing !== pack.gitSha) fail('IMMUTABLE_PACK_CONFLICT');
       } else {
+        progress.phase = 'UPLOAD_PACK';
         await api.putBlob(pack.bytes); additions.push({ path: packPath, sha: pack.gitSha }); stagedPacks.set(packPath, pack.gitSha);
       }
       return { path: packPath, sha256: pack.sha256, gitSha: pack.gitSha, bytes: pack.bytes.length,
@@ -547,6 +599,7 @@ async function sync(options) {
     async function storeManifest(value) {
       validateManifest(value);
       const bytes = Buffer.from(JSON.stringify(value)), manifestPath = `manifests/${sha256(bytes)}.json`;
+      progress.phase = 'UPLOAD_MANIFEST';
       const manifestSha = await api.putBlob(bytes);
       additions.push({ path: manifestPath, sha: manifestSha }); stagedManifests.push({ path: manifestPath, sha: manifestSha });
     }
@@ -576,6 +629,7 @@ async function sync(options) {
       batch = []; encodedEstimate = 0; rawBatchBytes = 0; payloadBatchBytes = 0;
     }
     outer: for (const alias of config.roots || Object.keys(ROOT_PATHS)) for (const entry of walk(alias, allRoots)) {
+      progress.phase = 'SCAN_LOCAL_INPUTS';
       if (entry.reason) { exclude(summary, entry.reason); continue; }
       const indexKey = `${alias}/${entry.relative}`, oldIndex = previousIndex[indexKey];
       if (oldIndex && known.has(recordKey({ alias, relative: entry.relative, originalSha256: oldIndex.originalSha256, privacyPolicy: POLICY }))) {
@@ -607,7 +661,9 @@ async function sync(options) {
       summary.acceptedFiles++; summary.acceptedBytes += file.storedBytes; summary.redactedFiles += Number(file.redacted);
     }
     await flush();
+    progress.phase = 'PUBLISH_COMMIT';
     const commit = await api.append(tree, additions);
+    progress.phase = 'VERIFY_REMOTE_READBACK';
     // Remote ref, manifest Git SHA, pack Git SHA and every stored file hash are read back.
     tree = await api.treeAt(await api.ref());
     for (const expected of stagedManifests) {
@@ -629,6 +685,7 @@ async function sync(options) {
     if (error.code !== 'ARCHIVE_LOCK_BUSY') atomicJson(path.join(workspace, '.runtime/git-data-store/FAILURE-LATEST.json'), {
       schema: SCHEMA, stoppedAt: new Date().toISOString(), mode: 'SYNC_STOPPED_OR_REMOTE_UNRESOLVED',
       code: safeErrorCode(error), contentWrites: api.contentWrites, quota: api.quota,
+      progress, request: api.lastRequest, lastFailedRequest: api.lastFailure,
       localOriginalsModified: false, localFilesPruned: 0, noAutomaticRetry: true
     });
     throw error;
@@ -638,6 +695,29 @@ async function sync(options) {
 function safeErrorCode(error) {
   return error.code && /^[A-Z0-9_]+$/.test(error.code) ? error.code :
     /^GITHUB_HTTP_\d+$/.test(error.message) ? error.message : 'ARCHIVE_OPERATION_FAILED';
+}
+
+// GET-only reachability check. This does not read dataset blobs or certify a
+// completed sync. Serialize with the collector and never remove another lock.
+async function inspectRemote(options = {}) {
+  const workspace = options.workspace || __dirname, ownedApi = !options.api;
+  const api = options.api || new GitHub(credential(), loadConfig(workspace));
+  try {
+    return await withLock(workspace, async () => {
+      const writesBefore = api.contentWrites;
+      const repository = await api.verifyPrivate(), tree = await api.treeAt(await api.ref());
+      await api.verifyPrivate();
+      if (await api.ref() !== tree.commit) fail('REMOTE_REF_CHANGED_DURING_INSPECTION');
+      const names = [...tree.entries.keys()];
+      return { mode: 'REMOTE_METADATA_VERIFIED', inspectedAt: new Date().toISOString(), repository,
+        verifiedRef: tree.commit, verifiedTree: tree.tree,
+        manifestPaths: names.filter(name => name.startsWith('manifests/')).length,
+        packPaths: names.filter(name => name.startsWith('packs/')).length,
+        catalogManifestsRead: 0, datasetBlobsRead: 0, dataIntegrityVerified: false,
+        contentWrites: api.contentWrites - writesBefore, quota: api.quota,
+        datasetCopiesWritten: 0, originalsModified: false, localFilesPruned: 0 };
+    });
+  } finally { if (ownedApi) api.token = undefined; }
 }
 
 // Exact-version, bounded input reads for non-frozen research evaluators. No
@@ -886,6 +966,7 @@ async function main(argv = process.argv.slice(2)) {
   if (command === 'inventory' || command === 'dry-run') return inventory();
   const config = loadConfig(), api = new GitHub(credential(), config);
   try {
+    if (command === 'inspect') return await inspectRemote({ api });
     if (command === 'sync') return await sync({ api, config, rehash: argv.includes('--rehash') });
     if (command === 'prune') {
       const at = argv.indexOf('--older-than-days');
@@ -908,4 +989,4 @@ module.exports = { SCHEMA, FRAGMENT_SCHEMA, FRAGMENT_FORMAT, POLICY, REPOSITORY,
   sha256, gitBlobSha, within, cleanRelative, roots, resolveSource, excludedPath, walk, redactText, redactJson,
   sanitize, readSafeFile, recordKey, withLock, loadConfig, GitHub, validateManifest, manifests, buildPack,
   unpack, verifiedPack, verifiedSelectedRecord, verifiedFragmentRecord, verifyArchiveManifest, manifestPacks,
-  inventory, sync, readExactBatch, readExactSet, restoreTarget, restore, evaluationRun, protectedEvaluations, prune };
+  inventory, sync, inspectRemote, readExactBatch, readExactSet, restoreTarget, restore, evaluationRun, protectedEvaluations, prune };

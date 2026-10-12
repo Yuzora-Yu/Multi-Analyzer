@@ -8,6 +8,95 @@ const zlib = require('node:zlib');
 const crypto = require('node:crypto');
 const Archive = require('../research-git-store.cjs');
 
+test('request diagnostics retain only safe categories, phase and timing without retrying', async t => {
+  for (const [causeCode, expected] of [['UND_ERR_CONNECT_TIMEOUT','UND_ERR_CONNECT_TIMEOUT'],['PRIVATE_SECRET_VALUE','UNKNOWN_TRANSPORT']]) {
+    await t.test(expected, async () => {
+      const remote=fakeGitHub(); let attempts=0;
+      remote.api.fetchImpl=async()=>{ attempts++; const error=new Error('Bearer private-value user@example.test C:\\Users\\private\\input.json');
+        error.cause={code:causeCode,private:'github_pat_private'}; throw error; };
+      await assert.rejects(remote.api.request('GET',`${remote.api.base()}/git/blobs/${'a'.repeat(40)}`),/GITHUB_REQUEST_AMBIGUOUS/);
+      assert.equal(attempts,1); assert.equal(remote.api.contentWrites,0);
+      assert.equal(remote.api.lastFailure.operation,'READ_BLOB'); assert.equal(remote.api.lastFailure.phase,'FETCH_HEADERS');
+      assert.equal(remote.api.lastFailure.status,null); assert.equal(remote.api.lastFailure.transport,expected);
+      assert.equal(remote.api.lastFailure.outcome,'FAILED'); assert.ok(remote.api.lastFailure.elapsedMs>=0);
+      assert.doesNotMatch(JSON.stringify(remote.api.lastFailure),/Bearer|private-value|example.test|Users|github_pat_|PRIVATE_SECRET_VALUE|aaaa/);
+    });
+  }
+});
+
+test('response diagnostics distinguish HTTP, interrupted body and invalid content with no retry', async t => {
+  const scenarios=[
+    {label:'HTTP quota',status:429,phase:'HTTP_STATUS',code:'GITHUB_HTTP_429'},
+    {label:'body socket',status:200,phase:'READ_RESPONSE',code:'GITHUB_REQUEST_AMBIGUOUS',transport:'UND_ERR_SOCKET',bodyError:true},
+    {label:'invalid JSON',status:200,phase:'DECODE_JSON',code:'GITHUB_REPLY_INVALID_JSON',content:'Bearer private-body'},
+    {label:'invalid UTF8',status:200,phase:'READ_RESPONSE',code:'GITHUB_REPLY_INVALID_UTF8',content:Buffer.from([0xc3,0x28])}
+  ];
+  for(const s of scenarios) await t.test(s.label,async()=>{
+    const remote=fakeGitHub();let attempts=0;
+    remote.api.fetchImpl=async()=>{
+      attempts++; const headers=new Headers({'x-ratelimit-remaining':'0','retry-after':'60','x-ratelimit-reset':'12345'});
+      if(s.bodyError)return{ok:true,status:200,headers,body:{async *[Symbol.asyncIterator](){
+        yield Buffer.from('{"private":"Bearer private-body');const error=new Error('user@example.test');error.code='UND_ERR_SOCKET';throw error;
+      }}};
+      return new Response(s.content||'{"private":"Bearer private-body"}',{status:s.status,headers});
+    };
+    await assert.rejects(remote.api.request('GET','/user'),new RegExp(s.code));
+    assert.equal(attempts,1);assert.equal(remote.api.lastFailure.phase,s.phase);assert.equal(remote.api.lastFailure.status,s.status);
+    assert.equal(remote.api.lastFailure.transport,s.transport);assert.equal(remote.api.lastFailure.code,s.code);
+    assert.deepEqual(remote.api.quota,{remaining:0,retryAfterSeconds:60,resetEpochSeconds:12345});
+    assert.doesNotMatch(JSON.stringify(remote.api.lastFailure),/Bearer|private-body|example.test/);
+    await assert.rejects(remote.api.request('GET','/user'),/GITHUB_RATE_HEADROOM_EXHAUSTED/);assert.equal(attempts,1);
+  });
+});
+
+test('catalog read interruption records progress without publishing or changing local originals', async t => {
+  const f=fixture(t),remote=fakeGitHub();
+  f.write('hourly-observation','one.json',{close:1});await Archive.sync({...remote,workspace:f.workspace});
+  f.write('hourly-observation','two.json',{close:2});await Archive.sync({...remote,workspace:f.workspace});
+  const target=f.write('hourly-observation','three.json',{close:3}),before=fs.readFileSync(target);
+  const refBefore=remote.state.ref,dir=path.join(f.workspace,'.runtime/git-data-store');
+  const successBefore=fs.readFileSync(path.join(dir,'LATEST.json'));
+  const rawFetch=remote.api.fetchImpl;let blobReads=0;
+  const api=new Archive.GitHub('fake-memory-only-credential',remote.config,async(url,opts)=>{
+    if(opts.method==='GET'&&new URL(url).pathname.includes('/git/blobs/')&&++blobReads===2){
+      const error=new Error('Bearer private-value');error.cause={code:'ETIMEDOUT'};throw error;
+    }
+    return rawFetch(url,opts);
+  },remote.api.scheduler);
+  const callStart=remote.state.calls.length;
+  await assert.rejects(Archive.sync({api,config:remote.config,workspace:f.workspace}),/GITHUB_REQUEST_AMBIGUOUS/);
+  const result=JSON.parse(fs.readFileSync(path.join(dir,'FAILURE-LATEST.json')));
+  assert.deepEqual(result.progress,{phase:'READ_CATALOG',catalogManifestsRead:1,baseCommit:refBefore});
+  assert.equal(result.contentWrites,0);assert.equal(result.noAutomaticRetry,true);assert.equal(result.localFilesPruned,0);
+  assert.equal(result.lastFailedRequest.operation,'READ_BLOB');assert.equal(result.lastFailedRequest.phase,'FETCH_HEADERS');
+  assert.equal(result.lastFailedRequest.transport,'ETIMEDOUT');assert.equal(blobReads,2);
+  assert.equal(remote.state.ref,refBefore);assert.ok(remote.state.calls.slice(callStart).every(c=>c.method==='GET'));
+  assert.deepEqual(fs.readFileSync(target),before);assert.deepEqual(fs.readFileSync(path.join(dir,'LATEST.json')),successBefore);
+  assert.equal(fs.existsSync(path.join(dir,'LOCK')),false);assert.doesNotMatch(JSON.stringify(result),/Bearer|private-value/);
+});
+
+test('remote inspection reads metadata only and respects private repository, fixed ref and foreign lock', async t => {
+  const f=fixture(t),remote=fakeGitHub();f.write('hourly-observation','one.json',{close:1});
+  await Archive.sync({...remote,workspace:f.workspace});const ref=remote.state.ref;
+  const start=remote.state.calls.length,out=await Archive.inspectRemote({api:remote.api,workspace:f.workspace});
+  assert.equal(out.mode,'REMOTE_METADATA_VERIFIED');assert.equal(out.verifiedRef,ref);
+  assert.equal(out.manifestPaths,1);assert.equal(out.packPaths,1);assert.equal(out.contentWrites,0);
+  assert.equal(out.catalogManifestsRead,0);assert.equal(out.datasetBlobsRead,0);assert.equal(out.dataIntegrityVerified,false);
+  const calls=remote.state.calls.slice(start);assert.equal(calls.length,8);
+  assert.ok(calls.every(c=>c.method==='GET'&&!c.endpoint.includes('/git/blobs/')));
+  const lock=path.join(f.workspace,'.runtime/git-data-store/LOCK');fs.writeFileSync(lock,'foreign owner');
+  const callCount=remote.state.calls.length;
+  await assert.rejects(Archive.inspectRemote({api:remote.api,workspace:f.workspace}),/ARCHIVE_LOCK_BUSY/);
+  assert.equal(remote.state.calls.length,callCount);assert.equal(fs.readFileSync(lock,'utf8'),'foreign owner');fs.unlinkSync(lock);
+  remote.state.private=false;await assert.rejects(Archive.inspectRemote({api:remote.api,workspace:f.workspace}),/GITHUB_REPOSITORY_NOT_PRIVATE/);
+  remote.state.private=true;
+  const rawFetch=remote.api.fetchImpl;let refReads=0;
+  remote.api.fetchImpl=async(url,opts)=>{if(new URL(url).pathname.endsWith('/git/ref/heads/main')&&++refReads===2)
+    return new Response(JSON.stringify({object:{type:'commit',sha:'e'.repeat(40)}}));return rawFetch(url,opts);};
+  await assert.rejects(Archive.inspectRemote({api:remote.api,workspace:f.workspace}),/REMOTE_REF_CHANGED_DURING_INSPECTION/);
+  assert.equal(fs.existsSync(lock),false);assert.equal(remote.state.ref,ref);
+});
+
 function fixture(t) {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), 'multi-analyzer-archive-test-'));
   const workspace = path.join(base, 'Documents', '04-Gemini', 'Multi-Analyzer');
@@ -219,6 +308,11 @@ test('optimistic conflict stops; written-then-timeout is resolved from actual re
   const result=await Archive.sync({...remote,workspace:f.workspace}); assert.equal(result.mode,'SYNC_VERIFIED');
   assert.notEqual(remote.state.ref,initial);
   assert.ok(remote.state.calls.filter(c=>c.method==='PATCH').every(c=>c.body.force===false));
+  assert.equal(remote.state.calls.filter(c=>c.method==='PATCH').length,2);
+  assert.equal(remote.api.lastFailure.operation,'UPDATE_REF');
+  assert.equal(remote.api.lastFailure.phase,'FETCH_HEADERS');
+  assert.equal(remote.api.lastFailure.code,'GITHUB_REQUEST_AMBIGUOUS');
+  assert.equal(remote.api.lastFailure.transport,'UNKNOWN_TRANSPORT');
 });
 
 test('tampered blob/manifest/pack fails restoration and deletion', async t => {
