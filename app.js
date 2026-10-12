@@ -164,6 +164,7 @@
     demoPanel?.sync();
     stopRealtime();
     state.marketPaused=true;
+    updateLiveHeader();
     $('signalBadge').textContent='GOLD休場';
     $('sheetSummary').textContent='市場再開待ち';
     $('sourceNotice').textContent='GOLD休場・表示中のチャートは最終取得時点の記録です';
@@ -637,6 +638,21 @@
   function updateLiveHeader() {
     const cfg = currentInstrument();
     $('livePrice').textContent = fmt(state.livePrice, cfg.digits);
+    if (state.offlineCsv || INITIAL_PARAMS.has('snapshot')) {
+      const exec = state.analysis?.exec;
+      const time = exec?.candles?.at(-1)?.time;
+      const minutes = exec?.intervalMinutes;
+      const closedAt = Number.isFinite(time) && Number.isFinite(minutes) && minutes > 0 ? time + minutes * 60000 : NaN;
+      const mode = state.offlineCsv ? 'CSV確定足' : '保存判定';
+      $('lastUpdate').textContent = Number.isFinite(closedAt) && !Number.isNaN(new Date(closedAt).getTime())
+        ? `${mode} ${new Date(closedAt).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })} JST`
+        : `${mode}・確定時刻不明`;
+      return;
+    }
+    if (state.marketPaused) {
+      $('lastUpdate').textContent = '休場・価格取得停止';
+      return;
+    }
     $('lastUpdate').textContent = `LIVE ${new Date().toLocaleTimeString('ja-JP', { timeZone: 'Asia/Tokyo' })}`;
   }
 
@@ -886,10 +902,18 @@
   async function refreshServices() {
     const id = state.instrumentId;
     const loadId=state.loadId;
+    if (state.offlineCsv || INITIAL_PARAMS.has('snapshot')) {
+      ++state.servicesRequestId;
+      state.reference=null;state.monitor=null;state.monitorReceivedAt=0;
+      $('referenceQuote').textContent='保存分析・現在の参考価格は取得しません';
+      $('monitorStatus').textContent='保存分析の記録。現在の監視状態は取得しません。';
+      demoPanel?.sync();
+      return;
+    }
     if(pauseClosedMarket())return;
     demoPanel?.refresh();
     const requestId=++state.servicesRequestId;
-    const current=()=>id===state.instrumentId&&loadId===state.loadId&&requestId===state.servicesRequestId&&!state.marketPaused;
+    const current=()=>id===state.instrumentId&&loadId===state.loadId&&requestId===state.servicesRequestId&&!state.marketPaused&&!state.offlineCsv&&!INITIAL_PARAMS.has('snapshot');
     const monitorUnavailable=()=>{if(!current())return;state.monitor=null;state.monitorReceivedAt=0;$('monitorStatus').textContent='クラウド監視の状態を取得できません。';if(state.snapshot)analyzeAndRender();};
     const reference=fetchJson(STATIC_HOST ? `https://api.gold-api.com/price/${id === 'gold' ? 'XAU' : 'BTC'}` : `/api/reference?asset=${id}`).then(q=>{
       if(!current())return;
