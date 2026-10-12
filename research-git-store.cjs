@@ -391,7 +391,7 @@ async function* manifests(api, tree) {
     let value; try { value = JSON.parse(bytes.toString('utf8')); } catch { fail('MANIFEST_NOT_JSON'); }
     validateManifest(value, name);
     for (const pack of manifestPacks(value)) if (tree.entries.get(pack.path) !== pack.gitSha) fail('MANIFEST_PACK_MISSING_FROM_REF');
-    yield { value, path: name, gitSha: sha };
+    yield { value, path: name, gitSha: sha, byteLength: bytes.length };
   }
 }
 function buildPack(records) {
@@ -637,6 +637,72 @@ function safeErrorCode(error) {
     /^GITHUB_HTTP_\d+$/.test(error.message) ? error.message : 'ARCHIVE_OPERATION_FAILED';
 }
 
+// Exact-version, bounded input reads for non-frozen research evaluators. No
+// restored dataset, local input mutation, Git write or market request is made.
+async function readExactBatch(options = {}) {
+  const { workspace = __dirname, inputs, maxInputs = 16, maxCatalogManifests = 1024,
+    maxCatalogBytes = 32 * 1024 * 1024, maxReturnedBytes = MAX_SOURCE_FILE } = options;
+  for (const [value, ceiling] of [[maxInputs, 16], [maxCatalogManifests, 1024],
+    [maxCatalogBytes, 32 * 1024 * 1024], [maxReturnedBytes, MAX_SOURCE_FILE]]) {
+    if (!Number.isSafeInteger(value) || value < 1 || value > ceiling) fail('READ_INPUT_BUDGET_INVALID');
+  }
+  if (!Array.isArray(inputs) || !inputs.length || inputs.length > maxInputs) fail('READ_INPUT_COUNT_EXCEEDED');
+  const requested = new Map();
+  for (const input of inputs) {
+    if (!input || !Object.hasOwn(ROOT_PATHS, input.alias)) fail('READ_INPUT_ALIAS_NOT_ALLOWED');
+    cleanRelative(input.relative);
+    if (!SHA256.test(input.originalSha256 || '')) fail('READ_EXACT_VERSION_HASH_REQUIRED');
+    const key = JSON.stringify([input.alias, input.relative, input.originalSha256]);
+    if (requested.has(key)) fail('READ_DUPLICATE_INPUT');
+    requested.set(key, { alias: input.alias, relative: input.relative, originalSha256: input.originalSha256 });
+  }
+  const ownedApi = !options.api;
+  const api = options.api || new GitHub(credential(), loadConfig(workspace));
+  try {
+    return await withLock(workspace, async () => {
+      const repository = await api.verifyPrivate(), tree = await api.treeAt(await api.ref());
+      const selected = new Map(); let catalogManifests = 0, catalogBytes = 0;
+      for await (const manifest of manifests(api, tree)) {
+        catalogManifests++; catalogBytes += manifest.byteLength;
+        if (catalogManifests > maxCatalogManifests || catalogBytes > maxCatalogBytes) fail('READ_CATALOG_BUDGET_EXCEEDED');
+        for (const record of manifest.value.records) {
+          const key = JSON.stringify([record.alias, record.relative, record.originalSha256]);
+          if (!requested.has(key)) continue;
+          if (record.redacted || !record.exactOriginalRestorable || record.originalSha256 !== record.storedSha256)
+            fail('READ_REDACTED_COPY_IS_NOT_ORIGINAL');
+          const previous = selected.get(key);
+          if (previous && (previous.record.storedSha256 !== record.storedSha256 ||
+            previous.record.storedBytes !== record.storedBytes)) fail('READ_VERSION_AMBIGUOUS');
+          selected.set(key, { ...manifest, record });
+        }
+      }
+      if (selected.size !== requested.size) fail('READ_EXACT_VERSION_NOT_FOUND');
+      const returnedBytes = [...selected.values()].reduce((sum, value) => sum + value.record.storedBytes, 0);
+      if (!Number.isSafeInteger(returnedBytes) || returnedBytes > maxReturnedBytes) fail('READ_RETURN_BUDGET_EXCEEDED');
+      // Reuse only the last pack bytes; do not retain every archive pack in RAM.
+      let lastSha, lastBytes, packFetches = 0;
+      const packApi = { blob: async sha => {
+        if (sha !== lastSha) { lastBytes = await api.blob(sha); lastSha = sha; packFetches++; }
+        return lastBytes;
+      } };
+      const values = [];
+      for (const [key, input] of requested) {
+        const chosen = selected.get(key), data = chosen.value.schema === FRAGMENT_SCHEMA
+          ? await verifiedFragmentRecord(packApi, tree, chosen.value)
+          : await verifiedSelectedRecord(packApi, tree, chosen.value, chosen.record);
+        if (data.length !== chosen.record.originalBytes || sha256(data) !== input.originalSha256)
+          fail('READ_ORIGINAL_HASH_MISMATCH');
+        values.push({ ...input, data, bytes: data.length, schema: chosen.value.schema,
+          manifestPath: chosen.path, manifestGitSha: chosen.gitSha, exactOriginalRestorable: true });
+      }
+      await api.verifyPrivate();
+      return { mode: 'READ_VERIFIED_EXACT_INPUTS', repository, verifiedRef: tree.commit,
+        catalogManifests, catalogBytes, packFetches, returnedBytes, values,
+        datasetCopiesWritten: 0, gitWrites: 0, originalsModified: false };
+    });
+  } finally { if (ownedApi) api.token = undefined; }
+}
+
 function restoreTarget(workspace, alias, relative) {
   if (!Object.hasOwn(ROOT_PATHS, alias)) fail('RESTORE_ALIAS_NOT_ALLOWED');
   cleanRelative(relative);
@@ -804,4 +870,4 @@ module.exports = { SCHEMA, FRAGMENT_SCHEMA, FRAGMENT_FORMAT, POLICY, REPOSITORY,
   sha256, gitBlobSha, within, cleanRelative, roots, resolveSource, excludedPath, walk, redactText, redactJson,
   sanitize, readSafeFile, recordKey, withLock, loadConfig, GitHub, validateManifest, manifests, buildPack,
   unpack, verifiedPack, verifiedSelectedRecord, verifiedFragmentRecord, verifyArchiveManifest, manifestPacks,
-  inventory, sync, restoreTarget, restore, evaluationRun, protectedEvaluations, prune };
+  inventory, sync, readExactBatch, restoreTarget, restore, evaluationRun, protectedEvaluations, prune };

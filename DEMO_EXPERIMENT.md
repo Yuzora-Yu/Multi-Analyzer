@@ -45,4 +45,6 @@ EXITだけで逆張りを始めません。元の帯やSLを広げません。�
 
 この補助監査は2026年10月9日に追加した、後からの確認です。登録前から11ファイルを固定できていたという証拠にはしません。実際に公開されたWorkerの全コード、設定、プラットフォームを検証するものでもありません。過去の記録を変更せず、補助モジュールを含む実行条件の変更には新しい版と未使用期間を用意します。
 
+`demo-archive-input.cjs` は非公開Gitの指定原本sourceを複製せず読み、元journalのpayload hash、原本ファイルhash、市場・ID・15分境界・元判定時刻を照合したうえで同じ時点の判定を再計算する分析専用モジュールです。過去再構築を新規予測や約定として登録しません。既定監査の入力読取、collector、口座、売買条件を置換せず、全入力の読戻しが統合・検証されるまで現行原本を保持します。上限と安全検査は `DATA_STORAGE.md` を参照してください。
+
 一次資料：[Bybit Kline仕様](https://bybit-exchange.github.io/docs/v5/market/kline) のOHLCには足内の到達順序が含まれません。[Cloudflareの保存API](https://developers.cloudflare.com/durable-objects/api/sqlite-storage-api/) は状態・原本・記録をまとめて保存する基盤です。これらはデータ・実装の根拠であり、戦略の収益性の証明ではありません。

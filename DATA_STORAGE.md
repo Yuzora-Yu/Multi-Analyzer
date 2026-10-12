@@ -91,6 +91,16 @@ schema 1の個別復元は、現在ref・manifest・pack全体と各圧縮entry�
 
 ## ローカル容量
 
+### 評価入力を複製せず読む
+
+`research-git-store.cjs` の `readExactBatch({inputs})` は、許可済み別名・相対パス・原本SHA256を指定した版だけをメモリへ返します。現在のcommitを固定し、manifestと必要なpackを照合し、全体SHA256と現在のプライバシー検査を通します。伏字版、欠落版、改ざん版、曖昧な版は返しません。一部が失敗したbatchを部分成功として評価へ渡しません。Git書込、復元データファイルの生成、原本変更、市場取得はありません。既存の制御LOCKは取得・解放します。
+
+上限は1回16入力、catalog 1,024 manifest・32 MiB、返却原本合計64 MiBです。呼出元は上限を小さくできますが拡大できません。schema 1の指定ファイル検査とschema 2の全断片再組立の安全検査を継承し、同じ直近packの読込は再利用します。catalogは現在commitのmanifestを走査するため、件数の増加で上限に達した場合は停止し、独立したindexの検証が必要です。64 MiBはプロセス全体のメモリ上限ではありません。
+
+分析専用の `demo-archive-input.cjs` は、元journalから得た `asset`、`snapshotId`、`sourceHash` と、保存時の原本ファイルSHA256を要求します。任意の入力パスを採用せず、不変source envelopeの場所をIDから導きます。ファイルhash、payload hash、銘柄、市場、コード版、15分境界、元の判定時刻を照合し、固定実行依存の監査を通してから元の時刻で共通エンジンを再計算します。取得時刻や現在の価格を過去判断へ混ぜません。出力は `ARCHIVE_ANALYSIS_RECONSTRUCTION` で、新規の前向き予測、約定、利益の証拠として扱いません。保存された初回取得時刻は第三者の時刻証明ではありません。
+
+この追加はsource入力の読戻し基盤です。既定の `demo-review.cjs`、collector、本番通知、固定デモ条件は変更しません。journal/view等を含む全評価入力の読戻しと版選択はまだ統合していないため、**現行の観測原本と不変cacheは保持**します。必要範囲だけを読む評価の実装・検証を完了してから、別の安全な整理工程へ進めます。[GitHub Git blobs](https://docs.github.com/en/rest/git/blobs)、[Git trees](https://docs.github.com/en/rest/git/trees) はGitオブジェクト取得の仕様であり、市場原本や予測の正しさの証明ではありません。
+
 ローカルは現在の作業に必要な入力、最新レビュー、差分index、検証用の一時復元だけを維持する方針です。長期のデータ蓄積を日々ローカルへ積み重ねないよう、保存・検証後に旧生成evaluationを整理します。
 
 今回削除可能なのは `hourly-observation/research-forward/evaluation-<epochMs>.json`（またはgzip）の旧生成レポートだけです。**最新3件、24時間以内、LATESTが指す版、原本・predictions・不変cache・登録・canonicalファイルは保持**します。削除前にGitの現在refからpackを再取得し、ローカル原本とbytes/SHA256が完全一致することを確認します。伏字済み版、未保存版、後から変わった版は削除しません。確認途中の失敗では削除を開始しません。これは生成レポートの個別削除で、観測原本の再帰削除は行いません。

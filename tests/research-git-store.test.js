@@ -599,6 +599,9 @@ test('safe selected file restores from a legacy mixed pack while embedded mail i
  tree.set(`manifests/${Archive.sha256(raw)}.json`,Archive.gitBlobSha(raw));remote.state.blobs.set(Archive.gitBlobSha(raw),raw);
  const original=f.write('hourly-observation','safe-source.json',safe);
  await assert.rejects(Archive.verifiedPack(remote.api,await remote.api.treeAt(remote.state.ref),manifest),/ARCHIVED_FILE_PRIVACY_CHECK_FAILED/);
+ const batch=await Archive.readExactBatch({api:remote.api,workspace:f.workspace,inputs:[{alias:records[0].alias,relative:records[0].relative,originalSha256:records[0].originalSha256}]});
+ assert.deepEqual(batch.values[0].data,safe);assert.equal(batch.datasetCopiesWritten,0);
+ await assert.rejects(Archive.readExactBatch({api:remote.api,workspace:f.workspace,inputs:[{alias:records[1].alias,relative:records[1].relative,originalSha256:records[1].originalSha256}]}),/ARCHIVED_FILE_PRIVACY_CHECK_FAILED/);
  const copy=await Archive.restore({api:remote.api,workspace:f.workspace,alias:records[0].alias,relative:records[0].relative,originalSha256:records[0].originalSha256});
  assert.deepEqual(fs.readFileSync(path.join(f.workspace,copy.destination)),safe);assert.deepEqual(fs.readFileSync(original),safe);
  await assert.rejects(Archive.restore({api:remote.api,workspace:f.workspace,alias:records[1].alias,relative:records[1].relative,originalSha256:records[1].originalSha256,allowRedacted:true}),/ARCHIVED_FILE_PRIVACY_CHECK_FAILED/);
@@ -612,4 +615,74 @@ test('selected record verifier rejects an unbound descriptor before pack access'
  const manifest={schema:1,privacyPolicy:Archive.POLICY,pack:{path:`packs/${pack.sha256}.json.gz`,sha256:pack.sha256,gitSha:pack.gitSha,bytes:pack.bytes.length},records:[record]};
  let calls=0;await assert.rejects(Archive.verifiedSelectedRecord({blob:async()=>{calls++;return pack.bytes;}},{entries:new Map([[manifest.pack.path,pack.gitSha]])},manifest,{...record}),/SELECTED_RECORD_NOT_IN_MANIFEST/);
  assert.equal(calls,0);
+});
+
+test('bounded exact input batch uses GET only, pins one ref and writes no dataset copies', async t => {
+ const f=fixture(t),remote=fakeGitHub();
+ const originals=[Buffer.from('{ "price":4186,"time":1791750000000 }\r\n'),Buffer.from('{"price":83600,"state":"WAIT"}')];
+ const inputs=originals.map((bytes,i)=>({alias:'demo-lab',relative:`samples/input-${i}.json`,originalSha256:Archive.sha256(bytes)}));
+ const paths=inputs.map((x,i)=>f.write(x.alias,x.relative,originals[i]));
+ await Archive.sync({...remote,workspace:f.workspace});
+ const ref=remote.state.ref,latest=fs.readFileSync(path.join(f.workspace,'.runtime/git-data-store/LATEST.json'));
+ remote.state.calls.length=0;
+ const read=await Archive.readExactBatch({api:remote.api,workspace:f.workspace,inputs});
+ assert.equal(read.mode,'READ_VERIFIED_EXACT_INPUTS');assert.equal(read.verifiedRef,ref);
+ assert.equal(read.packFetches,1);assert.equal(read.returnedBytes,originals.reduce((n,b)=>n+b.length,0));
+ assert.equal(read.datasetCopiesWritten,0);assert.equal(read.gitWrites,0);
+ for(const [i,x] of read.values.entries()){assert.deepEqual(x.data,originals[i]);assert.deepEqual(fs.readFileSync(paths[i]),originals[i]);}
+ assert.ok(remote.state.calls.every(c=>c.method==='GET'));assert.equal(remote.state.ref,ref);
+ assert.deepEqual(fs.readFileSync(path.join(f.workspace,'.runtime/git-data-store/LATEST.json')),latest);
+ assert.equal(fs.existsSync(path.join(f.workspace,'.runtime/git-data-store/restored')),false);
+ assert.equal(fs.existsSync(path.join(f.workspace,'.runtime/git-data-store/LOCK')),false);
+});
+
+test('batch input versions, paths and budgets fail closed before data access', async t => {
+ const f=fixture(t),remote=fakeGitHub(),bytes=Buffer.from('{"price":4186}');
+ const input={alias:'demo-lab',relative:'samples/input.json',originalSha256:Archive.sha256(bytes)};
+ for(const [inputs,error] of [[[],/READ_INPUT_COUNT_EXCEEDED/],[[{...input,alias:'unapproved'}],/READ_INPUT_ALIAS/],
+   [[{...input,relative:'../input.json'}],/RELATIVE/],[[{...input,originalSha256:'unversioned'}],/EXACT_VERSION/],
+   [[input,input],/READ_DUPLICATE_INPUT/]]) await assert.rejects(Archive.readExactBatch({api:remote.api,workspace:f.workspace,inputs}),error);
+ assert.equal(remote.state.calls.length,0);
+ f.write(input.alias,input.relative,bytes);await Archive.sync({...remote,workspace:f.workspace});
+ const options={api:remote.api,workspace:f.workspace,inputs:[input]};
+ await assert.rejects(Archive.readExactBatch({...options,maxInputs:17}),/READ_INPUT_BUDGET_INVALID/);
+ await assert.rejects(Archive.readExactBatch({...options,inputs:[{...input,originalSha256:'a'.repeat(64)}]}),/READ_EXACT_VERSION_NOT_FOUND/);
+ remote.state.calls.length=0;
+ await assert.rejects(Archive.readExactBatch({...options,maxReturnedBytes:1}),/READ_RETURN_BUDGET_EXCEEDED/);
+ const packSha=[...remote.state.blobs].find(([,b])=>b[0]===31&&b[1]===139)[0];
+ assert.ok(!remote.state.calls.some(c=>c.endpoint.endsWith('/git/blobs/'+packSha)));
+ await assert.rejects(Archive.readExactBatch({...options,maxCatalogBytes:1}),/READ_CATALOG_BUDGET_EXCEEDED/);
+ f.write(input.alias,'samples/another.json',{price:2});await Archive.sync({...remote,workspace:f.workspace});
+ await assert.rejects(Archive.readExactBatch({...options,maxCatalogManifests:1}),/READ_CATALOG_BUDGET_EXCEEDED/);
+ assert.deepEqual(fs.readFileSync(pathsafe(f,input)),bytes);
+});
+function pathsafe(f,input){return path.join(f.allRoots[input.alias],...input.relative.split('/'));}
+
+test('batch reads retain private-repo, lock, redaction and transport integrity guards', async t => {
+ const f=fixture(t),remote=fakeGitHub(),bytes=Buffer.from('{"price":4186}');
+ const input={alias:'demo-lab',relative:'samples/input.json',originalSha256:Archive.sha256(bytes)};
+ f.write(input.alias,input.relative,bytes);f.write('demo-lab','samples/redacted.json',{price:1,threadId:'private-metadata'});
+ await Archive.sync({...remote,workspace:f.workspace});const options={api:remote.api,workspace:f.workspace,inputs:[input]};
+ const lock=path.join(f.workspace,'.runtime/git-data-store/LOCK');fs.writeFileSync(lock,'other owner');
+ const calls=remote.state.calls.length;await assert.rejects(Archive.readExactBatch(options),/ARCHIVE_LOCK_BUSY/);
+ assert.equal(remote.state.calls.length,calls);assert.equal(fs.readFileSync(lock,'utf8'),'other owner');fs.unlinkSync(lock);
+ remote.state.private=false;await assert.rejects(Archive.readExactBatch(options),/GITHUB_REPOSITORY_NOT_PRIVATE/);remote.state.private=true;
+ const privateBytes=Buffer.from(JSON.stringify({price:1,threadId:'private-metadata'}));
+ await assert.rejects(Archive.readExactBatch({...options,inputs:[{alias:'demo-lab',relative:'samples/redacted.json',originalSha256:Archive.sha256(privateBytes)}]}),/READ_REDACTED_COPY_IS_NOT_ORIGINAL/);
+ const tree=await remote.api.treeAt(remote.state.ref),pack=[...tree.entries].find(([p])=>p.startsWith('packs/'));
+ remote.state.tamperedBlob=pack[1];await assert.rejects(Archive.readExactBatch(options),/REMOTE_BLOB_HASH_MISMATCH/);
+ assert.deepEqual(fs.readFileSync(pathsafe(f,input)),bytes);
+ assert.equal(fs.existsSync(path.join(f.workspace,'.runtime/git-data-store/LOCK')),false);
+});
+
+test('fragmented source is reconstructed in memory with whole-file verification and no original pruning', async t => {
+ const f=fixture(t),remote=fakeGitHub(),bytes=largeDocument(21);
+ const input={alias:'hourly-observation',relative:'samples/large.json',originalSha256:Archive.sha256(bytes)};
+ const target=f.write(input.alias,input.relative,bytes);await Archive.sync({...remote,workspace:f.workspace});
+ const read=await Archive.readExactBatch({api:remote.api,workspace:f.workspace,inputs:[input]});
+ assert.equal(read.values[0].schema,2);assert.deepEqual(read.values[0].data,bytes);
+ assert.equal(read.returnedBytes,bytes.length);assert.deepEqual(fs.readFileSync(target),bytes);
+ assert.equal(fs.existsSync(path.join(f.workspace,'.runtime/git-data-store/restored')),false);
+ replaceManifest(remote,m=>{m.records[0].fragments[0].sha256='e'.repeat(64);});
+ await assert.rejects(Archive.readExactBatch({api:remote.api,workspace:f.workspace,inputs:[input]}),/FRAGMENT_DATA_MISMATCH/);
 });
