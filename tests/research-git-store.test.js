@@ -346,6 +346,58 @@ test('local lock collision stops before GitHub requests; stale lock is never bro
   assert.equal(remote.state.calls.length,0); assert.equal(fs.readFileSync(path.join(dir,'LOCK'),'utf8'),'existing');
 });
 
+test('local lock diagnosis is read-only for absent, present and unknown owners', async t => {
+  for (const [presence, code, status] of [['PRESENT',null,'OWNER_PRESENT'],
+    ['ABSENT','ESRCH','OWNER_ABSENT_CANDIDATE'],['UNKNOWN','EPERM','OWNER_UNDETERMINED'],
+    ['UNKNOWN','PRIVATE_ERROR','OWNER_UNDETERMINED']]) await t.test(presence + ':' + code, () => {
+    const f=fixture(t), dir=path.join(f.workspace,'.runtime/git-data-store');fs.mkdirSync(dir,{recursive:true});
+    const target=path.join(dir,'LOCK'),bytes=Buffer.from(JSON.stringify({pid:4321,startedAt:'2026-10-12T13:50:13.605Z',
+      extra:'Bearer private user@example.test C:\\Users\\private'}));fs.writeFileSync(target,bytes);
+    let probes=0;const out=Archive.lockStatus({workspace:f.workspace,probe:pid=>{
+      probes++;assert.equal(pid,4321);if(code){const error=new Error('private body');error.code=code;throw error;}
+    }});
+    assert.equal(probes,1);assert.equal(out.status,status);assert.equal(out.owner.presence,presence);
+    assert.equal(out.identity.sha256,Archive.sha256(bytes));assert.equal(out.networkRequests,0);
+    assert.equal(out.lockModifiedByCommand,false);assert.equal(out.automaticRecovery,false);
+    assert.equal(out.interruptedOperationCompletionConfirmed,false);
+    assert.deepEqual(fs.readFileSync(target),bytes);assert.deepEqual(fs.readdirSync(dir),['LOCK']);
+    assert.doesNotMatch(JSON.stringify(out),/Bearer|private|example.test|Users|PRIVATE_ERROR/);
+  });
+});
+
+test('local lock diagnosis refuses invalid, oversized and nonregular files without probing', async t => {
+  const f=fixture(t),dir=path.join(f.workspace,'.runtime/git-data-store'),target=path.join(dir,'LOCK');
+  let probes=0;const options={workspace:f.workspace,probe:()=>{probes++;}};
+  assert.equal(Archive.lockStatus(options).status,'NO_LOCK');assert.equal(fs.existsSync(dir),false);
+  fs.mkdirSync(dir,{recursive:true});
+  for(const value of ['{"private":"Bearer secret"}',JSON.stringify({pid:0,startedAt:'2026-10-12T13:50:13.605Z'}),
+    JSON.stringify({pid:-1,startedAt:'2026-10-12T13:50:13.605Z'}),JSON.stringify({pid:4321,startedAt:'user@example.test'}),'incomplete{']){
+    fs.writeFileSync(target,value);assert.equal(Archive.lockStatus(options).status,'INVALID_LOCK_METADATA');
+    assert.equal(fs.readFileSync(target,'utf8'),value);
+  }
+  fs.writeFileSync(target,Buffer.alloc(1025));assert.equal(Archive.lockStatus(options).status,'UNSAFE_LOCK_FILE');
+  fs.unlinkSync(target);fs.mkdirSync(target);assert.equal(Archive.lockStatus(options).status,'UNSAFE_LOCK_FILE');
+  assert.equal(probes,0);
+});
+
+test('local lock diagnosis does not certify an owner check if lock is replaced during probing', t => {
+  const f=fixture(t),dir=path.join(f.workspace,'.runtime/git-data-store');fs.mkdirSync(dir,{recursive:true});
+  const target=path.join(dir,'LOCK');fs.writeFileSync(target,JSON.stringify({pid:4321,startedAt:'2026-10-12T13:50:13.605Z'}));
+  const replacement=JSON.stringify({pid:4322,startedAt:'2026-10-12T14:00:00.000Z'});
+  const out=Archive.lockStatus({workspace:f.workspace,probe:()=>{
+    fs.unlinkSync(target);fs.writeFileSync(target,replacement);const error=new Error();error.code='ESRCH';throw error;
+  }});
+  assert.equal(out.status,'LOCK_CHANGED_DURING_CHECK');assert.equal(out.automaticRecovery,false);
+  assert.equal(fs.readFileSync(target,'utf8'),replacement);
+});
+
+test('local lock diagnosis probes a current process using signal zero without terminating it', t => {
+  const f=fixture(t),dir=path.join(f.workspace,'.runtime/git-data-store');fs.mkdirSync(dir,{recursive:true});
+  const target=path.join(dir,'LOCK');fs.writeFileSync(target,JSON.stringify({pid:process.pid,startedAt:new Date().toISOString()}));
+  assert.equal(Archive.lockStatus({workspace:f.workspace}).status,'OWNER_PRESENT');
+  assert.equal(fs.existsSync(target),true);
+});
+
 test('verified prune preserves raw inputs/cache/registration/latest 3/recent 24h and LATEST pointer', async t => {
   const f=fixture(t), remote=fakeGitHub(); const old=Date.now()-5*86400000, paths=[];
   for(let i=0;i<7;i++){

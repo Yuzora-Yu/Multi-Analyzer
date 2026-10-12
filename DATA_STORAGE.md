@@ -79,6 +79,7 @@ GitHubのprimary rateヘッダーと書込予算を確認します。標準で�
 ```powershell
 node research-git-store.cjs inventory
 node research-git-store.cjs dry-run
+node research-git-store.cjs lock-status
 node research-git-store.cjs inspect
 node research-git-store.cjs sync
 node research-git-store.cjs sync --rehash
@@ -89,6 +90,8 @@ node --test tests/research-git-store.test.js
 ```
 
 `inventory`/`dry-run` は読取専用で、API書込もローカル保存も行いません。同期・復元・削除は共通のローカルlockを取得し、衝突時は停止します。古いlockを勝手に破棄しません。同期完了・失敗・prune記録は、Git対象外の `.runtime/git-data-store/` 内の固定名のJSONへ原子的に保存します。
+
+`lock-status` は認証・API・LOCK取得を行わないローカル読取専用の診断です。1 KiB以下の通常ファイルだけを読み、LOCKのSHA256・ファイル時刻・PID・開始時刻と、[signal 0によるプロセス存在照会](https://nodejs.org/api/process.html#processkillpid-signal)を返します。権限不足・不正なメタデータ・照会中のファイル差替えは不明または検査失敗として扱います。本文の追加キーや例外messageを出力しません。`OWNER_ABSENT_CANDIDATE` はその時点でPIDが不在という診断であり、ロック解除・prune完了・削除0件・保存成功の証明ではありません。PID再利用やプロセス終了の原因までは判定せず、自動削除・再試行もしません。収集担当と同じLOCKのhash、最新receipt、現在の処理状態を照合してから復旧方法を決めます。
 
 `inspect` は同じLOCKで直列化したGETのみの接続点検です。アカウント・非公開保存先、mainのcommit・treeの完全性と点検前後のref一致を確認します。通常8 GETで、manifest・packの本文や市場データを取得せず、保存・復元・削除や再同期を行いません。出力は `REMOTE_METADATA_VERIFIED`、`dataIntegrityVerified:false` です。これは接続とGitメタデータの確認であり、停止した同期の成功、全原本の保存や予測精度の証拠には使いません。
 

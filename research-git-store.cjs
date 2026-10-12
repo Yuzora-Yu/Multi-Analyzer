@@ -227,6 +227,57 @@ async function withLock(workspace, fn) {
   try { return await fn(); }
   finally { fs.closeSync(fd); fs.unlinkSync(lock); }
 }
+// Local diagnosis only. A missing PID is evidence to coordinate recovery, not
+// permission to remove a lock or infer the interrupted operation's completion.
+function lockStatus({ workspace = __dirname, probe = pid => process.kill(pid, 0) } = {}) {
+  const target = path.join(workspace, '.runtime', 'git-data-store', 'LOCK');
+  const out = { mode: 'LOCAL_ARCHIVE_LOCK_STATUS', checkedAt: new Date().toISOString(),
+    status: 'UNKNOWN', networkRequests: 0, lockModifiedByCommand: false, automaticRecovery: false,
+    interruptedOperationCompletionConfirmed: false };
+  let before, bytes, fd;
+  try {
+    before = fs.lstatSync(target);
+    if (before.isSymbolicLink() || !before.isFile() || before.size > 1024) {
+      out.status = 'UNSAFE_LOCK_FILE'; return out;
+    }
+    fd = fs.openSync(target, 'r');
+    const opened = fs.fstatSync(fd);
+    if (!opened.isFile() || statFingerprint(opened) !== statFingerprint(before)) {
+      out.status = 'LOCK_CHANGED_DURING_CHECK'; return out;
+    }
+    // Bound the read even if another process grows the file after the stat.
+    const buffer = Buffer.alloc(1025), size = fs.readSync(fd, buffer, 0, buffer.length, 0);
+    if (size > 1024) { out.status = 'UNSAFE_LOCK_FILE'; return out; }
+    bytes = buffer.subarray(0, size);
+  } catch (error) {
+    out.status = error.code === 'ENOENT' ? 'NO_LOCK' : 'LOCK_READ_UNAVAILABLE'; return out;
+  } finally { if (fd !== undefined) fs.closeSync(fd); }
+  out.identity = { sha256: sha256(bytes), bytes: bytes.length,
+    modifiedAt: before.mtime.toISOString(), createdAt: before.birthtime.toISOString() };
+  let value;
+  try { value = JSON.parse(bytes.toString('utf8')); } catch { out.status = 'INVALID_LOCK_METADATA'; return out; }
+  if (!value || !Number.isSafeInteger(value.pid) || value.pid <= 0 || value.pid > 0x7fffffff ||
+      typeof value.startedAt !== 'string' || value.startedAt.length > 32 ||
+      !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(value.startedAt) ||
+      !Number.isFinite(Date.parse(value.startedAt))) {
+    out.status = 'INVALID_LOCK_METADATA'; return out;
+  }
+  out.owner = { pid: value.pid, startedAt: value.startedAt, presence: 'UNKNOWN' };
+  try { probe(value.pid); out.owner.presence = 'PRESENT'; }
+  catch (error) {
+    out.owner.presence = error.code === 'ESRCH' ? 'ABSENT' : 'UNKNOWN';
+    out.owner.probeCode = ['ESRCH', 'EPERM', 'EACCES'].includes(error.code) ? error.code : 'UNKNOWN_PROBE_ERROR';
+  }
+  try {
+    const after = fs.lstatSync(target);
+    if (!after.isFile() || after.isSymbolicLink() || statFingerprint(after) !== statFingerprint(before)) {
+      out.status = 'LOCK_CHANGED_DURING_CHECK'; return out;
+    }
+  } catch { out.status = 'LOCK_CHANGED_DURING_CHECK'; return out; }
+  out.status = out.owner.presence === 'ABSENT' ? 'OWNER_ABSENT_CANDIDATE' :
+    out.owner.presence === 'PRESENT' ? 'OWNER_PRESENT' : 'OWNER_UNDETERMINED';
+  return out;
+}
 function loadConfig(workspace = __dirname) {
   const target = path.join(workspace, '.runtime', 'git-data-store', 'config.json');
   const config = JSON.parse(fs.readFileSync(target, 'utf8'));
@@ -1014,6 +1065,7 @@ async function prune(options) {
 
 async function main(argv = process.argv.slice(2)) {
   const command = argv[0] || 'inventory';
+  if (command === 'lock-status') return lockStatus();
   if (command === 'inventory' || command === 'dry-run') return inventory();
   const config = loadConfig(), api = new GitHub(credential(), config);
   try {
@@ -1038,6 +1090,6 @@ if (require.main === module) main().then(result => console.log(JSON.stringify(re
 module.exports = { SCHEMA, FRAGMENT_SCHEMA, FRAGMENT_FORMAT, POLICY, REPOSITORY, MAX_BLOB, MAX_PLAIN_PACK, MAX_RAW_PACK,
   PACK_PAYLOAD_BUDGET, MAX_FILE, MAX_SOURCE_FILE, FRAGMENT_BYTES, MAX_INFLATED, MAX_JSON_NODES, MAX_JSON_DEPTH, ROOT_PATHS, PRUNE_PREFIXES,
   sha256, gitBlobSha, within, cleanRelative, roots, resolveSource, excludedPath, walk, redactText, redactJson,
-  sanitize, readSafeFile, recordKey, withLock, loadConfig, GitHub, validateManifest, manifests, buildPack,
+  sanitize, readSafeFile, recordKey, withLock, lockStatus, loadConfig, GitHub, validateManifest, manifests, buildPack,
   unpack, verifiedPack, verifiedSelectedRecord, verifiedFragmentRecord, verifyArchiveManifest, manifestPacks,
   inventory, sync, inspectRemote, readExactBatch, readExactSet, restoreTarget, restore, evaluationRun, protectedEvaluations, prune };
