@@ -491,7 +491,18 @@ async function verifiedPack(api, tree, manifest) {
     const data = files.get(record.storedSha256);
     if (!data || data.length !== record.storedBytes || (!record.redacted && sha256(data) !== record.originalSha256)) fail('MANIFEST_FILE_MISMATCH');
     const safety = sanitize(data, record.alias, record.relative);
-    if (safety.reason || safety.redacted || safety.storedSha256 !== record.storedSha256) fail('ARCHIVED_FILE_PRIVACY_CHECK_FAILED');
+    if (safety.reason || safety.redacted || safety.storedSha256 !== record.storedSha256) {
+      const allowedReasons = new Set(['SOURCE_FILE_TOO_LARGE','INVALID_OR_OVERSIZED_GZIP','INFLATED_FILE_TOO_LARGE',
+        'NON_UTF8_TEXT','TEXT_PRIVACY_REQUIRES_EXCLUSION','JSON_STRUCTURE_BUDGET_EXCEEDED',
+        'MAIL_RECORD_REQUIRES_EXCLUSION','INVALID_JSON_OR_UNSAFE_KEY','INTEGRITY_RECORD_REQUIRES_REDACTION',
+        'STORED_FILE_TOO_LARGE','PRIVACY_SCAN_FAILED']);
+      const error = new Error('ARCHIVED_FILE_PRIVACY_CHECK_FAILED'); error.code = error.message;
+      error.archivePrivacy = { alias: Object.hasOwn(ROOT_PATHS, record.alias) ? record.alias : 'UNKNOWN_ALIAS',
+        sourceSha256: SHA256.test(record.originalSha256 || '') ? record.originalSha256 : null,
+        recordKeySha256: sha256(Buffer.from(recordKey(record))),
+        reason: allowedReasons.has(safety.reason) ? safety.reason : safety.redacted ? 'PRIVACY_REDACTION_REQUIRED' : 'UNKNOWN_PRIVACY_FAILURE' };
+      throw error;
+    }
   }
   return files;
 }
@@ -896,15 +907,22 @@ function protectedEvaluations(allRoots) {
 async function prune(options) {
   const { api, workspace = __dirname, apply = false, olderThanDays = 1 } = options;
   if (!Number.isFinite(olderThanDays) || olderThanDays < 1) fail('PRUNE_MINIMUM_AGE_ONE_DAY');
+  const progress = { phase: 'ACQUIRE_LOCK', catalogManifestsRead: 0 };
+  let result, currentCandidateKeys = new Set();
   return withLock(workspace, async () => {
-    await api.verifyPrivate(); const tree = await api.treeAt(await api.ref());
+    progress.phase = 'VERIFY_PRIVATE_REPOSITORY';
+    await api.verifyPrivate(); progress.phase = 'READ_REMOTE_TREE';
+    const tree = await api.treeAt(await api.ref());
     const allRoots = roots(workspace), protectedRuns = protectedEvaluations(allRoots);
     const cutoff = Date.now() - olderThanDays * 86400000;
-    const result = { mode: apply ? 'PRUNE_VERIFIED_GENERATED_EVALUATIONS' : 'PRUNE_DRY_RUN',
+    result = { mode: apply ? 'PRUNE_VERIFIED_GENERATED_EVALUATIONS' : 'PRUNE_DRY_RUN',
       verifiedRef: tree.commit, verifiedPacks: 0, eligibleFiles: 0, eligibleBytes: 0,
-      prunedFiles: 0, prunedBytes: 0, skipped: {}, originalObservationsPruned: 0 };
-    const candidates = [];
+      prunedFiles: 0, prunedBytes: 0, skipped: {}, originalObservationsPruned: 0,
+      retainedLegacyPacks: 0, completedWithWarnings: false, archiveWarnings: [] };
+    const candidates = [], retainedLegacyPackHashes = new Set();
+    progress.phase = 'READ_CATALOG';
     for await (const m of manifests(api, tree)) {
+      progress.phase = 'READ_CATALOG'; progress.catalogManifestsRead++;
       // Large originals remain working inputs. This change does not enlarge the
       // deletion policy; fragment archives must first have an operational review.
       if (m.value.schema === FRAGMENT_SCHEMA) {
@@ -928,8 +946,28 @@ async function prune(options) {
       }
       if (!localRecords.length) continue;
       // Verify every candidate against actual remote bytes before allowing any deletion.
-      const data = await verifiedPack(api, tree, m.value);
+      progress.phase = 'VERIFY_PACK'; progress.manifestSha256 = path.posix.basename(m.path, '.json');
+      progress.packSha256 = m.value.pack.sha256; progress.candidateCount = localRecords.length;
+      currentCandidateKeys = new Set(localRecords.map(r => sha256(Buffer.from(recordKey(r)))));
+      let data;
+      try { data = await verifiedPack(api, tree, m.value); }
+      catch (error) {
+        // An old non-candidate mail record cannot certify this pack. Retain all
+        // candidates in it; independent fully verified packs can still qualify.
+        // Candidate privacy failures, hash errors and other failures still stop
+        // the whole operation before any deletion.
+        if (error.code !== 'ARCHIVED_FILE_PRIVACY_CHECK_FAILED' ||
+            error.archivePrivacy?.reason !== 'MAIL_RECORD_REQUIRES_EXCLUSION' ||
+            currentCandidateKeys.has(error.archivePrivacy.recordKeySha256)) throw error;
+        retainedLegacyPackHashes.add(progress.packSha256);
+        result.retainedLegacyPacks = retainedLegacyPackHashes.size; result.completedWithWarnings = true;
+        result.skipped.LEGACY_MAIL_NEIGHBOUR_PACK = retainedLegacyPackHashes.size;
+        result.archiveWarnings.push({ manifestSha256: progress.manifestSha256, packSha256: progress.packSha256,
+          candidateVerificationsDeferred: localRecords.length, ...error.archivePrivacy, role: 'OTHER_RECORD_IN_PACK' });
+        continue;
+      }
       result.verifiedPacks++;
+      progress.phase = 'COMPARE_LOCAL_COPIES';
       for (const record of localRecords) {
         let target;
         try { target = resolveSource(record.alias, record.relative, allRoots); }
@@ -945,8 +983,10 @@ async function prune(options) {
     }
     if (apply) {
       // Fail before deletions if ref/repository changed after verification.
+      progress.phase = 'FINAL_DELETE_GUARDS';
       await api.verifyPrivate(); if (await api.ref() !== tree.commit) fail('REMOTE_REF_CHANGED_BEFORE_PRUNE');
       const protectedNow = protectedEvaluations(allRoots);
+      progress.phase = 'DELETE_VERIFIED_GENERATED_COPIES';
       for (const c of candidates) {
         const run = evaluationRun(c.record.relative);
         if (protectedNow.has(run.prefix + run.id)) continue;
@@ -956,8 +996,19 @@ async function prune(options) {
         fs.unlinkSync(target); result.prunedFiles++; result.prunedBytes += stat.size;
       }
     }
+    progress.phase = 'WRITE_RECEIPT';
     atomicJson(path.join(workspace, '.runtime/git-data-store/PRUNE-LATEST.json'), result);
     return result;
+  }).catch(error => {
+    if (error.code !== 'ARCHIVE_LOCK_BUSY') atomicJson(path.join(workspace, '.runtime/git-data-store/PRUNE_FAILURE-LATEST.json'), {
+      mode: 'PRUNE_STOPPED', stoppedAt: new Date().toISOString(), applyRequested: apply,
+      code: safeErrorCode(error), progress, verifiedRef: result?.verifiedRef || null,
+      failureRecord: error.archivePrivacy ? { ...error.archivePrivacy,
+        role: currentCandidateKeys.has(error.archivePrivacy.recordKeySha256) ? 'CANDIDATE' : 'OTHER_RECORD_IN_PACK' } : null,
+      generatedFilesPruned: result?.prunedFiles || 0, generatedBytesPruned: result?.prunedBytes || 0,
+      originalObservationsPruned: 0, noAutomaticRetry: true, completionConfirmed: false
+    });
+    throw error;
   });
 }
 

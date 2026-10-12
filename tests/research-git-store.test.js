@@ -703,6 +703,100 @@ test('safe selected file restores from a legacy mixed pack while embedded mail i
  assert.equal(remote.state.calls.filter(c=>c.method!=='GET').length,0);
 });
 
+test('prune privacy diagnostics retain a legacy neighbour pack and stop on unsafe candidate',async t=>{
+ for(const unsafeCandidate of [false,true]) await t.test(unsafeCandidate?'candidate':'neighbour',async t=>{
+  const f=fixture(t),remote=fakeGitHub(),old=Date.now()-5*86400000;
+  const relative=`research-forward/evaluation-${old}.json`;
+  const unsafe=Buffer.from(JSON.stringify({lastEmail:{title:'private@example.test Bearer hidden-secret'}}));
+  const safe=Buffer.from('{"close":4186,"decision":"WAIT"}');
+  const bytes=[unsafeCandidate?unsafe:safe,unsafeCandidate?safe:unsafe];
+  const records=bytes.map((b,i)=>({alias:'hourly-observation',relative:i?'private-person-neighbour.json':relative,
+   privacyPolicy:Archive.POLICY,originalSha256:Archive.sha256(b),storedSha256:Archive.sha256(b),
+   originalBytes:b.length,storedBytes:b.length,redacted:false,exactOriginalRestorable:true}));
+  const pack=Archive.buildPack(bytes.map(b=>({bytes:b,storedBytes:b.length,storedSha256:Archive.sha256(b)})));
+  const reference={path:`packs/${pack.sha256}.json.gz`,sha256:pack.sha256,gitSha:pack.gitSha,bytes:pack.bytes.length};
+  const raw=Buffer.from(JSON.stringify({schema:1,privacyPolicy:Archive.POLICY,pack:reference,records}));
+  const tree=remote.state.trees.get(remote.state.commits.get(remote.state.ref).tree);
+  tree.set(reference.path,reference.gitSha);remote.state.blobs.set(reference.gitSha,pack.bytes);
+  tree.set(`manifests/${Archive.sha256(raw)}.json`,Archive.gitBlobSha(raw));remote.state.blobs.set(Archive.gitBlobSha(raw),raw);
+  const target=f.write('hourly-observation',relative,bytes[0]);fs.utimesSync(target,new Date(old),new Date(old));
+  for(let i=1;i<=3;i++)f.write('hourly-observation',`research-forward/evaluation-${old+i}.json`,safe);
+  for(const apply of [false,true]){
+   if(!unsafeCandidate){
+    const result=await Archive.prune({api:remote.api,workspace:f.workspace,apply});
+    assert.equal(result.completedWithWarnings,true);assert.equal(result.retainedLegacyPacks,1);
+    assert.equal(result.skipped.LEGACY_MAIL_NEIGHBOUR_PACK,1);assert.equal(result.verifiedPacks,0);
+    assert.equal(result.eligibleFiles,0);assert.equal(result.prunedFiles,0);
+    assert.equal(result.archiveWarnings[0].reason,'MAIL_RECORD_REQUIRES_EXCLUSION');
+    assert.equal(result.archiveWarnings[0].role,'OTHER_RECORD_IN_PACK');
+    assert.doesNotMatch(JSON.stringify(result),/private-person|example.test|Bearer|hidden-secret|lastEmail/);
+    assert.deepEqual(fs.readFileSync(target),bytes[0]);continue;
+   }
+   await assert.rejects(Archive.prune({api:remote.api,workspace:f.workspace,apply}),/ARCHIVED_FILE_PRIVACY_CHECK_FAILED/);
+   const report=JSON.parse(fs.readFileSync(path.join(f.workspace,'.runtime/git-data-store/PRUNE_FAILURE-LATEST.json')));
+   assert.equal(report.progress.phase,'VERIFY_PACK');assert.equal(report.progress.catalogManifestsRead,1);
+   assert.equal(report.progress.candidateCount,1);assert.equal(report.applyRequested,apply);
+   assert.equal(report.failureRecord.reason,'MAIL_RECORD_REQUIRES_EXCLUSION');
+   assert.equal(report.failureRecord.role,unsafeCandidate?'CANDIDATE':'OTHER_RECORD_IN_PACK');
+   assert.equal(report.generatedFilesPruned,0);assert.equal(report.originalObservationsPruned,0);
+   assert.equal(report.completionConfirmed,false);assert.equal(report.noAutomaticRetry,true);
+   assert.doesNotMatch(JSON.stringify(report),/private-person|example.test|Bearer|hidden-secret|lastEmail/);
+   assert.deepEqual(fs.readFileSync(target),bytes[0]);assert.equal(fs.existsSync(path.join(f.workspace,'.runtime/git-data-store/LOCK')),false);
+  }
+  assert.ok(remote.state.calls.every(c=>c.method==='GET'));
+ });
+});
+
+test('retaining an unverified legacy mail pack permits only independent fully verified generated-copy cleanup',async t=>{
+ const f=fixture(t),remote=fakeGitHub(),old=Date.now()-5*86400000;
+ const safe=Buffer.from('{"close":4186}'),unsafe=Buffer.from('{"lastEmail":{"title":"private@example.test"}}');
+ const relative=`research-forward/evaluation-${old}.json`;
+ const records=[safe,unsafe].map((b,i)=>({alias:'hourly-observation',relative:i?'legacy-private.json':relative,
+  privacyPolicy:Archive.POLICY,originalSha256:Archive.sha256(b),storedSha256:Archive.sha256(b),originalBytes:b.length,
+  storedBytes:b.length,redacted:false,exactOriginalRestorable:true}));
+ const pack=Archive.buildPack([safe,unsafe].map(b=>({bytes:b,storedBytes:b.length,storedSha256:Archive.sha256(b)})));
+ const reference={path:`packs/${pack.sha256}.json.gz`,sha256:pack.sha256,gitSha:pack.gitSha,bytes:pack.bytes.length};
+ const raw=Buffer.from(JSON.stringify({schema:1,privacyPolicy:Archive.POLICY,pack:reference,records}));
+ const tree=remote.state.trees.get(remote.state.commits.get(remote.state.ref).tree);
+ tree.set(reference.path,reference.gitSha);remote.state.blobs.set(reference.gitSha,pack.bytes);
+ tree.set(`manifests/${Archive.sha256(raw)}.json`,Archive.gitBlobSha(raw));remote.state.blobs.set(Archive.gitBlobSha(raw),raw);
+ const blocked=f.write('hourly-observation',relative,safe);fs.utimesSync(blocked,new Date(old),new Date(old));
+ const clean=f.write('hourly-observation',`research-forward/evaluation-${old+1}.json`,{close:4190});
+ fs.utimesSync(clean,new Date(old),new Date(old));
+ for(let i=2;i<=4;i++)f.write('hourly-observation',`research-forward/evaluation-${old+i}.json`,{close:4200+i});
+ await Archive.sync({...remote,workspace:f.workspace});
+ const dry=await Archive.prune({api:remote.api,workspace:f.workspace});
+ assert.equal(dry.retainedLegacyPacks,1);assert.equal(dry.eligibleFiles,1);assert.equal(dry.prunedFiles,0);
+ assert.equal(dry.verifiedPacks,1);assert.ok(fs.existsSync(clean));assert.ok(fs.existsSync(blocked));
+ remote.state.tamperedBlob=reference.gitSha;
+ await assert.rejects(Archive.prune({api:remote.api,workspace:f.workspace,apply:true}),/REMOTE_BLOB_HASH_MISMATCH/);
+ assert.ok(fs.existsSync(clean));assert.ok(fs.existsSync(blocked));remote.state.tamperedBlob=null;
+ const applied=await Archive.prune({api:remote.api,workspace:f.workspace,apply:true});
+ assert.equal(applied.prunedFiles,1);assert.equal(applied.completedWithWarnings,true);assert.equal(applied.retainedLegacyPacks,1);
+ assert.equal(fs.existsSync(clean),false);assert.deepEqual(fs.readFileSync(blocked),safe);
+ assert.equal(applied.originalObservationsPruned,0);assert.equal(fs.existsSync(path.join(f.workspace,'.runtime/git-data-store/LOCK')),false);
+});
+
+test('prune failure receipt reports actual generated deletions if a later unlink fails',async t=>{
+ const f=fixture(t),remote=fakeGitHub(),old=Date.now()-5*86400000,paths=[];
+ for(let i=0;i<5;i++){
+  const target=f.write('hourly-observation',`research-forward/evaluation-${old+i}.json`,{close:i});
+  fs.utimesSync(target,new Date(old),new Date(old));paths.push(target);
+ }
+ await Archive.sync({...remote,workspace:f.workspace});
+ const unlink=fs.unlinkSync;let attempts=0;
+ try{
+  fs.unlinkSync=target=>{if(paths.includes(target)&&++attempts===2)throw Error('simulated private-user unlink exception');return unlink(target);};
+  await assert.rejects(Archive.prune({api:remote.api,workspace:f.workspace,apply:true}),/simulated private-user/);
+ }finally{fs.unlinkSync=unlink;}
+ const failure=JSON.parse(fs.readFileSync(path.join(f.workspace,'.runtime/git-data-store/PRUNE_FAILURE-LATEST.json')));
+ assert.equal(failure.progress.phase,'DELETE_VERIFIED_GENERATED_COPIES');assert.equal(failure.generatedFilesPruned,1);
+ assert.equal(failure.originalObservationsPruned,0);assert.equal(failure.completionConfirmed,false);
+ assert.equal(failure.code,'ARCHIVE_OPERATION_FAILED');assert.equal(failure.failureRecord,null);
+ assert.doesNotMatch(JSON.stringify(failure),/private-user|exception/);
+ assert.equal(paths.filter(p=>fs.existsSync(p)).length,4);assert.equal(fs.existsSync(path.join(f.workspace,'.runtime/git-data-store/LOCK')),false);
+});
+
 test('selected record verifier rejects an unbound descriptor before pack access',async()=>{
  const bytes=Buffer.from('{"close":4186}'),safe=Archive.sanitize(bytes,'hourly-observation','safe.json'),pack=Archive.buildPack([safe]);
  const record={...safe,alias:'hourly-observation',relative:'safe.json',privacyPolicy:Archive.POLICY};delete record.bytes;
