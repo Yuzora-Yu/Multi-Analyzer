@@ -9,6 +9,26 @@ function fixture(){
 test('upper structure, MA condition and current price position remain separate',()=>{
  const a=fixture(),before=JSON.stringify(a),t=T.describe(a),h=t.frames[0];assert.equal(h.structure,'上向き');assert.equal(h.ma,'下向き');assert.ok(h.levels.every(l=>l.position==='下'));assert.equal(t.price,100);assert.equal(t.frames[1].available,false);assert.equal(t.frames[1].ma,'未確認');assert.equal(JSON.stringify(a),before);
 });
+
+test('neutral MA or conflicting upper structure cannot label a candidate as upper-trend aligned',()=>{
+ const a=fixture(),z={direction:'SHORT',role:'上位足に沿う候補',low:100,high:101,invalidationClose:101,protectiveStop:102};
+ a.h4.trend='range';const before=JSON.stringify({a,z});
+ assert.equal(T.zoneRole(a,z).label,'4H MA中立・方向一致は未確認');
+ assert.equal(T.zoneRole(a,z).originalRole,z.role);assert.equal(JSON.stringify({a,z}),before);
+ a.h4.trend='bear';assert.equal(T.zoneRole(a,z).label,'4Hの構造とMAが不一致');
+ a.h4.trend='bull';assert.equal(T.zoneRole(a,z).label,'4Hの構造・MAに逆行');
+ assert.equal(T.zoneRole(a,{...z,direction:'LONG'}).label,'4Hの構造・MAと同方向');
+ a.h4.structure.trend='range';assert.equal(T.zoneRole(a,z).label,'4H MAに逆行・構造は中立');
+});
+
+test('missing, stale, gapped or unfinished H4 cannot supply an alignment claim',()=>{
+ const z={direction:'LONG',role:'上位足に沿う候補'};
+ for(const change of [a=>a.h4=null,a=>a.h4.quality.stale=true,a=>a.h4.quality.gaps=4,a=>a.h4.candles.push({time:a.generatedAt})]){
+  const a=fixture();change(a);const result=T.zoneRole(a,z);
+  assert.equal(result.label,'4Hの方向未確認');assert.equal(result.h4.available,false);assert.equal(result.h4.closedAt,null);
+ }
+ assert.equal(T.zoneRole(fixture(),{direction:'invalid'}).label,'候補方向未確認');
+});
 test('retracement anchors require both original confirmation and price identity',()=>{
  const a=fixture(),r=T.leg(a.h4,a.generatedAt,100);assert.equal(r.direction,'下落脚');assert.equal(r.ratio,50);assert.equal(r.levels[1].price,100);assert.equal(r.end.confirmedAt,9*240*60000);
  a.h4.swings.lows[0].confirmIndex=10;assert.equal(T.leg(a.h4,a.generatedAt,100),null);

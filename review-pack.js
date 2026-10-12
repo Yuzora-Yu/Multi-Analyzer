@@ -136,7 +136,8 @@
       const geometryText=geometry?G.text(geometry):[];
       const preview=confirmationContext(a.signal,z,num,archived?null:a.health);
       const confirmationPreview=archived?{...preview,scope:'saved-decision-checkpoint-reconstruction',text:'保存判定からの後日再構築。当時の表示・追跡成立や現在の条件を示すものではありません。'+preview.text.replace('今から固定追跡する場合','この保存判定を基準に固定する場合')}:preview;
-      return {zone:structuredClone(z),withdrawal,focus:Focus?.describe(a.signal,z)||null,geometry,geometryText,confirmationPreview,
+      return {zone:structuredClone(z),roleContext:globalThis.MultiAnalyzerTrendContext?.zoneRole?.(a.signal,z)||null,
+        withdrawal,focus:Focus?.describe(a.signal,z)||null,geometry,geometryText,confirmationPreview,
         geometryBasis:{sourceId:a.snapshot?.id??null,sourceClosedAt:a.signal.m15?.candles?.at(-1)?.time!=null?a.signal.m15.candles.at(-1).time+900000:null,reviewCapturedAt:now,calculatedAt:Date.now(),
           scope:archived?'saved-decision-reconstruction':'current-candidate-description',note:archived?'保存判定の元候補・確定スイングから後で計算した距離です。当時の表示・保存・約定の証拠ではなく、現在の水準でもありません。':'この候補から新しく追跡を始める場合の距離です。保存済みチェックポイントの条件は変更しません。'}};
     });
@@ -223,8 +224,9 @@
       basis?.note||'元判定の予定情報です。現在の予定を過去の判定に混入しません。'];
   }
   function decisionText(d){const q=d.consultation;return [...(q?.checkpointText?.length?['前回固定したチェックポイント（元条件で先に確認）',...q.checkpointText]:[]),...(d.health?[`鮮度確認 ${jst(d.health.assessedAt)}：${d.health.message}`]:[]),`${d.verdict} / ${d.direction}`,...calendarText(d),d.exit||'今回の足に黄EXITなし',
-    ...(q?[q.basis,...(q.trendContext?[`現在地の基準：15分確定価格 ${num(q.trendContext.price)} / ${q.trendContext.priceClosedAt?jst(q.trendContext.priceClosedAt):'未取得'}`]:[]),...(q.trendContext?.frames||[]).flatMap(f=>[`${f.name} 構造 ${f.structure} / MA ${f.ma} / ${f.available?'確定 '+jst(f.closedAt):f.sessionWait?sessionWaitText(f.sessionWait):'未取得・遅延'}：${f.levels.map(l=>`${l.label} ${num(l.price)} の${l.position}（15分確定価格比）`).join(' / ')}`,...(f.leg?[`${f.name} 確認済み${f.leg.direction} ${num(f.leg.start.price)}→${num(f.leg.end.price)}（終点確認 ${jst(f.leg.end.confirmedAt)}）から ${num(f.leg.ratio)}％ / ${f.leg.levels.map(l=>`${num(l.percent)}％ ${num(l.price)}`).join(' / ')}。${f.leg.note}`]:[])]),...q.zones.flatMap(({zone:z,focus:f,geometryText,geometryBasis,confirmationPreview,withdrawal})=>[
+    ...(q?[q.basis,...(q.trendContext?[`現在地の基準：15分確定価格 ${num(q.trendContext.price)} / ${q.trendContext.priceClosedAt?jst(q.trendContext.priceClosedAt):'未取得'}`]:[]),...(q.trendContext?.frames||[]).flatMap(f=>[`${f.name} 構造 ${f.structure} / MA ${f.ma} / ${f.available?'確定 '+jst(f.closedAt):f.sessionWait?sessionWaitText(f.sessionWait):'未取得・遅延'}：${f.levels.map(l=>`${l.label} ${num(l.price)} の${l.position}（15分確定価格比）`).join(' / ')}`,...(f.leg?[`${f.name} 確認済み${f.leg.direction} ${num(f.leg.start.price)}→${num(f.leg.end.price)}（終点確認 ${jst(f.leg.end.confirmedAt)}）から ${num(f.leg.ratio)}％ / ${f.leg.levels.map(l=>`${num(l.percent)}％ ${num(l.price)}`).join(' / ')}。${f.leg.note}`]:[])]),...q.zones.flatMap(({zone:z,focus:f,geometryText,geometryBasis,confirmationPreview,withdrawal,roleContext})=>[
       `${withdrawal?'撤回確認済み・元の':''}背景 ${z.direction} ${z.frame} ${z.type} ${num(z.low)}～${num(z.high)} / ${z.condition} / 15分終値 ${num(z.invalidationClose)}${z.direction==='SHORT'?'超':'未満'}で撤回 / SL参考 ${num(z.protectiveStop)}`,
+      ...(roleContext?[roleContext.label+'。'+roleContext.note]:[]),
       ...(confirmationPreview?[confirmationPreview.text]:[]),
       ...(f?.windows||[]).map(w=>`局所観察 ${num(w.low)}～${num(w.high)}：${w.levels.map(r=>r.label+' '+num(r.price)).join(' / ')}（接触や重合数は勝率・入場条件ではありません）`),
       ...(geometryText?.length?['確認を待った場合の残り値幅',geometryBasis?.note||'',...geometryText]:[])

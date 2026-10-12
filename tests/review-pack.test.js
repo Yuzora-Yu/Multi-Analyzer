@@ -4,6 +4,19 @@ const R=require('../review-pack');
 const Core=require('../strategy-core');
 const Feed=require('../market-feed');
 
+test('consultation exports observed neutral H4 role separately and preserves original candidate',t=>{
+ const T=require('../trend-context');global.MultiAnalyzerTrendContext=T;t.after(()=>delete global.MultiAnalyzerTrendContext);
+ const now=Date.UTC(2026,9,12,12),z={direction:'SHORT',role:'上位足に沿う候補',low:100,high:101,
+  frame:'15m',type:'FVG',condition:'元の条件',invalidationClose:101,protectiveStop:102,targets:[99]};
+ const signal={generatedAt:now,h4:{ready:true,intervalMinutes:240,quality:{stale:false,gaps:0},
+  candles:[{time:now-14400000}],trend:'range',structure:{trend:'bull'}},marketMap:{candidates:[z]}};
+ const before=JSON.stringify(signal),q=R.consultation({asset:'gold',signal,snapshot:{id:'gold-saved'}},now);
+ assert.deepEqual(q.zones[0].zone,z);assert.equal(q.zones[0].roleContext.originalRole,z.role);
+ assert.equal(q.zones[0].roleContext.label,'4H MA中立・方向一致は未確認');assert.equal(JSON.stringify(signal),before);
+ const text=R.decisionText({verdict:'WAIT',direction:'SHORT',consultation:q,levels:{},checks:[],vetoes:[]}).join(' ');
+ assert.match(text,/4H MA中立・方向一致は未確認/);assert.match(text,/元判定・入場条件・帯・SLは変更しません/);
+});
+
 test('entry wait does not hide bearish structure and missing context stays unknown',()=>{
  const a={state:'NO_TRADE',exec:{flow:{latest:{structure:-1,ribbon:-1}}}};
  const before=JSON.stringify(a);

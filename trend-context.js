@@ -47,5 +47,20 @@
     return {price,priceClosedAt:Number.isFinite(price)?m15.candles.at(-1).time+900000:null,frames,
       note:'15分の確定価格と、各時間足の最新確定水準を比較。上位足の構造・複合MA条件・現在の価格位置を分けて表示します。SMC帯、P条件、撤回条件、SLは変更しません。日足は「時間足比較・AI保存」で確認できます。'};
   }
-  return {known,leg,describe,sessionWait};
+  function zoneRole(a,z){
+    const tf=a?.h4,available=Boolean(known(tf,a?.generatedAt)),ma=available?label(tf.trend):'未確認',
+      structure=available?label(tf.structure?.trend):'未確認';
+    const direction=z?.direction==='LONG'?'上向き':z?.direction==='SHORT'?'下向き':null;
+    const directional=v=>v==='上向き'||v==='下向き';
+    let text='4Hの方向未確認';
+    if(!direction)text='候補方向未確認';
+    else if(available&&ma==='中立')text='4H MA中立・方向一致は未確認';
+    else if(available&&directional(ma)&&directional(structure)&&ma!==structure)text='4Hの構造とMAが不一致';
+    else if(available&&directional(ma)&&ma===structure)text=ma===direction?'4Hの構造・MAと同方向':'4Hの構造・MAに逆行';
+    else if(available&&directional(ma))text=`4H MA${ma===direction?'と同方向':'に逆行'}・構造は${structure}`;
+    return {label:text,originalRole:z?.role??null,h4:{available,ma,structure,
+      closedAt:available?tf.candles.at(-1).time+tf.intervalMinutes*60000:null},
+      note:'表示用の4H背景。元判定・入場条件・帯・SLは変更しません。'};
+  }
+  return {known,leg,describe,sessionWait,zoneRole};
 });

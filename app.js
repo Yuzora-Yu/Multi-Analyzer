@@ -751,8 +751,7 @@
       const focus=window.MultiAnalyzerZoneFocus?.describe(a,z);
       const geometry=health?.blocked||withdrawal?null:window.MultiAnalyzerZoneGeometry?.describe(a,z);
       const confirmation=window.MultiAnalyzerReview?.confirmationContext?.(a,z,mappedPrice,health);
-      const higher=map.trends.find(t=>t.name==='4H');
-      const role=higher?.ma==='中立'&&higher?.structure==='中立'?'上位足の方向未確定':z.role;
+      const role=window.MultiAnalyzerTrendContext?.zoneRole?.(a,z)?.label||'4Hの方向未確認';
       const local=[];
       if(focus?.available&&focus.windows.length)for(const w of focus.windows)local.push([
         `局所${w.labels.length>1?'重合':'単独'} ${mappedPrice(w.low)}～${mappedPrice(w.high)}`,
