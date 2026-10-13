@@ -748,6 +748,7 @@
   }
 
   function renderMarketMap(a) {
+    a=window.MultiAnalyzerZoneView?.analysis(a)||a;
     const box=$('marketMap'),map=a.marketMap;
     if(!box)return;
     const expandedGeometry=new Set([...(box.querySelectorAll?.('details[data-geometry-zone]')||[])].filter(d=>d.open).map(d=>d.dataset.geometryZone));
@@ -1146,7 +1147,7 @@
     $('marketMap').addEventListener('click',event=>{
       const button=event.target.closest('[data-track-zone]');if(!button||button.disabled)return;
       try {
-        const a=state.analysis,z=a.marketMap.candidates[Number(button.dataset.trackZone)],instrument=INSTRUMENTS[state.instrumentId];
+        const a=window.MultiAnalyzerZoneView?.analysis(state.analysis)||state.analysis,z=a.marketMap.candidates[Number(button.dataset.trackZone)],instrument=INSTRUMENTS[state.instrumentId];
         if(window.MultiAnalyzerReview?.zoneWithdrawal?.(a,z))throw Error('この帯は元の撤回条件を通過しています。帯内に戻っても元の見立ては再開しません。');
         window.MultiAnalyzerCheckpoint.track(a,z,{asset:state.instrumentId,market:instrument.market,symbol:instrument.symbol,snapshotId:state.snapshot?.id,basis:priceBasis()});
         renderCheckpoints(a);

@@ -1,5 +1,11 @@
 # Research log — Gold / BTC, 2026-09-14
 
+## 2026-10-13: keep candidate references on their displayed M15 basis
+
+The candidate panel identified its source as the closed M15 price while non-M15 chart analysis supplied the selected timeframe's price, ATR, recent extrema and target spacing to the background map. Merely switching to a timing chart could therefore change the displayed stop reference and local proximity radius. A presentation-only adapter now calculates that panel and newly saved device checkpoints from the existing closed M15 frame. The selected chart analysis, canonical M15 map, shared engine, notifications and frozen demo dependencies remain unchanged.
+
+Unavailable, stale, gapped, unfinished or internally inconsistent M15 inputs cannot borrow the selected chart's map. A selected chart's actionable P state is never promoted into a M15 entry claim; the canonical entry decision remains on the M15 screen. Original economic-warning evidence is preserved. Existing saved checkpoints retain their original bounds, stops and rules; this changes only the basis used to display and create new observations. Tests distinguish chart price/ATR from M15, check both rendered references and newly fixed records, preserve the original analysis, and reject missing or future evidence. This is a consistency repair, not evidence of better forecasts or profitability.
+
 ## Current storage policy — 2026-10-11
 
 The user requested Git-based accumulation for all independent research/demo reviewers. The dedicated PRIVATE `Yuzora-Yu/Multi-Analyzer-data` repository now supersedes earlier entries saying that observations remain outside Git. Those entries describe the former policy. Secrets, personal information and mail records remain excluded; runtime datasets never belong in the public application repository. `DATA_STORAGE.md` defines compressed differential storage, original/stored hashes, verified restoration and conservative cleanup of obsolete generated evaluation copies. The existing single collector remains responsible for routine synchronization. Storage changes do not alter any fixed experiment identity, trade rule, validation period or market acquisition.
