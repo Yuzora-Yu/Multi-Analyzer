@@ -179,6 +179,43 @@ test('BB-return alone cannot confirm a reversal; fixed target stays at the sweep
   const q=Demo.advance(lab,next.snapshot,next.analysis,T+2*D+20000);
   assert.equal(q.lab.books[1].pending.target,110);assert.equal(q.lab.books[1].pending.stop,88.7);
 });
+for(const direction of ['LONG','SHORT'])test(`published ${direction} sweep target touched before entry cancels without profit`,()=>{
+  const long=direction==='LONG',side=long?'bull':'bear';
+  const make=(closedAt,patch)=>{
+    const f=fixture(closedAt,patch);f.analysis.actionable=false;
+    Object.assign(f.analysis.exec.values,{ema20:100,ema50:100});
+    return f;
+  };
+  const armed=make(T,long?{open:93.2,high:94.2,low:93,close:94}:{open:106.8,high:107,low:105.8,close:106});
+  Object.assign(armed.analysis.exec.candles[0],long?
+    {open:86,high:87,low:84,close:85}:{open:114,high:116,low:113,close:115});
+  armed.analysis.exec.smc.events=[{type:'SWEEP',side,time:T-D,price:long?93.5:106.5}];
+  let lab=Demo.advance(seed(),armed.snapshot,armed.analysis,T+20000).lab;
+  assert.equal(lab.books[1].watch.direction,direction);assert.equal(lab.books[1].watch.target,100);
+  const publication=Demo.acknowledge(lab,armed.snapshot.id,T+21000);
+  assert.ok(publication.record.events.some(e=>e.book==='reversion'&&e.type==='WATCH_PUBLISHED'));
+  lab=publication.lab;
+  const middle=make(T+D,long?{open:94,high:94.5,low:93.5,close:94}:{open:106,high:106.5,low:105.5,close:106});
+  lab=Demo.advance(lab,middle.snapshot,middle.analysis,T+D+20000).lab;
+  assert.equal(lab.books[1].watch.referenceDurableAt,T+21000);
+  assert.equal(lab.books[1].pending,null);
+  const saved=structuredClone(lab);
+  const next=make(T+2*D,long?{open:94.5,high:96,low:94,close:95}:{open:105.5,high:106,low:104,close:105});
+  next.analysis.exec.smc.events=[{type:'BOS',side,time:T+D,price:long?94.5:105.5}];
+  const control=Demo.advance(lab,next.snapshot,next.analysis,T+2*D+20000).lab.books[1];
+  assert.equal(control.pending.direction,direction);assert.equal(control.pending.target,100);
+  assert.equal(control.position,null);assert.equal(control.closed,0);
+  // Only the wick changes: all structure, publication and RR evidence stays eligible.
+  next.analysis.exec.candles.at(-1)[long?'high':'low']=100;
+  const result=Demo.advance(lab,next.snapshot,next.analysis,T+2*D+20000),book=result.lab.books[1];
+  assert.equal(book.watch,null);assert.equal(book.pending,null);assert.equal(book.position,null);
+  assert.equal(book.lastDecision.action,'WAIT');assert.match(book.lastDecision.reason,/固定目標到達/);
+  assert.equal(book.closed,0);assert.equal(book.unfilled,0);assert.equal(book.incomplete,0);
+  assert.deepEqual(book.recentTrades,[]);assert.equal(book.equity,10000);assert.equal(book.realizedNet,0);
+  assert.deepEqual(book.netByCost,{7:0,14:0,21:0});
+  assert.deepEqual(result.record.events.filter(e=>e.book==='reversion'),[]);
+  assert.deepEqual(lab,saved);
+});
 test('clock reversal cannot acknowledge a candidate before its observation',()=>{
   const f=fixture(),lab=Demo.advance(seed(),f.snapshot,f.analysis,T+20000).lab;
   assert.throws(()=>Demo.acknowledge(lab,f.snapshot.id,T+19999),/CLOCK_REVERSAL/);

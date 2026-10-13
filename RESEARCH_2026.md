@@ -686,3 +686,9 @@ A saved BTC monitor response reported HTTP 403 during M15 acquisition while the 
 Regression tests now exercise the unchanged Worker with simulated 403 responses at each of M15, H1 and H4 acquisition. All preserve the old snapshot and virtual alert reference, publish no new snapshot or demo observation, deliver no email, retain bounded error evidence and schedule the next normal alarm. This is an isolated Node/storage simulation, not a production alarm or recovery experiment. No runtime, source host, retry cadence, notification condition, fixed demo identity or trading rule is changed.
 
 The HTTP status alone does not identify the cause. Bybit lists multiple possible causes for 403, including IP limits and source-location restrictions; the saved diagnostics do not distinguish them. No region substitution or speculative transport workaround is applied. [Bybit error codes](https://bybit-exchange.github.io/docs/v5/error).
+
+## 2026-10-14: verify a pre-entry target visit cannot become demo profit
+
+A published sweep watch was withdrawn when its first fully future candle touched the fixed target before any entry. A price reaching the target of a watch is not a filled trade or a profitable exit. Two synthetic regression cases now cover long and short watches with completed publication, an eligible later structure break and sufficient cost-adjusted room. The positive controls create a future-entry reservation; changing only the confirming candle's wick to touch the original target cancels the watch, creates no reservation or position and leaves all three cost-case balances unchanged. The saved watch input also remains unchanged.
+
+These tests exercise the existing frozen execution module. No demo condition, dependency hash, source snapshot, notification, production Worker or historical result is changed. The synthetic controls establish guard behavior, not predictive accuracy or a strategy's profitability.
