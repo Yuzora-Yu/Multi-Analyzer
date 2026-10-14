@@ -107,7 +107,7 @@
   }
   function evidenceImage(pack){
     const [c,x]=canvas(2400);x.font='bold 27px sans-serif';x.fillStyle='#e6b85c';x.fillText('判定・アラート・AI相談用メモ',30,45);x.font='18px sans-serif';x.fillStyle='#dbe7f2';let y=85;
-    for(const t of [jst(pack.capturedAt),...pack.assets.map(a=>`${a.asset}: ${a.snapshot.id} / 基準 ${jst(a.snapshot.settings.now)}`),...policy,...pack.errors.map(e=>`未取得 ${e.asset}/${e.tf}: ${e.error}`)])y=lines(x,t,30,y,1210,26)+8;
+    for(const t of [jst(pack.capturedAt),...pack.assets.map(a=>`${a.asset}: ${a.snapshot.id} / 基準 ${jst(a.snapshot.settings.now)}`),...policy,...pack.errors.map(e=>'未取得 '+acquisitionErrorText(pack,e))])y=lines(x,t,30,y,1210,26)+8;
     for(const a of pack.assets){const s=a.signal,p=s.plan;y=lines(x,`${a.asset.toUpperCase()} ${s.state} | ${s.actionable?'研究用候補':'待機'} | ${reasons(s).join(' / ')}`,30,y+12,1210,26);if(p)y=lines(x,planText(p),30,y,1210,26);y=lines(x,`共通設定 ${JSON.stringify(a.snapshot.settings)}`,30,y,1210,24);}
     const [out,ctx]=canvas(y+30);ctx.drawImage(c,0,0);return out;
   }
@@ -247,7 +247,39 @@
   function overviewImage(pack){const items=overview(pack,pack.capturedAt),[c,x]=canvas(160+items.length*460);x.fillStyle='#e6b85c';x.font='bold 28px sans-serif';x.fillText('確認一覧 — 確定足の構造と待機理由',30,42);x.font='18px sans-serif';let y=83;
     for(const a of items){x.fillStyle='#dbe7f2';y=lines(x,`${a.asset.toUpperCase()} | ${a.state} | ${a.stale?'保存時に20分超経過':'取得時点の記録'} | 基準 ${jst(a.cutoff)}`,30,y,1200);y=lines(x,`コスト後RR ${num(a.netRR)} / ${a.reasons.join(' / ')||'研究用候補の条件成立'}`,30,y,1200);y+=10;x.fillStyle='#92adc1';x.fillText('時間足         構造         リボン          ADX          出来高倍率',30,y);y+=30;for(const f of a.frames){x.fillStyle='#dbe7f2';x.fillText(f.missing?`${f.tf} — 取得不能`:`${f.tf.padEnd(5)}          ${f.structure==null?'?':dir(f.structure)}              ${f.ribbon==null?'?':dir(f.ribbon)}              ${num(f.adx)}             ${num(f.volume)}x`,30,y);y+=30;}y+=28;}
     x.fillStyle='#e6b85c';lines(x,'方向の一致は勝率ではありません。15分以外は環境比較用。保存後の現在相場は公開ページで更新してください。',30,y,1200);return c;}
-  function prompt(pack){return pack.assets.map(a=>a.asset.toUpperCase()+'\n'+decisionText(decision(a,pack.capturedAt)).join('\n')).join('\n\n')+'\n\n'+`添付はMulti-Analyzerの確定足レビューです。利益が出るとの前提を置かず、データ鮮度、欠損、上位足構造、EMAリボン、出来高近似、コスト、反証条件から検討してください。EXITを即逆張りと解釈しないでください。\n比較対象：${pack.assets.map(a=>a.asset).join(', ')}。取得開始 ${jst(pack.capturedAt)}。各銘柄の基準時刻・設定・保存判定IDは manifest.json と画像に記載。通常表示の15分以外は取得開始時点の最新確定足で、15分判定後の情報を含みます。過去判定の評価材料に遡及混入しないでください。過去保存表示は当時の時刻を維持します。時間足ごとの終値時刻は異なります。\n1. 現状は待機/押し目/戻り/撤退注意のどれか、根拠と不成立条件\n2. 15分共通判定と1分/5分のタイミング、1時間/4時間/日足の環境は整合するか\n3. 参考SL/TPに対するコストと損益比、飛び乗りを避ける確認水準\n4. この1例から勝率を推定せず、今後記録すべき比較仮説\n画像は直近180本、JSONは全取得確定足を含みます。POCは直近96本の近似で、全世界の約定ではありません。\nhttps://yuzora-yu.github.io/Multi-Analyzer/\n${pack.assets.map(a=>`https://yuzora-yu.github.io/Multi-Analyzer/?asset=${a.asset}&snapshot=${a.snapshot.id}`).join('\n')}\n保存画像は過去の基準時刻の記録であり、現在価格ではありません。`;}
+  function prompt(pack){const errors=(pack.errors||[]).map(e=>'未取得 '+acquisitionErrorText(pack,e));return (errors.length?errors.join('\n')+'\n\n':'')+pack.assets.map(a=>a.asset.toUpperCase()+'\n'+decisionText(decision(a,pack.capturedAt)).join('\n')).join('\n\n')+'\n\n'+`添付はMulti-Analyzerの確定足レビューです。利益が出るとの前提を置かず、データ鮮度、欠損、上位足構造、EMAリボン、出来高近似、コスト、反証条件から検討してください。EXITを即逆張りと解釈しないでください。\n比較対象：${pack.assets.map(a=>a.asset).join(', ')}。取得開始 ${jst(pack.capturedAt)}。各銘柄の基準時刻・設定・保存判定IDは manifest.json と画像に記載。通常表示の15分以外は取得開始時点の最新確定足で、15分判定後の情報を含みます。過去判定の評価材料に遡及混入しないでください。過去保存表示は当時の時刻を維持します。時間足ごとの終値時刻は異なります。\n1. 現状は待機/押し目/戻り/撤退注意のどれか、根拠と不成立条件\n2. 15分共通判定と1分/5分のタイミング、1時間/4時間/日足の環境は整合するか\n3. 参考SL/TPに対するコストと損益比、飛び乗りを避ける確認水準\n4. この1例から勝率を推定せず、今後記録すべき比較仮説\n画像は直近180本、JSONは全取得確定足を含みます。POCは直近96本の近似で、全世界の約定ではありません。\nhttps://yuzora-yu.github.io/Multi-Analyzer/\n${pack.assets.map(a=>`https://yuzora-yu.github.io/Multi-Analyzer/?asset=${a.asset}&snapshot=${a.snapshot.id}`).join('\n')}\n保存画像は過去の基準時刻の記録であり、現在価格ではありません。`;}
+  // Display recorded response facts only; never retry, infer a cause, or repair a missing frame.
+  function acquisitionFailure(pack,error){
+    const trace=pack?.acquisition;
+    if(!Array.isArray(trace?.requests)||!Array.isArray(trace?.uses))return null;
+    const uses=trace.uses.filter(u=>u.asset===error.asset&&u.tf===error.tf);
+    const ids=new Set(uses.map(u=>u.requestId).filter(Number.isSafeInteger));
+    const request=trace.requests.filter(r=>r.asset===error.asset&&(r.tf===error.tf||ids.has(r.id))&&
+      ['received','failed'].includes(r.status)).at(-1);
+    if(!request)return null;
+    let bybit=false;try{const u=new URL(request.url);bybit=u.origin==='https://api.bybit.com'&&
+      u.pathname==='/v5/market/kline'&&!u.username&&!u.password;}catch{}
+    const bounded=(v,min,max)=>Number.isSafeInteger(v)&&v>=min&&v<=max?v:null;
+    const httpStatus=bounded(request.httpStatus,100,599),bybitCode=bybit?bounded(request.bybitCode,-1e9,1e9):null;
+    if(httpStatus===null&&bybitCode===null)return null;
+    const limit=bybit?bounded(request.rateLimit?.limit,0,1e9):null,remaining=bybit?bounded(request.rateLimit?.remaining,0,1e9):null;
+    return {requestId:bounded(request.id,0,1e9),httpStatus,bybit,bybitCode,
+      rateLimit:bybit?{limit,remaining,inconsistent:limit!==null&&remaining!==null&&remaining>limit}:null,
+      reused:uses.some(u=>u.requestId===request.id&&u.reused===true)};
+  }
+  function acquisitionErrorText(pack,error){
+    const base=`${error.asset}/${error.tf} ${error.error}`,r=acquisitionFailure(pack,error);
+    if(!r)return base+(frames.some(([tf])=>tf===error.tf)?'（応答詳細未記録）':'');
+    const parts=[r.httpStatus===null?'HTTP状態未記録':`HTTP ${r.httpStatus}`];
+    if(r.bybit){
+      parts.push(r.bybitCode===null?'Bybit応答コード未記録':`Bybit応答 ${r.bybitCode}`);
+      const q=r.rateLimit;
+      parts.push(q.inconsistent?`制限ヘッダー不整合（上限 ${q.limit}・残数 ${q.remaining}）`:q.limit===null&&q.remaining===null?'制限ヘッダー未取得':
+        `制限ヘッダー 上限 ${q.limit??'未取得'}・残数 ${q.remaining??'未取得'}（適用範囲未確認）`);
+    }
+    if(r.reused)parts.push('同じ取得内の再利用応答');
+    return `${base}（${parts.join(' / ')}）`;
+  }
   function bybitRateLimitEvidence(url,response){
     let u;try{u=new URL(url);}catch{return null;}
     if(u.origin!=='https://api.bybit.com'||u.pathname!=='/v5/market/kline'||u.username||u.password)return null;
@@ -351,7 +383,7 @@
         if(current!==controller)return;pack=result;renderOverview();
         for(const r of pack.records){const article=document.createElement('article');article.className='review-card';const h=document.createElement('h3');h.textContent=`${r.asset.toUpperCase()} / ${r.tf}`;const c=chartImage(r);c.setAttribute('aria-label',facts(r).join('。'));const details=document.createElement('div');details.className='review-facts';for(const text of facts(r)){const p=document.createElement('p');p.textContent=text;details.append(p);}article.append(h,c,details);grid.append(article);}
         const evidence=document.createElement('article');evidence.className='review-evidence';const heading=document.createElement('h3');heading.textContent='アラート条件・共通判定';const text=document.createElement('div');text.className='review-facts';for(const t of [...policy,...pack.assets.flatMap(a=>[`${a.asset.toUpperCase()} / ${a.signal.state}`,a.signal.plan?planText(a.signal.plan):'参考プランなし'])]){const p=document.createElement('p');p.textContent=t;text.append(p);}const image=evidenceImage(pack);image.hidden=true;evidence.append(heading,text,image);grid.append(evidence);
-        status.textContent=`${pack.records.length}時間足を固定表示。${pack.errors.length?'未取得: '+pack.errors.map(e=>e.asset+'/'+e.tf+' '+e.error).join(', '):'全時間足の取得完了。'} ${pack.mode==='latest'?'環境足は取得開始 '+jst(pack.capturedAt)+' の最新確定足。':'過去再現。'} 15分判定基準 ${pack.assets.map(a=>a.asset+' '+jst(a.snapshot.settings.now)).join(' / ')}。更新するまで固定。`;
+        status.textContent=`${pack.records.length}時間足を固定表示。${pack.errors.length?'未取得: '+pack.errors.map(e=>acquisitionErrorText(pack,e)).join(', '):'全時間足の取得完了。'} ${pack.mode==='latest'?'環境足は取得開始 '+jst(pack.capturedAt)+' の最新確定足。':'過去再現。'} 15分判定基準 ${pack.assets.map(a=>a.asset+' '+jst(a.snapshot.settings.now)).join(' / ')}。更新するまで固定。`;
         $('reviewSave').disabled=false;$('reviewCopy').disabled=false;
       }catch(e){if(current===controller)status.textContent=e.name==='AbortError'?'取得を中止しました。':e.code==='MARKET_COLLECTION_PAUSED'?e.message:'取得失敗：'+e.message;}
       finally{if(current===controller)controller=null;}
@@ -380,5 +412,5 @@
       }catch(e){status.textContent='保存失敗：'+e.message;}finally{button.disabled=false;$('reviewRefresh').disabled=false;$('reviewBoth').disabled=Boolean(getArchiveId());}
     });
   }
-  return{context,reasons,init,collect,captureTransport,zip,zipCompressed,crc32,closed,frames,policy,facts,prompt,overview,decision,decisionText,calendarText,consultation,zoneWithdrawal,withdrawalText,confirmationContext,costContext,executionContext,chartContextSeries,chartImage};
+  return{context,reasons,init,collect,captureTransport,acquisitionFailure,acquisitionErrorText,zip,zipCompressed,crc32,closed,frames,policy,facts,prompt,overview,decision,decisionText,calendarText,consultation,zoneWithdrawal,withdrawalText,confirmationContext,costContext,executionContext,chartContextSeries,chartImage};
 });
