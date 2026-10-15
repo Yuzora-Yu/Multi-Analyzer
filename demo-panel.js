@@ -58,11 +58,18 @@
     const status = ACTIONS[trade.status] || (trade.status === 'CLOSED' ? '決済済み' : '記録');
     return `<article class="demo-trade"><div class="demo-trade-heading"><strong>${esc(direction(trade.direction))}・${esc(status)}</strong><span class="${tone(trade.netPnl)}">${esc(money(trade.netPnl))}</span></div><p>${esc(stamp(trade.openedAt))} → ${esc(stamp(trade.closedAt))}</p>${stats([['想定建値 → 決済', `${number(trade.entry)} → ${number(trade.exit)}`], ['固定ストップ / 目標', `${number(trade.stop)} / ${number(trade.target)}`], ['費用前仮想損益', money(trade.grossPnl)], ['控除した想定費用', finite(trade.costs) ? '$' + number(trade.costs) : '—']])}<p>${esc(trade.reason || '理由は未取得')}</p>${sensitivity(trade.netByCost)}</article>`;
   }
+  function pendingTiming(pending) {
+    const start = pending.entryAfter, end = start + 15 * 60000;
+    const valid = Number.isSafeInteger(start) && start > 0 && start % 900000 === 0 && Number.isFinite(new Date(end).getTime());
+    const window = valid ? `評価対象の15分足 ${stamp(start)} ～ ${stamp(end)}。` : '評価対象の15分足は時刻未確認です。';
+    return window + 'この足の確定データを取得後、始値と費用条件で約定可否を評価します。予約中は約定価格未確認です。実注文ではありません。';
+  }
   function bookHtml(book) {
     const active = book.position || book.pending;
     const label = LABELS[book.id];
     const phase = book.position ? '仮想保有' : book.pending ? '予約待ち' : ACTIONS[book.lastDecision?.action] || '判断待ち';
-    const details = active ? `<div class="demo-plan"><strong>${esc(direction(active.direction))} ${book.position ? 'を仮想保有' : 'の予約'}</strong>${stats([['想定建値', book.position ? number(active.entry) : '未来足の始値で判定'], ['固定ストップ', number(active.stop)], ['固定目標', number(active.target)]])}<p>${book.position ? '想定約定 ' + esc(stamp(active.openedAt)) : '想定約定は ' + esc(stamp(active.entryAfter)) + ' 以降'}。実注文ではありません。</p></div>` : '';
+    const timing = active ? book.position ? '想定約定 ' + stamp(active.openedAt) + '。実注文ではありません。' : pendingTiming(active) : '';
+    const details = active ? `<div class="demo-plan"><strong>${esc(direction(active.direction))} ${book.position ? 'を仮想保有' : 'の予約'}</strong>${stats([['想定建値', book.position ? number(active.entry) : '未来足の始値で判定'], ['固定ストップ', number(active.stop)], ['固定目標', number(active.target)]])}<p>${esc(timing)}</p></div>` : '';
     const recent = Array.isArray(book.recentTrades) ? book.recentTrades.slice(0, 12) : [];
     return `<article class="demo-book" data-demo-book="${esc(book.id)}"><div class="demo-book-heading"><h3>${esc(label)}</h3><span class="demo-phase">${esc(phase)}</span></div>${APPROACH[book.id] ? `<p class="demo-note">${esc(APPROACH[book.id])}</p>` : ''}<div class="demo-result"><span>確定した仮想損益</span><strong class="${tone(book.realizedNet)}">${esc(money(book.realizedNet))}</strong></div>${stats([['仮想残高', finite(book.equity) ? '$' + number(book.equity) : '—'], ['最大DD（仮想USD）', finite(book.maxDrawdown) ? '$' + number(book.maxDrawdown) + (finite(book.maxDrawdownPct) ? ' / ' + number(book.maxDrawdownPct) + '%' : '') : '—'], ['決済件数', count(book.closed)], ['見送り / 未約定', `${count(book.skipped)} / ${count(book.unfilled)}`], ['評価不能', count(book.incomplete)], ['含み損益（費用前）', money(book.unrealizedGross)]])}${details}<p class="demo-reason">${esc(book.lastDecision?.reason || '開始後の判断を待っています。')}</p><p class="demo-time">判断記録 ${esc(stamp(book.lastDecision?.at))}</p>${sensitivity(book.netByCost)}<details class="demo-history" data-demo-detail="${esc(book.id)}"><summary>直近の取引記録（${recent.length}件）</summary>${recent.length ? recent.map(tradeHtml).join('') : '<p>まだ決済・未約定の記録はありません。</p>'}</details>${book.id === 'baseline' ? '<p class="demo-note">既存Pが出た後の未来始値で比較します。既存Pの指値約定を再現する記録とは別です。</p>' : ''}</article>`;
   }

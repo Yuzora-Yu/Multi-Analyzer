@@ -78,6 +78,36 @@ test('fixed stops, targets and future entry times remain separate from unrealize
  assert.match(html,/仮想保有 1方式・予約待ち 1方式/);assert.match(html,/未来足の始値で判定/);assert.match(html,/固定ストップ/);assert.match(html,/4,200\.00/);assert.match(html,/含み損益（費用前）/);assert.match(html,/実注文ではありません/);
 });
 
+test('pending future opens stay unfilled before and after the expected close until data arrives',()=>{
+ const payload=fixture('btc'),start=Date.UTC(2026,9,8,1,0);
+ const baseline=payload.books.find(book=>book.id==='baseline');
+ baseline.pending={direction:'SHORT',entryAfter:start,entry:100,stop:110,target:80};
+ const before=structuredClone(payload);
+ for(const now of [start+11*60000,start+16*60000]){
+  const html=D.render(payload,{now}),card=html.slice(html.indexOf('data-demo-book="baseline"'));
+  assert.match(card,/評価対象の15分足 10\/08 10:00:00 JST ～ 10\/08 10:15:00 JST/);
+  assert.match(card,/確定データを取得後、始値と費用条件で約定可否を評価/);
+  assert.match(card,/予約中は約定価格未確認/);assert.match(card,/未来足の始値で判定/);
+  assert.match(card,/<span class="demo-phase">予約待ち<\/span>/);
+  assert.doesNotMatch(card,/を仮想保有|想定建値<\/dt><dd[^>]*>100\.00/);
+ }
+ assert.deepEqual(payload,before);
+ baseline.position={direction:'SHORT',entry:101,stop:110,target:80,openedAt:start};baseline.pending=null;
+ const heldHtml=D.render(payload,{now:start+16*60000}),held=heldHtml.slice(heldHtml.indexOf('data-demo-book="baseline"'));
+ assert.match(held,/を仮想保有/);assert.match(held,/想定約定 10\/08 10:00:00 JST/);assert.doesNotMatch(held,/約定価格未確認|評価対象の15分足/);
+});
+
+test('invalid pending timestamps remain unknown instead of inventing a candle window',()=>{
+ const start=Date.UTC(2026,9,8,1,0);
+ for(const value of [null,undefined,String(start),NaN,Infinity,-900000,start+1,8640000000000000]){
+  const payload=fixture(),baseline=payload.books.find(book=>book.id==='baseline');
+  baseline.pending={direction:'LONG',entryAfter:value,stop:4100,target:4200};
+  const html=D.render(payload,{now:start});
+  assert.match(html,/評価対象の15分足は時刻未確認/);assert.match(html,/約定価格未確認/);
+  assert.doesNotMatch(html,/評価対象の15分足 \d|Invalid Date|1970/);
+ }
+});
+
 test('app demo hooks preserve CSV/archive isolation and six tabs keep phone chart controls',()=>{
  const app=fs.readFileSync(require.resolve('../app.js'),'utf8'),html=fs.readFileSync(require.resolve('../index.html'),'utf8'),css=fs.readFileSync(require.resolve('../styles.css'),'utf8'),source=fs.readFileSync(require.resolve('../demo-panel.js'),'utf8');
  const context={state:{instrumentId:'gold',offlineCsv:true,snapshot:{id:'old'}},INITIAL_PARAMS:new URLSearchParams('snapshot=old'),Feed:{collectionPolicy:()=>({allowed:false})}};vm.createContext(context);
