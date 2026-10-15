@@ -2,6 +2,7 @@
 (function(root,factory){const api=factory();if(typeof module==='object'&&module.exports)module.exports=api;else root.MultiAnalyzerMarketKnowledge=api;})(globalThis,function(){
   'use strict';
   const reviewedAt=Date.parse('2026-10-15T02:16:00Z');
+  const ppiResultKnownAt=Date.parse('2026-10-15T13:06:10Z');
   const sources=[
     {id:'wgc-2026',title:'WGC: Gold Mid-Year Outlook 2026',url:'https://www.gold.org/goldhub/research/gold-mid-year-outlook-2026',kind:'期間を限定した金市場分析',period:'2026年上半期、6月26日まで。セッション分析はスポット金の20分価格。'},
     {id:'wgc-2024',title:'WGC: Let’s tally the rally',url:'https://www.gold.org/download/file/19260/let%27s-tally-the-rally.pdf',kind:'過去のセッション比較',period:'2024年1～10月。2026年版とは時間帯の区分も異なる。'},
@@ -13,7 +14,8 @@
     {id:'wgc-geopolitics',title:'WGC: What’s the impact of geopolitics on gold?',url:'https://www.gold.org/goldhub/gold-focus/2023/10/you-asked-we-answered-whats-impact-of-geopolitics-on-gold',kind:'金の地政学・マクロ分析',period:'2023年、主に月次・週次。分足の方向・値幅には換算しない。'},
     {id:'cme-oi',title:'CME: Open Interest',url:'https://www.cmegroup.com/education/lessons/open-interest',kind:'市場構造の説明',period:'建玉と売買高の区別。足形から参加者の決済理由は特定できない。'},
     {id:'bls-calendar',title:'BLS: October 2026 release schedule',url:'https://www.bls.gov/schedule/2026/10_sched.htm',kind:'発表機関の予定',period:'BLS予定だけを確認。Fed・他省庁・各国・突発材料を網羅しない。'},
-    {id:'bls-cpi',title:'BLS: September 2026 CPI',url:'https://www.bls.gov/news.release/archives/cpi_10142026.htm',kind:'発表機関の実績',period:'2026年10月14日08:30 ET公表。予想値の出典は含まない。'}
+    {id:'bls-cpi',title:'BLS: September 2026 CPI',url:'https://www.bls.gov/news.release/archives/cpi_10142026.htm',kind:'発表機関の実績',period:'2026年10月14日08:30 ET公表。予想値の出典は含まない。'},
+    {id:'bls-ppi',title:'BLS: September 2026 PPI',url:'https://www.bls.gov/news.release/ppi.nr0.htm',kind:'発表機関の実績',knownAt:ppiResultKnownAt,period:'2026年10月15日08:30 ET公表。月次で更新される原本URLの9月実績を確認。予想値の出典は含まない。'}
   ];
   const principles=[
     {id:'sessions',title:'時間帯の癖を相場環境と組み合わせる',finding:'2026年上半期のWGC分析ではアジアの反発・米国の下落が目立った。',use:'前セッション高安、上位足、当日の材料を重ねて戻り売り・押し目買いの観察順を決める。',limit:'期間限定の傾向。アジア＝常にレンジ、特定の時刻＝必ず下落、とはしない。',sources:['wgc-2026','wgc-2024'],evidence:'過去の観察'},
@@ -27,7 +29,7 @@
   const calendar={verifiedAt:reviewedAt,expiresAt:Date.parse('2026-10-17T02:16:00Z'),coverage:'partial',source:'bls-calendar',
     note:'BLSの一部予定を人が一次資料で確認。全経済予定・要人発言・突発ニュースの自動配信ではありません。',events:[
       {id:'us-cpi-202609',name:'米CPI（9月）',time:Date.parse('2026-10-14T12:30:00Z'),knownAt:reviewedAt,source:'bls-calendar',result:{knownAt:reviewedAt,source:'bls-cpi',text:'総合 前月比+0.6％・前年比+3.7％、コア 前月比+0.3％・前年比+2.6％。予想値・同時刻の金利とドルはこの背景データに未収録。'}},
-      {id:'us-ppi-202609',name:'米PPI（9月）',time:Date.parse('2026-10-15T12:30:00Z'),knownAt:reviewedAt,source:'bls-calendar'},
+      {id:'us-ppi-202609',name:'米PPI（9月）',time:Date.parse('2026-10-15T12:30:00Z'),knownAt:reviewedAt,source:'bls-calendar',result:{knownAt:ppiResultKnownAt,source:'bls-ppi',text:'総合（最終需要）前月比+1.3％（季節調整済）・前年比+6.3％（季節調整前）。食品・エネルギー・商業サービス除き前月比+0.5％・前年比+5.0％。速報値、過去月改定あり。予想値・同時刻の金利とドルは未取得。'}},
       {id:'us-import-202609',name:'米輸出入物価（9月）',time:Date.parse('2026-10-16T12:30:00Z'),knownAt:reviewedAt,source:'bls-calendar'}
     ]};
   function freeze(v){if(v&&typeof v==='object'){Object.values(v).forEach(freeze);Object.freeze(v);}return v;}

@@ -108,6 +108,7 @@
     return [`時間帯・材料の事前シナリオ：${b.stance} / ${b.session.label}`,`背景確認 ${jst(b.observedAt)} / 15分確定 ${jst(b.priceClosedAt)} / Bybit ${price(b.price)}`,
       b.technicalReason,b.macroConclusion,b.upcoming?`次の掲載指標 ${jst(b.upcoming.time)} ${b.upcoming.name}（掲載予定は一部）`:'次の指標はこの背景記録では確認できません。',
       ...(b.previous?[`${b.previous.name} ${jst(b.previous.time)} / ${stageLabel(b.previous.stage)}`,b.previous.result?.text||'発表結果・予想差は背景記録に未収録。']:[]),
+      ...(b.previous?.result?[`実績確認 ${jst(b.previous.result.knownAt)} / 出典 ${b.sources.find(s=>s.id===b.previous.result.source)?.url||'未確認'}`]:[]),
       ...(b.anchors?[`指標前15分終値 ${price(b.anchors.preClose)} / 初動15分 ${price(b.anchors.first15.low)}～${price(b.anchors.first15.high)} / 初動1時間 ${price(b.anchors.firstHour.low)}～${price(b.anchors.firstHour.high)}。${b.anchors.note}`]:[]),
       ...(b.shockRead?[b.shockRead]:[]),...(b.asiaRange?[`${b.asiaRange.name} ${price(b.asiaRange.low)}～${price(b.asiaRange.high)} / ${jst(b.asiaRange.startAt)}～${jst(b.asiaRange.through)} / ${b.asiaRange.complete?'区間完了':'進行中の確定部分'}。${b.asiaRange.source}`]:[]),
       ...b.plans.map(p=>`${p.priority} ${p.direction} ${price(p.zone.low)}～${price(p.zone.high)} / ${p.zone.condition} / 15分終値 ${price(p.zone.invalidationClose)}${p.direction==='SHORT'?'超':'未満'}で撤回 / SL参考 ${price(p.zone.protectiveStop)} / 元の反応候補 ${(p.zone.targets||[]).map(price).join(' / ')}`),
@@ -130,7 +131,7 @@
       cards+(cards?'':p('撤回を除外した有効な元候補を確認できません。新しい価格帯は推定しません。'))+
       `<details ${expanded?'open':''}><summary>時間帯・指標後の水準・根拠を見る</summary>`+
       b.clocks.map(c=>p(`${jst(c.time)} ${c.name} / ${c.kind}`)).join('')+p(b.session.note)+
-      (b.previous?.result?p(b.previous.result.text):'')+
+      (b.previous?.result?p(b.previous.result.text)+p(`実績確認 ${jst(b.previous.result.knownAt)}`)+link(source(b.previous.result.source)):'')+
       (b.shockRead?p(b.shockRead):'')+(b.asiaRange?p(`${b.asiaRange.name} ${formatPrice(b.asiaRange.low)}～${formatPrice(b.asiaRange.high)} / ${jst(b.asiaRange.startAt)}～${jst(b.asiaRange.through)} / ${b.asiaRange.complete?'区間完了':'進行中の確定部分'}。${b.asiaRange.source}`):'')+
       (b.anchors?p(`指標前 ${formatPrice(b.anchors.preClose)} / 初動15分 ${formatPrice(b.anchors.first15.low)}～${formatPrice(b.anchors.first15.high)} / 初動1時間 ${formatPrice(b.anchors.firstHour.low)}～${formatPrice(b.anchors.firstHour.high)}。${b.anchors.note}`):p('指標の初動1時間を覆う確定足を確認できません。初動高安を推定しません。'))+
       p(b.macroConclusion)+p(`未取得・未照合：${b.missing.join(' / ')}`)+p(`予定確認 ${jst(b.calendar.verifiedAt)} / 期限 ${jst(b.calendar.expiresAt)}。${b.calendar.note}`)+

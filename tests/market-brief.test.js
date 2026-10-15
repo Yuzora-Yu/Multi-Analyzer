@@ -77,6 +77,20 @@ test('event levels require the complete original closed path, without filling mi
  const h=fixture();h.a.generatedAt=e.time+3*STEP;assert.equal(B.eventAnchors(h.a,e,h.now),null);
 });
 
+test('verified PPI results appear only after actual review time without changing prospective zones',()=>{
+ const e=K.calendar.events.find(e=>e.id==='us-ppi-202609');
+ const before=describe(fixture(new Date(e.result.knownAt-1).toISOString()));
+ const after=describe(fixture(new Date(e.result.knownAt).toISOString()));
+ assert.equal(before.previous.id,e.id);assert.equal(before.previous.result,null);
+ assert.doesNotMatch(B.lines(before).join(' '),/総合（最終需要）前月比\+1\.3/);
+ assert.equal(after.previous.result.knownAt,e.result.knownAt);
+ assert.match(B.html(after),/実績確認 10\/15 22:06 JST/);
+ assert.match(B.html(after),/https:\/\/www\.bls\.gov\/news\.release\/ppi\.nr0\.htm/);
+ assert.match(B.lines(after).join(' '),/食品・エネルギー・商業サービス除き/);
+ assert.match(B.lines(after).join(' '),/予想値・同時刻の金利とドルは未取得/);
+ assert.deepEqual(after.plans,before.plans);assert.equal(after.actionable,false);
+});
+
 test('London and New York observation clocks follow separate DST transitions',()=>{
  const iso=(now,zone,h,m)=>new Date(B.localTime(Date.parse(now),zone,h,m).time).toISOString();
  assert.equal(iso('2026-10-15T00:00:00Z','Europe/London',10,30),'2026-10-15T09:30:00.000Z');
