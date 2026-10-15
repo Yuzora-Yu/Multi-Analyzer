@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=4.3.4-demo1">
+  <link rel="stylesheet" href="styles.css?v=4.3.4-market-brief1">
   <script defer src="https://unpkg.com/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js"></script>
   <script defer src="market-feed.js?v=4.3.3-session"></script>
   <script defer src="price-basis.js?v=1"></script>
@@ -24,11 +24,13 @@
   <script defer src="zone-geometry.js?v=1"></script>
   <script defer src="zone-checkpoint.js?v=2-evidence"></script>
   <script defer src="trend-context.js?v=2-h4-session"></script>
+  <script defer src="market-knowledge.js?v=1"></script>
+  <script defer src="market-brief.js?v=1"></script>
   <script defer src="snapshot-health.js?v=3-session-copy"></script>
-  <script defer src="review-pack.js?v=4.3.4-acquisition-errors1"></script>
+  <script defer src="review-pack.js?v=4.3.4-market-brief1"></script>
   <script defer src="chart-evidence.js?v=4.3.4-current-smc1"></script>
   <script defer src="demo-panel.js?v=4-pending-window"></script>
-  <script defer src="app.js?v=4.3.4-zone-source1"></script>
+  <script defer src="app.js?v=4.3.4-market-brief1"></script>
 </head>
 <body>
   <div class="app-shell">
@@ -149,6 +151,7 @@
               <section class="insight-page active" data-insight-page="zones" aria-label="候補帯と確認条件">
                 <article class="zone-page">
                   <div class="smc-context market-map" id="checkpointStatus" aria-live="polite" hidden></div>
+                  <div class="smc-context market-map market-brief" id="marketBrief" aria-live="polite"></div>
                   <div class="smc-context market-map" id="marketMap" aria-live="polite"></div>
                   <div class="smc-context market-map" id="trendContext" aria-live="polite"></div>
                 </article>

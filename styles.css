@@ -37,6 +37,16 @@
 .zone-fields dt {font-size:11px;line-height:1.6;color:var(--muted)}
 .zone-fields dd {margin:3px 0 0;font-size:12px;line-height:1.8;overflow-wrap:anywhere}
 .zone-card button {width:100%;min-height:44px;margin-top:12px;white-space:normal;overflow-wrap:anywhere}
+.market-brief{border-color:#51462f;background:#121820}
+.market-brief .brief-stance strong{color:var(--gold);font-size:15px}
+.brief-plan{margin:10px 0;padding:10px;border:1px solid var(--border);border-left:3px solid var(--muted);border-radius:8px;overflow-wrap:anywhere}
+.brief-plan.zone-short{border-left-color:var(--red)}.brief-plan.zone-long{border-left-color:var(--green)}
+.brief-plan h4,.brief-knowledge h4{font-size:13px;line-height:1.6;margin:0 0 6px}
+.market-brief small{display:block;line-height:1.7;color:var(--muted);overflow-wrap:anywhere}
+.brief-knowledge{padding:12px 0;border-top:1px solid var(--border)}
+.market-brief a{display:inline-block;max-width:100%;padding:8px 0;font-size:12px;line-height:1.6;color:var(--blue);overflow-wrap:anywhere}
+.smc-context.market-brief p{display:block;grid-template-columns:none;margin:0;padding:9px 0;line-height:1.7;overflow-wrap:anywhere}
+.smc-context.market-brief p strong,.smc-context.market-brief p span{display:block;min-width:0}
 .review-dialog { width:min(1480px,98vw); height:94dvh; max-height:94dvh; max-width:98vw; padding:0; border:1px solid var(--border); border-radius:16px; color:var(--text); background:#0b1018; overflow:auto; }
 .review-dialog::backdrop { background:#000b; }
 .review-header { display:flex; justify-content:space-between; align-items:center; padding:16px; position:sticky; top:0; z-index:2; background:#0b1018f5; }

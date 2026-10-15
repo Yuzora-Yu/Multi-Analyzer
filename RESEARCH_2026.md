@@ -1,5 +1,13 @@
 # Research log — Gold / BTC, 2026-09-14
 
+## 2026-10-15: knowledge-led session and post-announcement scenarios
+
+The user explicitly requested broader public-market knowledge as an input to prospective zones. A public source catalog now distinguishes official clocks, historical findings, macro interpretations and practitioner hypotheses. The current-context panel relates the next session and partial verified BLS schedule to existing SMC candidates and MA/BB context. Closed M15 paths can supply pre-release and first-hour reference levels without inventing missing intrabar paths. The preferred observation side currently comes from H4 MA and H1 structure; live yields, dollar, positioning and current geopolitical news remain explicitly unacquired rather than silently confirming that side.
+
+The overlay and AI consultation carry the background observation time separately from the original M15 cutoff. Archived/CSV views reject today's context. Withdrawn zones are excluded, original bounds/stops are preserved, and clocks follow independent London/New York DST rules. Calendars expire and do not claim complete event coverage. This is an initial conditional-planning feature, not a completed automatic macro/news system or proven improvement in prediction accuracy. No fixed execution dependencies, common P/EXIT, notifications or collectors change. See `MARKET_CONTEXT.md` for sources and next acceptance conditions.
+
+Browser verification also exposed a local-server allowlist that omitted existing public frontend dependencies. Their exact public paths and the two new context modules are now served; arbitrary and private paths remain blocked. A local HTTP regression verifies the actual page dependency bytes and private/traversal refusals. No filesystem-wide static serving or new external data access is added.
+
 ## 2026-10-13: keep candidate references on their displayed M15 basis
 
 The candidate panel identified its source as the closed M15 price while non-M15 chart analysis supplied the selected timeframe's price, ATR, recent extrema and target spacing to the background map. Merely switching to a timing chart could therefore change the displayed stop reference and local proximity radius. A presentation-only adapter now calculates that panel and newly saved device checkpoints from the existing closed M15 frame. The selected chart analysis, canonical M15 map, shared engine, notifications and frozen demo dependencies remain unchanged.

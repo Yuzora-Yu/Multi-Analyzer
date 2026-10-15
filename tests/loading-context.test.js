@@ -7,7 +7,7 @@ function setup({tf='15m',closed=false}={}){
   const elements={},requests=[],connections=[],errors=[];
   const element=id=>elements[id]??=({textContent:'old gold 4167.07',className:'old-positive',hidden:false,style:{setProperty(k,v){this[k]=v;}},value:id==='positionEntry'?'4186':id==='positionStop'?'4195':id==='positionDirection'?'SHORT':'',title:'old gold spread'});
   // textContent replaces children in a real DOM, including old zone tracking buttons.
-  for(const id of ['marketMap','trendContext','checkpointStatus']){
+  for(const id of ['marketBrief','marketMap','trendContext','checkpointStatus']){
     const node=element(id);let content='<button>old gold 4167.07</button>';
     Object.defineProperties(node,{textContent:{get:()=>content,set:v=>{content=v;}},innerHTML:{get:()=>content,set:v=>{content=v;}}});
   }
@@ -26,7 +26,7 @@ function assertWaiting(f){
   assert.equal(f.state.analysis,null);assert.equal(f.state.preview,null);
   assert.equal(f.elements.symbolCode.textContent,'BTCUSDT');
   for(const id of ['entryValue','stopValue','signalTime','livePrice','longScore','tf4Trend'])assert.equal(f.elements[id].textContent,'—',id);
-  for(const id of ['marketMap','trendContext','flowSummary'])assert.doesNotMatch(f.elements[id].textContent,/4167\.07|old gold|<button>/,id);
+  for(const id of ['marketBrief','marketMap','trendContext','flowSummary'])assert.doesNotMatch(f.elements[id].textContent,/4167\.07|old gold|<button>/,id);
   assert.equal(f.elements.checkpointStatus.innerHTML,'');assert.equal(f.elements.checkpointStatus.hidden,true);
   assert.equal(f.elements.snapshotHealth.textContent,'共通判定の確認待ち');
   assert.equal(f.elements.currentSnapshotLink.href,'?asset=btc&tf=15m');

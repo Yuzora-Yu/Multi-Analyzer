@@ -142,7 +142,9 @@
           scope:archived?'saved-decision-reconstruction':'current-candidate-description',note:archived?'保存判定の元候補・確定スイングから後で計算した距離です。当時の表示・保存・約定の証拠ではなく、現在の水準でもありません。':'この候補から新しく追跡を始める場合の距離です。保存済みチェックポイントの条件は変更しません。'}};
     });
     const checkpoints=archived?[]:(C?.read()||[]).filter(c=>c.asset===a.asset&&c.savedAt<=now).map(c=>C.advance(c,a.signal,{now,allowed:!a.health?.blocked&&(globalThis.MultiAnalyzerFeed?.collectionPolicy(a.asset).allowed??true)}));
-    return {basis:'Bybit元市場価格。端末の固定帯は保存時の換算を別記。',trendContext:globalThis.MultiAnalyzerTrendContext?.describe(a.signal,{asset:a.asset})||null,zones,checkpoints,checkpointText:checkpoints.flatMap(c=>C.describe(c)),note:archived?'過去判定に現在の端末チェックポイントを混入しません。':'端末内の観察記録。保存後の追跡であり、元の予測やPサインを書き換えません。'};
+    const marketBrief=globalThis.MultiAnalyzerMarketBrief?.describe(a.signal,{asset:a.asset,now,mode:archived?'archive':'live',health:a.health,
+      snapshotId:a.snapshot?.id||null,zoneReviews:zones})||null;
+    return {basis:'Bybit元市場価格。端末の固定帯は保存時の換算を別記。',marketBrief,trendContext:globalThis.MultiAnalyzerTrendContext?.describe(a.signal,{asset:a.asset})||null,zones,checkpoints,checkpointText:checkpoints.flatMap(c=>C.describe(c)),note:archived?'過去判定に現在の端末チェックポイントを混入しません。':'端末内の観察記録。保存後の追跡であり、元の予測やPサインを書き換えません。'};
   }
   // Presentation evidence only. The snapshot and its fixed engine verdict stay intact.
   function zoneWithdrawal(a,z){
@@ -223,7 +225,7 @@
       `予定の確認時刻 ${Number.isFinite(risk.checkedAt)?jst(risk.checkedAt):'未確認'} / ${risk.coverage==='expired'?'確認期限切れ。最新予定との再照合が必要です。':risk.coverage==='partial'?'一部の予定のみ。全予定を網羅しません。':'確認範囲未確認。'}`,
       basis?.note||'元判定の予定情報です。現在の予定を過去の判定に混入しません。'];
   }
-  function decisionText(d){const q=d.consultation;return [...(q?.checkpointText?.length?['前回固定したチェックポイント（元条件で先に確認）',...q.checkpointText]:[]),...(d.health?[`鮮度確認 ${jst(d.health.assessedAt)}：${d.health.message}`]:[]),`${d.verdict} / ${d.direction}`,...calendarText(d),d.exit||'今回の足に黄EXITなし',
+  function decisionText(d){const q=d.consultation;return [...(q?.checkpointText?.length?['前回固定したチェックポイント（元条件で先に確認）',...q.checkpointText]:[]),...(q?.marketBrief?globalThis.MultiAnalyzerMarketBrief?.lines(q.marketBrief)||[]:[]),...(d.health?[`鮮度確認 ${jst(d.health.assessedAt)}：${d.health.message}`]:[]),`${d.verdict} / ${d.direction}`,...calendarText(d),d.exit||'今回の足に黄EXITなし',
     ...(q?[q.basis,...(q.trendContext?[`現在地の基準：15分確定価格 ${num(q.trendContext.price)} / ${q.trendContext.priceClosedAt?jst(q.trendContext.priceClosedAt):'未取得'}`]:[]),...(q.trendContext?.frames||[]).flatMap(f=>[`${f.name} 構造 ${f.structure} / MA ${f.ma} / ${f.available?'確定 '+jst(f.closedAt):f.sessionWait?sessionWaitText(f.sessionWait):'未取得・遅延'}：${f.levels.map(l=>`${l.label} ${num(l.price)} の${l.position}（15分確定価格比）`).join(' / ')}`,...(f.leg?[`${f.name} 確認済み${f.leg.direction} ${num(f.leg.start.price)}→${num(f.leg.end.price)}（終点確認 ${jst(f.leg.end.confirmedAt)}）から ${num(f.leg.ratio)}％ / ${f.leg.levels.map(l=>`${num(l.percent)}％ ${num(l.price)}`).join(' / ')}。${f.leg.note}`]:[])]),...q.zones.flatMap(({zone:z,focus:f,geometryText,geometryBasis,confirmationPreview,withdrawal,roleContext})=>[
       `${withdrawal?'撤回確認済み・元の':''}背景 ${z.direction} ${z.frame} ${z.type} ${num(z.low)}～${num(z.high)} / ${z.condition} / 15分終値 ${num(z.invalidationClose)}${z.direction==='SHORT'?'超':'未満'}で撤回 / SL参考 ${num(z.protectiveStop)}`,
       ...(roleContext?[roleContext.label+'。'+roleContext.note]:[]),
