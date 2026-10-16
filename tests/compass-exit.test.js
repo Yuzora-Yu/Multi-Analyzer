@@ -1,10 +1,10 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm'),path=require('node:path');
 const app=fs.readFileSync(path.join(__dirname,'../app.js'),'utf8'),source=app.slice(app.indexOf('  function renderMarkerDetails()'),app.indexOf('  function renderChartMarkerLabels()'))+app.slice(app.indexOf('  function renderCompass()'),app.indexOf('  function renderZones()'));
-function render({position=null,health=null,archive=false,exit=true,analysisInput=null}={}){
+function render({position=null,health=null,archive=false,exit=true,analysisInput=null,snapshot=true}={}){
  const elements={},analysis=analysisInput||{plan:null,state:'NO_TRADE',actionable:false,direction:'SHORT',positionDecision:exit?{action:'EXIT_SHORT',reasons:['保護ストップ到達']}:null,exec:{flow:null,candles:[],smc:null}};
- const state={analysis,feedAt:Date.now(),snapshot:{id:'record',symbol:'XAUUSDT',settings:{position:{direction:'SHORT',entry:100}}}};
+ const state={analysis,feedAt:Date.now(),snapshot:snapshot?{id:'record',symbol:'XAUUSDT',settings:{position:{direction:'SHORT',entry:100}}}:null};
  const $=id=>elements[id]??=({style:{},textContent:'',innerHTML:''});
- const run=vm.runInNewContext(source+';renderCompass',{markerPanel:null,state,$,snapshotHealth:()=>health,getPosition:()=>position,INITIAL_PARAMS:new Set(archive?['snapshot']:[]),currentInstrument:()=>({symbol:'XAUUSDT',market:'futures'}),currentTf:()=>({label:'15m',minutes:15}),stateLabel:x=>x,fmt:String,esc:String,window:{MultiAnalyzerReview:{reasons:()=>['新規条件待ち'],context:require('../review-pack').context},MultiAnalyzerEvidence:{currentEventsText:require('../chart-evidence').currentEventsText,context:()=>({exit:'撤退注意'})}},Date});run();return{elements,analysis};
+ const run=vm.runInNewContext(source+';renderCompass',{markerPanel:null,state,$,snapshotHealth:()=>health,getPosition:()=>position,INITIAL_PARAMS:new Set(archive?['snapshot']:[]),currentInstrument:()=>({symbol:'XAUUSDT',market:'futures'}),currentTf:()=>({label:'15m',minutes:15}),stateLabel:x=>x,fmt:String,esc:String,window:{MultiAnalyzerReview:{reasons:()=>['新規条件待ち'],context:require('../review-pack').context},MultiAnalyzerEvidence:{currentEventsText:require('../chart-evidence').currentEventsText,timingSummary:require('../chart-evidence').timingSummary,context:()=>({exit:'撤退注意'})}},Date});run();return{elements,analysis};
 }
 test('reference exit never implies an actual holding or automatic reverse entry',()=>{
  const r=render();assert.match(r.elements.actionHeadline.textContent,/参考候補の撤退注意/);assert.doesNotMatch(r.elements.actionHeadline.textContent,/クローズ推奨|売りポジション/);assert.match(r.elements.actionTargets.textContent,/反転エントリーの確認とは別/);assert.equal(r.elements.sheetSummary.textContent,'× 参考候補の撤退注意');assert.equal(r.analysis.positionDecision.action,'EXIT_SHORT');
@@ -24,4 +24,11 @@ test('current CHoCH is visible with retained direction while stale health and ol
  assert.match(r.elements.actionContext.textContent,/確定スイング 下向き \/ リボン 上向き \/ 保持方向と不一致/);assert.match(r.elements.actionContext.textContent,/最新SMC：上向き CHoCH 100\.00/);assert.equal(r.elements.actionHeadline.textContent,'— 新規候補なし');assert.equal(r.elements.actionCompass.className,'action-compass wait');assert.deepEqual(analysis,before);
  assert.doesNotMatch(render({analysisInput:analysis,health:{blocked:true,message:'判定保留'}}).elements.actionContext.textContent,/CHoCH/);
  analysis.exec.smc.events[0].time-=900000;assert.doesNotMatch(render({analysisInput:analysis}).elements.actionContext.textContent,/最新SMC|CHoCH/);
+});
+
+test('one-minute waiting presents local direction without promoting it to a new entry or masking exits',()=>{
+ const time=1800000,row={time,structure:0,direction:1,ribbon:-1,switched:true},analysis={generatedAt:time+60000,plan:null,state:'NO_TRADE',actionable:false,direction:'SHORT',positionDecision:null,exec:{intervalMinutes:1,quality:{stale:false},values:{adx:20},candles:[{time,close:100}],flow:{latest:row,history:[row]},smc:null}},before=structuredClone(analysis);
+ const r=render({analysisInput:analysis,snapshot:false});assert.match(r.elements.actionHeadline.textContent,/1分：上向き保持 \/ リボン 赤/);assert.match(r.elements.actionTargets.textContent,/新規P条件は15分足で確認/);assert.equal(r.elements.actionCompass.className,'action-compass wait');assert.deepEqual(analysis,before);
+ assert.match(render({analysisInput:analysis,health:{blocked:true,message:'不一致'}}).elements.actionHeadline.textContent,/共通判定を保留/);
+ analysis.positionDecision={action:'EXIT_SHORT',reasons:['保護ストップ到達']};assert.match(render({analysisInput:analysis}).elements.actionHeadline.textContent,/撤退注意/);
 });

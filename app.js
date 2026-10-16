@@ -593,7 +593,7 @@
     const a=state.analysis,instrument=currentInstrument();
     markerPanel.render(window.MultiAnalyzerMarkerDetails.describe({
       markers:a?state.chartMarkers||[]:[],candles:a?.exec?.candles||[],intervalMinutes:a?.exec?.intervalMinutes,
-      analysisAt:a?.generatedAt,asset:state.instrumentId,symbol:instrument.symbol,market:instrument.market,
+      analysisAt:a?.generatedAt,profile:a?.exec?.flow?.profile,asset:state.instrumentId,symbol:instrument.symbol,market:instrument.market,
       mode:state.offlineCsv?'csv':INITIAL_PARAMS.has('snapshot')?'archive':'live',
       state:a?.state||'不明',actionable:Boolean(a?.actionable),blocked:!a||Boolean(a.exec?.quality?.stale)||Boolean(snapshotHealth()?.blocked)||
         (!state.offlineCsv&&!INITIAL_PARAMS.has('snapshot')&&Date.now()-state.feedAt>45000)
@@ -896,6 +896,11 @@
       $('livePreviewText').textContent='通知と共通の15分確定足 / 設定は共通固定・ライブ価格は判定と別更新';
     }
     const flow=a.exec.flow, f=flow?.latest;
+    const timing=!stale&&!exit&&!a.actionable&&a.state==='NO_TRADE'?window.MultiAnalyzerEvidence.timingSummary?.(a):null;
+    if(timing){
+      $('actionHeadline').textContent=(INITIAL_PARAMS.has('snapshot')?'保存記録｜':'')+timing.headline;
+      $('actionTargets').textContent=timing.detail;
+    }
     const basis = state.snapshot ? '15m共通判定' : currentTf().label;
     const closedBar = a.exec.candles.at(-1);
     const closeAt = closedBar ? closedBar.time + (state.snapshot ? 15 : currentTf().minutes) * 60000 : null;

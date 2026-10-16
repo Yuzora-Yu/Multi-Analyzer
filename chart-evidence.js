@@ -50,6 +50,19 @@
       exit:f.exitLong?'買いEXIT注意：EMA13下で2本確定':f.exitShort?'売りEXIT注意：EMA13上で2本確定':'最新確定足のEXIT注意なし'
     };
   }
+  function timingSummary(a){
+    const exec=a?.exec,minutes=exec?.intervalMinutes,f=exec?.flow?.latest,bar=exec?.candles?.at(-1);
+    if(![1,5].includes(minutes)||exec?.quality?.stale||!bar||!Number.isSafeInteger(bar.time)||
+      bar.time!==f?.time||!Number.isFinite(a.generatedAt)||bar.time+minutes*60000>a.generatedAt||
+      ![-1,0,1].includes(f.direction)||![-1,0,1].includes(f.ribbon))return null;
+    const direction=f.direction===1?'上向き保持':f.direction===-1?'下向き保持':'方向未確定';
+    const ribbon=f.ribbon===1?'緑':f.ribbon===-1?'赤':'中立';
+    const turn=(exec.flow.history||[]).slice().reverse().find(row=>row.switched&&row.direction===f.direction&&
+      row.time<=bar.time&&exec.candles.some(b=>b.time===row.time));
+    const at=turn?new Date(turn.time+minutes*60000).toLocaleString('ja-JP',{timeZone:'Asia/Tokyo',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false}):null;
+    return {headline:`${minutes}分：${direction} / リボン ${ribbon}`,
+      detail:`新規P条件は15分足で確認${at?` / 最後の方向転換 ${at} JST`:''}`};
+  }
   function viewportLabels(markers,locate,width,measure){
     const out=markers.map(m=>({...m,text:''}));
     if(!Number.isFinite(width)||width<=0)return out;
@@ -67,5 +80,5 @@
     }
     return out;
   }
-  return {markers,hourlyZones,spaceLabels,viewportLabels,currentEventsText,context};
+  return {markers,hourlyZones,spaceLabels,viewportLabels,currentEventsText,context,timingSummary};
 });

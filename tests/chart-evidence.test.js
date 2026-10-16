@@ -21,6 +21,22 @@ test('label spacing preserves transition explanations over nearby exit notices w
  const m=[{time:1,text:'リボン ↓'},{time:2,text:'売 EXIT注意'},{time:20,text:'方向転換 売 B'}];
  E.spaceLabels(m,5);assert.equal(m.length,3);assert.equal(m[0].text,'リボン ↓');assert.equal(m[1].text,'');assert.equal(m[2].text,'方向転換 売 B');
 });
+
+test('short-frame timing keeps direction, ribbon disagreement and historical turn close separate from P',()=>{
+ const time=Date.parse('2026-10-16T02:00:00Z');
+ for(const minutes of [1,5]){
+  const history=[{time,direction:1,ribbon:1,switched:true},{time:time+minutes*60000,direction:1,ribbon:-1,switched:false}];
+  const a={generatedAt:time+minutes*120000,state:'NO_TRADE',actionable:false,exec:{intervalMinutes:minutes,quality:{stale:false},candles:history.map(row=>({time:row.time})),flow:{history,latest:history.at(-1)}}},before=structuredClone(a);
+  const summary=E.timingSummary(a);assert.match(summary.headline,new RegExp(minutes+'分：上向き保持 / リボン 赤'));
+  assert.match(summary.detail,/新規P条件は15分足で確認/);assert.match(summary.detail,new RegExp(minutes===1?'11:01':'11:05'));assert.deepEqual(a,before);
+ }
+});
+
+test('short-frame timing rejects stale, unclosed, mismatched or non-timing frames',()=>{
+ const time=1800000,source={generatedAt:time+60000,exec:{intervalMinutes:1,quality:{stale:false},candles:[{time}],flow:{history:[],latest:{time,direction:-1,ribbon:-1}}}};
+ assert.match(E.timingSummary(source).headline,/下向き保持/);assert.doesNotMatch(E.timingSummary(source).detail,/最後の方向転換/);
+ for(const edit of [a=>a.generatedAt--,a=>a.exec.quality.stale=true,a=>a.exec.flow.latest.time--,a=>a.exec.intervalMinutes=15,a=>a.exec.flow.latest.direction=null]){const a=structuredClone(source);edit(a);assert.equal(E.timingSummary(a),null);}
+});
 test('ribbon and direction events stay at recognition bars when future data is appended',()=>{
  const h=[{time:1000,ribbon:1},{time:2000,ribbon:-1,direction:1},{time:3000,ribbon:-1,direction:-1,switched:true,rank:'B'},{time:4000,ribbon:-1,exitShort:true}];
  assert.deepEqual(E.markers(h.slice(0,3),0),E.markers(h,0).filter(x=>x.time<=3));

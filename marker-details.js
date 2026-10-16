@@ -18,7 +18,7 @@
     if(text==='買い候補'||text==='売り候補')return {kind:'CURRENT_CANDIDATE',text:'この表示中の最新確定判定で、新規候補の条件が成立した時の金色丸です。過去のPや黄EXIT丸とは別で、実注文・約定・保有を示しません。'};
     return {kind:'UNKNOWN',text:'元の説明を特定できません。色や位置から売買条件を推定しません。'};
   }
-  function describe({markers=[],candles=[],intervalMinutes,analysisAt,asset,symbol,market,mode='live',state='不明',actionable=false,blocked=false}={}){
+  function describe({markers=[],candles=[],intervalMinutes,analysisAt,profile,asset,symbol,market,mode='live',state='不明',actionable=false,blocked=false}={}){
     const step=Number.isInteger(intervalMinutes)&&intervalMinutes>0?intervalMinutes*60000:null;
     const rows=new Map(),duplicates=new Set();
     for(const b of candles){if(!validTime(b?.time))continue;if(rows.has(b.time))duplicates.add(b.time);else rows.set(b.time,b);}
@@ -41,13 +41,20 @@
     }).sort((a,b)=>(b.openAt??-1)-(a.openAt??-1));
     const latest=candles.at(-1),latestClose=latest?closedAt(latest.time):null;
     const verdict=blocked?'判断保留・表示中の記録':actionable?'研究用の新規候補':'新規条件待ち';
+    const profileBars=profile?candles.filter(b=>b.time>=profile.start&&b.time<=profile.end):[];
+    const profileKnown=profile?.method==='OHLCV_RANGE_APPROXIMATION'&&profileBars.length>0&&
+      profileBars[0].time===profile.start&&profileBars.at(-1).time===profile.end&&
+      closedAt(profile.start)!=null&&closedAt(profile.end)!=null&&Array.isArray(profile.bins)&&profile.bins.length>0&&
+      [profile.poc,profile.val,profile.vah].every(Number.isFinite);
+    const profileText=profileKnown?`価格帯出来高：${basis} / 表示足の直近${profileBars.length}本・${profile.bins.length}区間 / ${stamp(profile.start)} ～ ${stamp(closedAt(profile.end))}。POC ${profile.poc.toFixed(2)} は価格、VAは出来高の70%を含む範囲です。ローソクの出来高を高安範囲へ配分した近似で、実際の価格別約定分布ではありません。`:'価格帯出来高：対象期間・計算根拠を確認できません。';
     return {context:`${mode==='archive'?'保存記録 / ':''}${basis} / ${frame}`,
       current:`${mode==='live'?'表示中の最新判定':'表示中の保存判定'}：${verdict}（${state}） / 確定 ${stamp(latestClose)}`,
+      profile:profileText,
       note:'過去のマーカーの説明と、表示中の最新判定を分けて読みます。どちらも実際の注文・保有とは別です。文字が重なって消えた印も、元の説明をここで確認できます。',records};
   }
   function create(root){
     if(!root)return null;
-    const select=root.querySelector('select'),context=root.querySelector('[data-marker-context]'),current=root.querySelector('[data-marker-current]'),detail=root.querySelector('[data-marker-detail]');
+    const select=root.querySelector('select'),context=root.querySelector('[data-marker-context]'),current=root.querySelector('[data-marker-current]'),profile=root.querySelector('[data-marker-profile]'),detail=root.querySelector('[data-marker-detail]');
     let model=null,source=null,listKey=null;
     function selected(){
       detail.replaceChildren();
@@ -56,7 +63,7 @@
     }
     select.addEventListener('change',selected);
     return {render(next){
-      const previous=source===next.context?select.value:null;model=next;source=next.context;context.textContent=next.context;current.textContent=next.current;
+      const previous=source===next.context?select.value:null;model=next;source=next.context;context.textContent=next.context;current.textContent=next.current;if(profile)profile.textContent=next.profile;
       const nextKey=JSON.stringify(next.records);
       if(nextKey!==listKey){
         select.replaceChildren();

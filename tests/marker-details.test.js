@@ -32,6 +32,16 @@ test('explanations do not guess meaning from marker color and preserve frame dis
  assert.match(D.describe({...input(),intervalMinutes:240,analysisAt:time+14400000,blocked:true,actionable:true}).current,/判断保留/);
 });
 
+test('profile provenance uses the actual candle window and distinguishes price from volume',()=>{
+ const source={...input(),candles:[{...candle},{...candle,time:time+60000}],analysisAt:time+120000,
+  profile:{method:'OHLCV_RANGE_APPROXIMATION',start:time,end:time+60000,poc:100.25,val:99,vah:102,bins:[{},{}]}};
+ const before=structuredClone(source),r=D.describe(source);
+ assert.match(r.profile,/Bybit XAUUSDT 無期限先物/);assert.match(r.profile,/直近2本・2区間/);assert.match(r.profile,/09:00:00.*09:02:00/);
+ assert.match(r.profile,/POC 100\.25 は価格/);assert.match(r.profile,/実際の価格別約定分布ではありません/);assert.deepEqual(source,before);
+ assert.match(D.describe({...source,mode:'csv'}).profile,/CSV（銘柄・契約未確認）/);
+ for(const patch of [{profile:null},{analysisAt:time+119999},{profile:{...source.profile,method:'UNKNOWN'}},{profile:{...source.profile,start:time-60000}}])assert.match(D.describe({...source,...patch}).profile,/確認できません/);
+});
+
 test('actual app detail renderer withholds a stale live candidate but preserves the dated archive and CSV',()=>{
  const app=fs.readFileSync(path.join(__dirname,'../app.js'),'utf8'),source=app.slice(app.indexOf('  function renderMarkerDetails()'),app.indexOf('  function renderChartMarkerLabels()'));
  const a={generatedAt:time+60000,state:'LONG',actionable:true,exec:{candles:[candle],intervalMinutes:1,quality:{stale:false}}};
