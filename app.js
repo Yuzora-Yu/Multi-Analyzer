@@ -82,6 +82,7 @@
   const pct = value => value != null && Number.isFinite(Number(value)) ? `${Number(value).toFixed(1)}%` : '—';
   const esc = value => String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
   let demoPanel = null;
+  let markerPanel = null;
   function demoContext(){return {asset:state.instrumentId,offline:state.offlineCsv,archived:INITIAL_PARAMS.has('snapshot'),marketClosed:!Feed.collectionPolicy(state.instrumentId).allowed,snapshotId:state.snapshot?.id||null};}
 
   function currentInstrument() { return INSTRUMENTS[state.instrumentId]; }
@@ -231,6 +232,7 @@
     $('spreadEstimate').title='';$('historyCount').textContent='';
     $('lastUpdate').textContent='未更新';$('dataSource').textContent=currentInstrument().sourceLabel;
     $('tfExecLabel').textContent=currentTf().label;
+    renderMarkerDetails();
   }
 
   async function loadAllData() {
@@ -550,6 +552,7 @@
     markers.sort((a, b) => a.time - b.time);
     // Keep original explanations so zooming or panning can restore hidden labels.
     state.chartMarkers=markers;
+    renderMarkerDetails();
     state.markerLayoutKey=null;
     renderChartMarkerLabels();
 
@@ -583,6 +586,18 @@
 
   function chartCandles() {
     return INITIAL_PARAMS.has('snapshot') && state.snapshot ? state.analysis?.exec?.candles || [] : state.data.exec;
+  }
+
+  function renderMarkerDetails() {
+    if(!markerPanel)return;
+    const a=state.analysis,instrument=currentInstrument();
+    markerPanel.render(window.MultiAnalyzerMarkerDetails.describe({
+      markers:a?state.chartMarkers||[]:[],candles:a?.exec?.candles||[],intervalMinutes:a?.exec?.intervalMinutes,
+      analysisAt:a?.generatedAt,asset:state.instrumentId,symbol:instrument.symbol,market:instrument.market,
+      mode:state.offlineCsv?'csv':INITIAL_PARAMS.has('snapshot')?'archive':'live',
+      state:a?.state||'不明',actionable:Boolean(a?.actionable),blocked:!a||Boolean(a.exec?.quality?.stale)||Boolean(snapshotHealth()?.blocked)||
+        (!state.offlineCsv&&!INITIAL_PARAMS.has('snapshot')&&Date.now()-state.feedAt>45000)
+    }));
   }
 
   function renderChartMarkerLabels() {
@@ -861,6 +876,7 @@
 
   function renderCompass() {
     const a = state.analysis, p = a.plan, pos = a.positionDecision;
+    renderMarkerDetails();
     const health=snapshotHealth(),held=health?.blocked;
     const stale = held||(!state.offlineCsv && !INITIAL_PARAMS.has('snapshot') && Date.now() - state.feedAt > 45000);
     const exit = pos?.action.startsWith('EXIT');
@@ -1001,6 +1017,7 @@
       state.analysisKey = null;
       state.offlineCsv = true;
       demoPanel?.sync();
+      refreshServices();
       state.micro = { bid: null, ask: null, spreadBps: null, bookImbalance: 0, markPrice: null, indexPrice: null, basisBps: 0, fundingRate: 0, nextFundingTime: null };
       const minutes = Core.inferIntervalMinutes(candles) || currentTf().minutes;
       const match = Object.entries(TF).find(([, v]) => v.minutes === minutes);
@@ -1178,6 +1195,7 @@
       state.candleSeries.priceScale().applyOptions({autoScale:true});
       applyChartRange();state.redrawFlow?.();
     });
+    $('markerExplanations').addEventListener('toggle',scheduleChartResize);
     qsa('[data-insight-tab]').forEach(button => button.addEventListener('click', () => setInsightTab(button.dataset.insightTab)));
     $('insightToggle').addEventListener('click', toggleInsightSheet);
     window.addEventListener('resize', scheduleChartResize, { passive: true });
@@ -1230,6 +1248,7 @@
     if(state.redrawFlow){$('chartContainer').removeEventListener('pointermove',state.redrawFlow);$('chartContainer').removeEventListener('wheel',state.redrawFlow);}
     state.flowCanvas?.remove();state.flowCanvas=null;state.redrawFlow=null;
     state.chartMarkers=[];state.markerLayoutKey=null;
+    renderMarkerDetails();
     if (state.chart) state.chart.remove();
     state.chart = state.candleSeries = state.ema20Series = state.ema50Series = state.vwapSeries = null;
     state.bbSeries=[];
@@ -1252,6 +1271,7 @@
   }
 
   function init() {
+    markerPanel=window.MultiAnalyzerMarkerDetails?.create($('markerExplanations'))||null;
     if (window.matchMedia('(max-width: 1024px)').matches) $('chartRange').value = '90';
     window.MultiAnalyzerReview.init({getAsset:()=>state.instrumentId,getArchiveId:()=>INITIAL_PARAMS.get('snapshot'),onLayout:scheduleChartResize});
     demoPanel=window.MultiAnalyzerDemoPanel?.create({root:$('demoPanel'),fetchJson,getContext:demoContext,baseUrl:CLOUD})||null;

@@ -23,7 +23,9 @@ class PublicAssetsTests(unittest.TestCase):
         try:
             page = (root / 'index.html').read_text(encoding='utf-8')
             scripts = [s for s in re.findall(r'<script[^>]+src="([^"]+)"', page) if not s.startswith('https:')]
-            self.assertIn('market-brief.js?v=1', scripts)
+            script_paths = [s.split('?')[0] for s in scripts]
+            self.assertIn('market-brief.js', script_paths)
+            self.assertIn('marker-details.js', script_paths)
             for script in scripts:
                 with self.subTest(script=script), urllib.request.urlopen(base + '/' + script) as response:
                     self.assertEqual(response.status, 200)

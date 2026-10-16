@@ -1,10 +1,10 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
 const app=fs.readFileSync(path.join(__dirname,'../app.js'),'utf8');
-const source=app.slice(app.indexOf('  function resetAnalysisView()'),app.indexOf('  function analysisSettings('));
+const source=app.slice(app.indexOf('  function renderMarkerDetails()'),app.indexOf('  function renderChartMarkerLabels()'))+app.slice(app.indexOf('  function resetAnalysisView()'),app.indexOf('  function analysisSettings('));
 const deferred=()=>{let resolve,reject;const promise=new Promise((a,b)=>{resolve=a;reject=b;});return{promise,resolve,reject};};
 function setup({tf='15m',closed=false}={}){
   const state={instrumentId:'btc',tf,loadId:1,analysis:{old:'gold'},preview:{old:'gold'},snapshot:{id:'gold-old'},monitor:{old:true},data:{exec:[]}};
-  const elements={},requests=[],connections=[],errors=[];
+  const elements={},requests=[],connections=[],errors=[],markerViews=[];
   const element=id=>elements[id]??=({textContent:'old gold 4167.07',className:'old-positive',hidden:false,style:{setProperty(k,v){this[k]=v;}},value:id==='positionEntry'?'4186':id==='positionStop'?'4195':id==='positionDirection'?'SHORT':'',title:'old gold spread'});
   // textContent replaces children in a real DOM, including old zone tracking buttons.
   for(const id of ['marketBrief','marketMap','trendContext','checkpointStatus']){
@@ -14,16 +14,17 @@ function setup({tf='15m',closed=false}={}){
   for(const id of ['snapshotHealth','entryValue','stopValue','signalTime','livePrice','positionEntry','positionStop','positionDirection','flowSummary','longScore','tf4Trend'])element(id);
   const request=()=>{const d=deferred();requests.push(d);return d.promise;};
   const loader=vm.runInNewContext(source+';loadAllData',{
-    state,$:element,stopRealtime:()=>{},currentInstrument:()=>({name:'BITCOIN',symbol:'BTCUSDT',sourceLabel:'BINANCE BTC SPOT'}),currentTf:()=>({label:tf,minutes:tf==='15m'?15:5}),
+    markerPanel:{render:view=>markerViews.push(view)},window:{MultiAnalyzerMarkerDetails:require('../marker-details')},snapshotHealth:()=>null,state,$:element,stopRealtime:()=>{},currentInstrument:()=>({name:'BITCOIN',symbol:'BTCUSDT',sourceLabel:'BINANCE BTC SPOT'}),currentTf:()=>({label:tf,minutes:tf==='15m'?15:5}),
     demoPanel:null,pauseClosedMarket:()=>closed,refreshServices:()=>{},refreshSnapshot:request,fetchKlines:request,
     TF:{'5m':{limit:500},'15m':{limit:500},'1h':{limit:500},'4h':{limit:500}},
     setLoading:()=>{},setConnection:(...args)=>connections.push(args),INITIAL_PARAMS:new URLSearchParams(),STATIC_HOST:true,
     connectRealtime:()=>{},setInterval:()=>1,clearInterval:()=>{},console:{error:e=>errors.push(e.message)},Date,Promise
   });
-  return{state,elements,requests,connections,errors,loader};
+  return{state,elements,requests,connections,errors,markerViews,loader};
 }
 function assertWaiting(f){
   assert.equal(f.state.analysis,null);assert.equal(f.state.preview,null);
+  assert.equal(f.markerViews.at(-1).records.length,0);assert.match(f.markerViews.at(-1).current,/判断保留/);
   assert.equal(f.elements.symbolCode.textContent,'BTCUSDT');
   for(const id of ['entryValue','stopValue','signalTime','livePrice','longScore','tf4Trend'])assert.equal(f.elements[id].textContent,'—',id);
   for(const id of ['marketBrief','marketMap','trendContext','flowSummary'])assert.doesNotMatch(f.elements[id].textContent,/4167\.07|old gold|<button>/,id);

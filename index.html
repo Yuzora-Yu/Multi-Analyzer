@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=4.3.4-market-brief1">
+  <link rel="stylesheet" href="styles.css?v=4.3.4-marker-details1">
   <script defer src="https://unpkg.com/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js"></script>
   <script defer src="market-feed.js?v=4.3.3-session"></script>
   <script defer src="price-basis.js?v=1"></script>
@@ -29,8 +29,9 @@
   <script defer src="snapshot-health.js?v=3-session-copy"></script>
   <script defer src="review-pack.js?v=4.3.4-market-brief1"></script>
   <script defer src="chart-evidence.js?v=4.3.4-current-smc1"></script>
+  <script defer src="marker-details.js?v=1"></script>
   <script defer src="demo-panel.js?v=4-pending-window"></script>
-  <script defer src="app.js?v=4.3.4-market-brief1"></script>
+  <script defer src="app.js?v=4.3.4-marker-details1"></script>
 </head>
 <body>
   <div class="app-shell">
@@ -294,6 +295,17 @@
             </div>
           </aside>
         </div>
+        <details class="marker-explanations" id="markerExplanations">
+          <summary>サインの意味・確定時刻</summary>
+          <div class="marker-explanations-body">
+            <p data-marker-context>銘柄・時間足を確認中</p>
+            <p data-marker-current>データ取得後に確認します。</p>
+            <label for="markerSelect">読み込んだ足のマーカー（新しい順）</label>
+            <select id="markerSelect" aria-describedby="markerScope" disabled></select>
+            <div data-marker-detail>読み込んだ足に表示マーカーはありません。</div>
+            <p id="markerScope">過去のマーカーと表示中の最新判定は別です。実際の注文・保有を示しません。文字が重なって消えた印も、元の説明を確認できます。</p>
+          </div>
+        </details>
       </section>
     </main>
   </div>

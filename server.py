@@ -100,6 +100,7 @@ class Handler(SimpleHTTPRequestHandler):
         allowed = {"/", "/index.html", "/app.js", "/strategy-core.js", "/smc-core.js", "/flow-core.js", "/market-feed.js", "/chart-overlays.js", "/styles.css", "/backtest-worker.js", "/sample-data.csv", "/SETUP.md", "/README.md", "/RESEARCH.md"}
         allowed.add('/review-pack.js')
         allowed.add('/chart-evidence.js')
+        allowed.add('/marker-details.js')
         allowed.update({
             '/price-basis.js', '/chart-viewport.js', '/zone-focus.js', '/zone-view.js',
             '/zone-geometry.js', '/zone-checkpoint.js', '/trend-context.js',

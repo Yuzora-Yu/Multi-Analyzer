@@ -28,3 +28,12 @@ test('asset or load change discards replies; older monitor payload cannot refres
 test('market pause blocks late replies without starting another request',async()=>{
  const f=setup(),p=f.refresh();f.state.marketPaused=true;f.requests[1].resolve(status());f.requests[0].resolve({price:10,updatedAt:new Date().toISOString()});await p;assert.equal(f.renders.length,0);assert.equal(f.state.monitor,null);assert.equal(f.elements.referenceQuote,undefined);assert.equal(f.requests.length,2);
 });
+
+test('actual CSV import immediately clears previously displayed live reference and monitor without new requests',async()=>{
+ const importSource=app.slice(app.indexOf('  async function importCsv('),app.indexOf('  function runBacktest('));
+ const candles=Array.from({length:80},(_,i)=>({time:i*900000,open:100,high:102,low:99,close:101,volume:1}));
+ const state={instrumentId:'gold',loadId:1,servicesRequestId:1,reference:{price:4155.6},monitor:{updatedAt:1},monitorReceivedAt:1,data:{},micro:{}},elements={},requests=[];
+ const $=id=>elements[id]??=({textContent:'current live price',value:'selected.csv'});
+ const run=vm.runInNewContext(source+importSource+';importCsv',{state,$,INITIAL_PARAMS:new Set(),demoPanel:null,stopRealtime:()=>{},pauseClosedMarket:()=>false,fetchJson:url=>requests.push(url),Core:{parseCSV:()=>candles,inferIntervalMinutes:()=>15,aggregateCandles:()=>candles},TF:{'15m':{minutes:15}},qsa:()=>[],currentTf:()=>({minutes:15}),analyzeAndRender:()=>{},renderChart:()=>{},setLoading:()=>{},setConnection:()=>{},alert:msg=>assert.fail(msg),Date});
+ await run({text:async()=>''});assert.equal(state.offlineCsv,true);assert.equal(state.reference,null);assert.equal(state.monitor,null);assert.equal(state.monitorReceivedAt,0);assert.match(elements.referenceQuote.textContent,/現在の参考価格は取得しません/);assert.equal(requests.length,0);
+});
