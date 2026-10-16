@@ -98,6 +98,49 @@ test('a root unavailable between walk and read records only its alias and path d
   });
 });
 
+test('local filesystem failures distinguish the actual operation without retaining private paths or retrying', async t => {
+  const scenarios = [
+    { method: 'openSync', syscall: 'open', operation: 'OPEN', cached: false, code: 'UNKNOWN', errno: -4094 },
+    { method: 'statSync', syscall: 'stat', operation: 'STAT', cached: true, code: 'EACCES', errno: -4092 },
+    { method: 'readdirSync', syscall: 'scandir', operation: 'READ_DIRECTORY', cached: false, code: 'EIO', errno: -5 },
+    { method: 'openSync', syscall: 'open', operation: 'OPEN', cached: false, code: 'PRIVATE_SECRET_VALUE', errno: 999999 }
+  ];
+  for (const scenario of scenarios) await t.test(scenario.method + ':' + scenario.code, async t => {
+    const f = fixture(t), remote = fakeGitHub(), relative = 'private-file.json';
+    const target = f.write('hourly-observation', relative, { close: 3 });
+    if (scenario.cached) await Archive.sync({ ...remote, workspace: f.workspace });
+    const bytes = fs.readFileSync(target), ref = remote.state.ref, writes = remote.api.contentWrites;
+    const root = f.allRoots['hourly-observation'];
+    const failedPath = scenario.method === 'readdirSync' ? root : target;
+    const original = fs[scenario.method]; let attempts = 0;
+    fs[scenario.method] = function(value) {
+      if (value === failedPath) {
+        attempts++;
+        const error = new Error('Bearer private-value user@example.test ' + target);
+        Object.assign(error, { code: scenario.code, syscall: scenario.syscall, errno: scenario.errno, path: failedPath });
+        throw error;
+      }
+      return original.apply(this, arguments);
+    };
+    try { await assert.rejects(Archive.sync({ ...remote, workspace: f.workspace })); }
+    finally { fs[scenario.method] = original; }
+    const dir = path.join(f.workspace, '.runtime/git-data-store');
+    const report = JSON.parse(fs.readFileSync(path.join(dir, 'FAILURE-LATEST.json')));
+    const diagnostic = report.localFilesystemFailure;
+    assert.equal(attempts, 1); assert.equal(diagnostic.operation, scenario.operation);
+    assert.equal(diagnostic.code, scenario.code === 'PRIVATE_SECRET_VALUE' ? 'UNCLASSIFIED_FILESYSTEM_ERROR' : scenario.code);
+    assert.equal(diagnostic.errno, Math.abs(scenario.errno) <= 65535 ? scenario.errno : undefined);
+    assert.deepEqual(diagnostic.source, { alias: 'hourly-observation',
+      relativeSha256: Archive.sha256(Buffer.from(scenario.method === 'readdirSync' ? '' : relative)),
+      ...(scenario.method === 'readdirSync' ? { root: true } : {}) });
+    assert.doesNotMatch(JSON.stringify(report), /private-file|archive-test|Bearer|example\.test|PRIVATE_SECRET_VALUE/);
+    assert.equal(report.contentWrites, writes); assert.equal(report.noAutomaticRetry, true);
+    assert.equal(report.localOriginalsModified, false); assert.equal(report.localFilesPruned, 0);
+    assert.equal(remote.state.ref, ref); assert.deepEqual(fs.readFileSync(target), bytes);
+    assert.equal(fs.existsSync(path.join(dir, 'LOCK')), false);
+  });
+});
+
 test('remote inspection reads metadata only and respects private repository, fixed ref and foreign lock', async t => {
   const f=fixture(t),remote=fakeGitHub();f.write('hourly-observation','one.json',{close:1});
   await Archive.sync({...remote,workspace:f.workspace});const ref=remote.state.ref;

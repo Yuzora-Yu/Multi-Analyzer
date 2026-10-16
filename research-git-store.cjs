@@ -749,10 +749,12 @@ async function sync(options) {
     atomicJson(path.join(workspace, '.runtime/git-data-store/LATEST.json'), result);
     return result;
   }).catch(error => {
+    const localFailure = localFilesystemFailure(error, workspace);
     if (error.code !== 'ARCHIVE_LOCK_BUSY') atomicJson(path.join(workspace, '.runtime/git-data-store/FAILURE-LATEST.json'), {
       schema: SCHEMA, stoppedAt: new Date().toISOString(), mode: 'SYNC_STOPPED_OR_REMOTE_UNRESOLVED',
-      code: safeErrorCode(error), contentWrites: api.contentWrites, quota: api.quota,
+      code: localFailure?.code || safeErrorCode(error), contentWrites: api.contentWrites, quota: api.quota,
       progress, request: api.lastRequest, lastFailedRequest: api.lastFailure,
+      localFilesystemFailure: localFailure,
       localOriginalsModified: false, localFilesPruned: 0, noAutomaticRetry: true
     });
     throw error;
@@ -760,8 +762,39 @@ async function sync(options) {
 }
 
 function safeErrorCode(error) {
+  const localFailure = localFilesystemFailure(error);
+  if (localFailure) return localFailure.code;
   return error.code && /^[A-Z0-9_]+$/.test(error.code) ? error.code :
     /^GITHUB_HTTP_\d+$/.test(error.message) ? error.message : 'ARCHIVE_OPERATION_FAILED';
+}
+
+function localFilesystemFailure(error, workspace) {
+  // OS exceptions may contain private paths/messages. Keep only fixed categories
+  // and the digest of an explicitly allowlisted local source, never the exception.
+  const operations = { open: 'OPEN', read: 'READ', close: 'CLOSE', stat: 'STAT',
+    lstat: 'LSTAT', fstat: 'FSTAT', scandir: 'READ_DIRECTORY', realpath: 'REALPATH',
+    write: 'WRITE', fsync: 'FSYNC', rename: 'RENAME', mkdir: 'MKDIR', unlink: 'UNLINK' };
+  if (!Object.hasOwn(operations, error?.syscall)) return undefined;
+  const codes = new Set(['UNKNOWN', 'EACCES', 'EPERM', 'ENOENT', 'ENOTDIR', 'EISDIR',
+    'EIO', 'ENOSPC', 'ENOMEM', 'EMFILE', 'ENFILE', 'EBUSY', 'ETXTBSY', 'ELOOP',
+    'ENAMETOOLONG', 'EBADF', 'EINVAL', 'EOVERFLOW', 'EEXIST']);
+  const result = { operation: operations[error.syscall],
+    code: codes.has(error.code) ? error.code : 'UNCLASSIFIED_FILESYSTEM_ERROR' };
+  if (Number.isSafeInteger(error.errno) && Math.abs(error.errno) <= 65535) result.errno = error.errno;
+  if (typeof error.path === 'string' && path.isAbsolute(error.path)) {
+    try {
+      const target = path.resolve(error.path);
+      for (const [alias, root] of Object.entries(roots(workspace))) {
+        if (!within(root, target)) continue;
+        const relative = path.relative(root, target).split(path.sep).join('/');
+        if (relative) cleanRelative(relative);
+        result.source = { alias, relativeSha256: sha256(Buffer.from(relative, 'utf8')),
+          ...(relative ? {} : { root: true }) };
+        break;
+      }
+    } catch { /* Diagnostic failure cannot replace the original operation failure. */ }
+  }
+  return result;
 }
 
 // GET-only reachability check. This does not read dataset blobs or certify a
