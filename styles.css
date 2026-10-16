@@ -537,5 +537,5 @@ button { color: inherit; -webkit-tap-highlight-color: transparent; }
 .marker-explanations select:focus-visible,.marker-explanations summary:focus-visible{outline:2px solid var(--gold);outline-offset:-2px}
 .marker-explanations [data-marker-context]{font-weight:700}
 .marker-explanations #markerScope{font-size:11px;color:var(--muted)}
-@media(max-width:1024px){.chart-stage{grid-template-rows:94px minmax(0,1fr) auto}.marker-explanations-body{padding-inline:10px}}
+@media(max-width:1024px){.chart-stage{grid-template-rows:94px minmax(0,1fr) auto}.marker-explanations-body{padding-inline:10px}.insight-panel{max-height:100%}}
 @media(max-width:1024px) and (orientation:landscape) and (max-height:600px){.chart-stage{grid-template-rows:46px minmax(0,1fr) auto}.marker-explanations-body{max-height:16dvh}}
