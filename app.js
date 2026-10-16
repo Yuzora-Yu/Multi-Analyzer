@@ -11,10 +11,6 @@
     gold: {
       name: 'Gold / USD', symbol: 'XAUUSDT', market: 'futures', stream: 'xauusdt', digits: 2,
       sourceLabel: 'BYBIT GOLD PERP', accent: '#e6b85c', up: '#43d49d', down: '#ff6b78'
-    },
-    btc: {
-      name: 'BTC / USD', symbol: 'BTCUSDT', market: 'spot', stream: 'btcusdt', digits: 2,
-      sourceLabel: 'BYBIT SPOT', accent: '#f7931a', up: '#43d49d', down: '#ff6b78'
     }
   };
   const TF = {
@@ -30,9 +26,15 @@
   const CHART_BANDS_KEY = 'multiAnalyzerUltimate.chartBands';
   const STATIC_HOST = location.hostname.endsWith('.github.io');
   const INITIAL_PARAMS = new URLSearchParams(location.search);
+  // Old market links open the active Gold workspace, never a mismatched archive.
+  if (INITIAL_PARAMS.get('asset')==='btc'||INITIAL_PARAMS.get('snapshot')?.startsWith('btc-')) {
+    INITIAL_PARAMS.delete('asset');INITIAL_PARAMS.delete('snapshot');
+    const url=new URL(location.href);url.searchParams.delete('asset');url.searchParams.delete('snapshot');
+    history.replaceState(null,'',url);
+  }
 
   const state = {
-    instrumentId: INITIAL_PARAMS.get('asset') === 'btc' ? 'btc' : 'gold',
+    instrumentId: 'gold',
     tf: Object.hasOwn(TF, INITIAL_PARAMS.get('tf')) ? INITIAL_PARAMS.get('tf') : '15m',
     data: { exec: [], m15: [], h1: [], h4: [] },
     analysis: null,

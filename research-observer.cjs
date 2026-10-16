@@ -88,7 +88,7 @@ async function run(){
     confounds:'GoldはBybit XAUUSDT永続契約、BTCはBybit現物。XM価格・世界全体出来高とは異なる。イベントカレンダー/実スプレッド/資金調達の未取得値を推定で埋めない。'},null,2));
   const errors=[],archiveExclusions=[];
   async function get(asset,id){const r=await fetch('https://multi-analyzer-monitor.rikai-829.workers.dev/api/snapshot?asset='+asset+(id?'&id='+id:''),{signal:AbortSignal.timeout(15000)});if(!r.ok)throw Error('HTTP '+r.status);const s=await r.json();if(s.asset!==asset||s.version!==Core.VERSION||!s.bars?.m15)throw Error('snapshot mismatch');return s;}
-  for(const asset of ['gold','btc']){
+  for(const asset of ['gold']){
     if(!Feed.collectionPolicy(asset).allowed)continue;
     try{
       const latest=await get(asset),last=Feed.input(latest).exec.at(-1).time;
@@ -101,13 +101,16 @@ async function run(){
       }
     }catch(e){errors.push({asset,error:e.message});}
   }
-  const snapshots=fs.readdirSync(path.join(DIR,'snapshots')).filter(n=>n.endsWith('.json')).map(n=>JSON.parse(fs.readFileSync(path.join(DIR,'snapshots',n),'utf8'))).sort((a,b)=>a.firstObservedAt-b.firstObservedAt);
+  const snapshots=fs.readdirSync(path.join(DIR,'snapshots')).filter(n=>n.startsWith('gold-')&&n.endsWith('.json')).map(n=>JSON.parse(fs.readFileSync(path.join(DIR,'snapshots',n),'utf8'))).sort((a,b)=>a.firstObservedAt-b.firstObservedAt);
   const barMaps={gold:new Map(),btc:new Map()};
   for(const {snapshot:s} of snapshots)for(const b of Feed.input(s).exec){if(b.time+STEP<=s.settings.now&&!barMaps[s.asset].has(b.time))barMaps[s.asset].set(b.time,b);}
   const sampleFile=path.join(DIR,'samples.jsonl');
   const previous=new Map(fs.existsSync(sampleFile)?fs.readFileSync(sampleFile,'utf8').trim().split('\n').filter(Boolean).map(line=>{const s=JSON.parse(line);return[s.id,s];}):[]);
-  const samples=snapshots.map(({snapshot,firstObservedAt})=>previous.get(snapshot.id)||features(snapshot,firstObservedAt));
-  const results=samples.map(s=>({id:s.id,asset:s.asset,outcomes:[1,4,8,16].map(h=>outcome(s,barMaps[s.asset],h))}));
+  const merged=new Map(previous);
+  for(const {snapshot,firstObservedAt} of snapshots)if(!merged.has(snapshot.id))merged.set(snapshot.id,features(snapshot,firstObservedAt));
+  const samples=[...merged.values()];
+  const oldResults=new Map(fs.existsSync(path.join(DIR,'outcomes.json'))?JSON.parse(fs.readFileSync(path.join(DIR,'outcomes.json'))).map(r=>[r.id,r]):[]);
+  const results=samples.map(s=>s.asset==='gold'?{id:s.id,asset:s.asset,outcomes:[1,4,8,16].map(h=>outcome(s,barMaps.gold,h))}:oldResults.get(s.id)).filter(Boolean);
   fs.writeFileSync(path.join(DIR,'samples.jsonl'),samples.map(s=>JSON.stringify(s)).join('\n')+'\n');
   fs.writeFileSync(path.join(DIR,'outcomes.json'),JSON.stringify(results,null,2));
   const summary={updatedAt:new Date().toISOString(),samples:samples.length,byAsset:Object.fromEntries(['gold','btc'].map(asset=>[asset,{samples:samples.filter(s=>s.asset===asset).length,actionable:samples.filter(s=>s.asset===asset&&s.actionable).length,liveObserved:samples.filter(s=>s.asset===asset&&s.liveObservation).length,resolved2h:results.filter(s=>s.asset===asset&&s.outcomes[2].status==='resolved').length}])),errors,
@@ -117,22 +120,22 @@ async function run(){
   if(process.argv.includes('--multiframe')){
     global.MultiAnalyzerCore=Core;global.MultiAnalyzerFeed=Feed;
     try{
-      const pack=await require('./review-pack').collect(['gold','btc']);
+      const pack=await require('./review-pack').collect(['gold']);
       const capture={capturedAt:pack.capturedAt,version:pack.version,errors:pack.errors,acquisition:pack.acquisition,records:pack.records.map(r=>({asset:r.asset,tf:r.tf,minutes:r.minutes,cutoff:r.cutoff,snapshotId:r.snapshotId,bars:Feed.pack(r.rows),acquisitionUseIds:r.acquisitionUseIds}))};
       const target=path.join(DIR,'multiframe');fs.mkdirSync(target,{recursive:true});
       const file=path.join(target,`${pack.capturedAt}.json.gz`);fs.writeFileSync(file,require('node:zlib').gzipSync(JSON.stringify(capture)),{flag:'wx'});summary.multiframe={records:capture.records.length,file:path.basename(file),errors:pack.errors,errorEvidence:multiframeErrorEvidence(pack)};
     }catch(e){summary.multiframe={error:e.message};}
   }
   if(process.argv.includes('--multiframe')){
-    const observation=await require('./market-observation.cjs').capture();
+    const observation=await require('./market-observation.cjs').capture({assets:['gold']});
     const target=path.join(DIR,'microstructure');fs.mkdirSync(target,{recursive:true});
     const file=`${observation.observedAt}.json.gz`;fs.writeFileSync(path.join(target,file),require('node:zlib').gzipSync(JSON.stringify(observation)),{flag:'wx'});
     summary.microstructure={file,errors:observation.errors,samples:Object.fromEntries(Object.entries(observation.assets).map(([asset,x])=>[asset,{count:x.sample?.count,durationSeconds:x.sample?.durationSeconds,spreadBps:x.quote?.spreadBps}]))};
   }
   const nearMissSpec=path.join(DIR,'near-miss-spec-v1.json');
   if(fs.existsSync(nearMissSpec)){
-    const nearMiss=require('./research-near-miss.cjs').run({quiet:true});
-    summary.nearMiss={version:1,rows:nearMiss.rows,file:'near-miss-report-v1.json',generatedAt:nearMiss.generatedAt};
+    const nearMiss=require('./research-near-miss.cjs').run({quiet:true,assets:['gold']});
+    summary.nearMiss={version:1,rows:nearMiss.rows,file:'near-miss-report-gold-v1.json',generatedAt:nearMiss.generatedAt};
   }
   fs.writeFileSync(path.join(DIR,'summary.json'),JSON.stringify(summary,null,2));console.log(JSON.stringify(summary));
 }

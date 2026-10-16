@@ -24,7 +24,7 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parent
 ALLOWED_MARKETS = {"spot", "futures"}
-ALLOWED_SYMBOLS = {"XAUUSDT", "BTCUSDT"}
+ALLOWED_SYMBOLS = {"XAUUSDT"}
 ALLOWED_INTERVALS = {"1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "6h", "8h", "12h", "1d", "1w"}
 CACHE: dict[str, tuple[float, bytes, str]] = {}
 CACHE_LOCK = Lock()
@@ -144,10 +144,10 @@ class Handler(SimpleHTTPRequestHandler):
                 return
             if parsed.path == "/api/reference":
                 asset = urllib.parse.parse_qs(parsed.query).get('asset', [''])[0]
-                if asset not in {'gold', 'btc'}:
+                if asset != 'gold':
                     self._error(HTTPStatus.BAD_REQUEST, "Unsupported asset")
                     return
-                symbol = 'XAU' if asset == 'gold' else 'BTC'
+                symbol = 'XAU'
                 body, content_type = _fetch_upstream('https://api.gold-api.com/price/' + symbol)
                 self._send(HTTPStatus.OK, body, content_type)
                 return

@@ -398,7 +398,7 @@ async function run(options={}) {
   let sourceAudit;
   try{sourceAudit=require('./demo-source-audit.cjs').audit(codeRoot,require('./demo-version.cjs').identity(codeRoot).hash);}
   catch{sourceAudit={valid:false,issues:[{code:'LOCAL_SOURCE_IDENTITY_UNAVAILABLE'}]};}
-  for(const asset of ['gold','btc']){
+  for(const asset of ['gold']){
     if(!sourceAudit.valid){assets.push({asset,valid:false,error:'LOCAL_SOURCE_UNVERIFIED',books:[],issues:[{code:'SOURCE_AUDIT_FAILED'}]});continue;}
     try{const input=await readLedger(asset,options);assets.push(audit(input.view,input.records,input.sources,{now:options.now??Date.now()}));}
     catch(e){assets.push({asset,valid:false,error:String(e.message).slice(0,160),books:[],issues:[{code:'READ_FAILED'}]});}

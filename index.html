@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="color-scheme" content="dark">
   <meta name="theme-color" content="#07090c">
-  <meta name="description" content="Gold/USD・BTC/USDのリアルタイム多時間足分析、売買候補、撤退判断、リスク管理、バックテスト">
+  <meta name="description" content="Gold/USDのリアルタイム多時間足分析、売買候補、撤退判断、リスク管理、バックテスト">
   <title>Multi-Analyzer Ultimate</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -27,11 +27,11 @@
   <script defer src="market-knowledge.js?v=3-fed20261016"></script>
   <script defer src="market-brief.js?v=3-fed20261016"></script>
   <script defer src="snapshot-health.js?v=3-session-copy"></script>
-  <script defer src="review-pack.js?v=4.3.4-zone-timing2"></script>
+  <script defer src="review-pack.js?v=4.3.4-gold-only1"></script>
   <script defer src="chart-evidence.js?v=4.3.4-timing1"></script>
   <script defer src="marker-details.js?v=2-profile"></script>
   <script defer src="demo-panel.js?v=4-pending-window"></script>
-  <script defer src="app.js?v=4.3.4-timing1"></script>
+  <script defer src="app.js?v=4.3.4-gold-only1"></script>
 </head>
 <body>
   <div class="app-shell">
@@ -46,7 +46,6 @@
 
       <nav class="instrument-tabs" aria-label="銘柄">
         <button class="instrument-tab active" data-instrument="gold" type="button">GOLD / USD</button>
-        <button class="instrument-tab" data-instrument="btc" type="button">BTC / USD</button>
       </nav>
 
 
@@ -317,7 +316,6 @@
     <header class="review-header"><div><span class="eyebrow">RESEARCH WORKSPACE</span><h2 id="reviewTitle">比較・検証・AI相談</h2></div><button id="reviewClose" class="icon-button" aria-label="比較画面を閉じる">×</button></header>
     <div class="review-controls">
       <button class="ghost-button" data-review-view="compare" aria-pressed="true">6時間足を比較</button><button class="ghost-button" data-review-view="evidence" aria-pressed="false">根拠・アラート</button>
-      <label><input id="reviewBoth" type="checkbox">Gold＋BTCをまとめる</label>
       <button id="reviewRefresh" class="ghost-button">更新して固定</button><button id="reviewCancel" class="ghost-button">取得を中止</button>
     </div>
     <p id="reviewStatus" role="status" aria-live="polite">取得準備中</p>

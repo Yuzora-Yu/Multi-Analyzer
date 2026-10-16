@@ -33,9 +33,10 @@ function sampleQuality(sample,{requestedAt,receivedAt,serverTime=null}){
     comparableAcrossAssets:false,
     reason:'Count-limited snapshot. Timestamp span does not prove complete interval coverage. Use receivedAt for causal joins; do not infer trader identity.'};
 }
-async function capture(){
+async function capture({assets=['gold']}={}){
+  if(!Array.isArray(assets)||assets.some(a=>a!=='gold'))throw Error('Only Gold collection is enabled');
   const observation={observedAt:Date.now(),assets:{},errors:[],purpose:'Analysis-only. Not used by live alerts.'};
-  for(const [asset,cfg] of Object.entries(Feed.instruments)){
+  for(const [asset,cfg] of Object.entries(Feed.instruments).filter(([asset])=>assets.includes(asset))){
     if(!Feed.collectionPolicy(asset).allowed){observation.assets[asset]={state:'MARKET_CLOSED'};continue;}
     const query=new URLSearchParams({category:cfg.category,symbol:cfg.symbol});
     const timings={};

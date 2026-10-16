@@ -476,8 +476,8 @@
     async function refresh(){
       if(controller)controller.abort();controller=new AbortController();const current=controller;pack=null;grid.replaceChildren();summary.replaceChildren();$('reviewSave').disabled=true;$('reviewCopy').disabled=true;$('reviewDownload').hidden=true;if(downloadUrl)URL.revokeObjectURL(downloadUrl);
       try{
-        const archive=getArchiveId();$('reviewBoth').disabled=Boolean(archive);if(archive)$('reviewBoth').checked=false;
-        const result=await collect(!archive&&$('reviewBoth').checked?['gold','btc']:[getAsset()],{signal:current.signal,archivedId:archive,onProgress:t=>{status.textContent=t;}});
+        const archive=getArchiveId();
+        const result=await collect(['gold'],{signal:current.signal,archivedId:archive,onProgress:t=>{status.textContent=t;}});
         if(current!==controller)return;pack=result;renderOverview();
         for(const r of pack.records){const article=document.createElement('article');article.className='review-card';const h=document.createElement('h3');h.textContent=`${r.asset.toUpperCase()} / ${r.tf}`;const c=chartImage(r);c.setAttribute('aria-label',facts(r).join('。'));const details=document.createElement('div');details.className='review-facts';for(const text of facts(r)){const p=document.createElement('p');p.textContent=text;details.append(p);}article.append(h,c,details);grid.append(article);}
         const evidence=document.createElement('article');evidence.className='review-evidence';const heading=document.createElement('h3');heading.textContent='アラート条件・共通判定';const text=document.createElement('div');text.className='review-facts';for(const t of [...policy,...pack.assets.flatMap(a=>[`${a.asset.toUpperCase()} / ${a.signal.state}`,a.signal.plan?planText(a.signal.plan):'参考プランなし'])]){const p=document.createElement('p');p.textContent=t;text.append(p);}const image=evidenceImage(pack);image.hidden=true;evidence.append(heading,text,image);grid.append(evidence);
@@ -489,12 +489,11 @@
     $('reviewOpen').addEventListener('click',()=>{dialog.showModal();if(!pack||!pack.assets.some(a=>a.asset===getAsset()))refresh();});
     $('reviewClose').addEventListener('click',()=>dialog.close());dialog.addEventListener('close',()=>controller?.abort());
     $('reviewRefresh').addEventListener('click',refresh);$('reviewCancel').addEventListener('click',()=>controller?.abort());
-    $('reviewBoth').addEventListener('change',refresh);
     for(const b of dialog.querySelectorAll('[data-review-view]'))b.addEventListener('click',()=>setView(b.dataset.reviewView));
     $('focusMode').addEventListener('click',()=>{const active=document.body.classList.toggle('chart-focus');$('focusMode').setAttribute('aria-pressed',String(active));onLayout();});
     $('reviewCopy').addEventListener('click',async()=>{try{await navigator.clipboard.writeText(prompt(pack));status.textContent='AI相談文をコピーしました。保存したPNGもAIに添付してください。';}catch{$('reviewPrompt').hidden=false;$('reviewPrompt').value=prompt(pack);$('reviewPrompt').select();status.textContent='相談文を選択してコピーできます。';}});
     $('reviewSave').addEventListener('click',async()=>{
-      if(!pack)return;const saved=pack;const button=$('reviewSave');button.disabled=true;$('reviewRefresh').disabled=true;$('reviewBoth').disabled=true;
+      if(!pack)return;const saved=pack;const button=$('reviewSave');button.disabled=true;$('reviewRefresh').disabled=true;
       try{
         const files=[];for(const [i,c] of [...grid.querySelectorAll('canvas')].entries()){
           status.textContent=`画像を保存用に変換 ${i+1}/${saved.records.length+1}`;
@@ -507,7 +506,7 @@
         status.textContent='保存データをまとめています';const archive=await zipCompressed(files);
         if(downloadUrl)URL.revokeObjectURL(downloadUrl);downloadUrl=URL.createObjectURL(archive);const link=$('reviewDownload');link.href=downloadUrl;link.download=`multi-analyzer-${new Date(saved.capturedAt).toISOString().replace(/[:.]/g,'-')}.zip`;link.hidden=false;
         status.textContent=`保存の準備完了（${files.length}ファイル）。「ZIP保存」を押してください。AIには展開したPNGと相談文を添付できます。${saved.errors.length?'未取得の時間足はmanifestに記録しました。':''}`;
-      }catch(e){status.textContent='保存失敗：'+e.message;}finally{button.disabled=false;$('reviewRefresh').disabled=false;$('reviewBoth').disabled=Boolean(getArchiveId());}
+      }catch(e){status.textContent='保存失敗：'+e.message;}finally{button.disabled=false;$('reviewRefresh').disabled=false;}
     });
   }
   return{context,reasons,init,collect,captureTransport,acquisitionFailure,acquisitionErrorText,zip,zipCompressed,crc32,closed,frames,policy,facts,prompt,overview,decision,decisionText,calendarText,consultation,zoneWithdrawal,withdrawalText,confirmationContext,costContext,executionContext,chartContextSeries,chartTurns,timingContext,timingText,chartImage};

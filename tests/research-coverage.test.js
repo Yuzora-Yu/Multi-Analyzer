@@ -48,7 +48,9 @@ test('offline collector execution omits scheduled requests, preserves an open-ma
  const source=(asset,time)=>({id:`${asset}-${time}-4.3.4`,asset,version:'4.3.4',createdAt:time+S+4500,symbol:Feed.instruments[asset].symbol,
   settings:{now:time+S+1,market:Feed.instruments[asset].market},bars:{m15:[[time,100,101,99,100,10]],h1:[],h4:[]}});
  const old=source('gold',Date.UTC(2026,9,9,14)),oldFile=path.join(dir,'snapshots',old.id+'.json'),oldBytes=JSON.stringify({firstObservedAt:old.createdAt+100,snapshot:old});
- const files=new Map([[oldFile,oldBytes]]),requests=[],missing=`gold-${last-S}-4.3.4`;
+ const stoppedBTC={id:'btc-stopped-original',asset:'btc',bar:last,actionable:false,liveObservation:true};
+ const stoppedOutcome={id:stoppedBTC.id,asset:'btc',outcomes:[1,4,8,16].map(horizon=>({horizon,status:'pending-or-missing',stoppedSentinel:true}))};
+ const files=new Map([[oldFile,oldBytes],[path.join(dir,'samples.jsonl'),JSON.stringify(stoppedBTC)+'\n'],[path.join(dir,'outcomes.json'),JSON.stringify([stoppedOutcome])]]),requests=[],missing=`gold-${last-S}-4.3.4`;
  const fakeFs={mkdirSync(){},existsSync:f=>files.has(f),readFileSync:f=>{assert.ok(files.has(f),'unexpected read');return files.get(f);},
   readdirSync:d=>[...files.keys()].filter(f=>path.dirname(f)===d).map(f=>path.basename(f)),
   writeFileSync(f,data,options){if(options?.flag==='wx')assert.equal(files.has(f),false);files.set(f,data);}};
@@ -62,13 +64,15 @@ test('offline collector execution omits scheduled requests, preserves an open-ma
     return {ok:id!==missing,status:id===missing?404:200,json:async()=>source(asset,id?Number(id.split('-')[1]):last)};},
    console:{log:s=>resolve(JSON.parse(s)),error:reject}});
  });
- assert.equal(requests.length,8);assert.equal(requests.filter(r=>r.asset==='gold').length,4);
+ assert.equal(requests.length,4);assert.equal(requests.filter(r=>r.asset==='gold').length,4);assert.ok(requests.every(r=>r.asset==='gold'));
  assert.deepEqual(summary.errors,[{id:missing,error:'HTTP 404'}]);assert.equal(summary.archivePolicy.excluded.length,20);
- assert.equal(files.get(oldFile),oldBytes);assert.equal(summary.samples,8);
+ assert.equal(files.get(oldFile),oldBytes);assert.equal(summary.samples,5);
  const samples=files.get(path.join(dir,'samples.jsonl')).trim().split('\n').map(JSON.parse);
  assert.ok(summary.archivePolicy.excluded.every(x=>!samples.some(s=>s.id===x.id)));
  assert.ok(!samples.some(s=>s.id===missing));
+ assert.deepEqual(samples.find(s=>s.id===stoppedBTC.id),stoppedBTC);
  const outcomes=JSON.parse(files.get(path.join(dir,'outcomes.json')));
+ assert.deepEqual(outcomes.find(r=>r.id===stoppedBTC.id),stoppedOutcome);
  assert.ok(outcomes.find(r=>r.id===`gold-${last-2*S}-4.3.4`).outcomes.every(o=>o.status==='pending-or-missing'));
  assert.ok(outcomes.find(r=>r.id===old.id).outcomes.every(o=>o.status==='pending-or-missing'));
 });

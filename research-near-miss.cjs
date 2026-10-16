@@ -36,14 +36,14 @@ function median(values) {
   return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
 }
 
-function loadRows(spec, {directory = DIR, cacheDirectory = path.join(__dirname, '.runtime', 'hourly-observation', 'research-near-miss-cache'), useCache = true, cacheStats} = {}) {
+function loadRows(spec, {directory = DIR, cacheDirectory = path.join(__dirname, '.runtime', 'hourly-observation', 'research-near-miss-cache'), useCache = true, cacheStats, assets = null} = {}) {
   const outcomes = new Map(JSON.parse(fs.readFileSync(path.join(directory, 'outcomes.json'), 'utf8')).map(row => [row.id, row]));
   const samples = new Map(fs.readFileSync(path.join(directory, 'samples.jsonl'), 'utf8').trim().split(/\r?\n/).filter(Boolean).map(line => {
     const row = JSON.parse(line); return [row.id, row];
   }));
   const snapshotDir = path.join(directory, 'snapshots');
   const cache = useCache ? Cache.open(cacheDirectory) : null;
-  const rows = fs.readdirSync(snapshotDir).filter(name => name.endsWith('.json')).map(name => {
+  const rows = fs.readdirSync(snapshotDir).filter(name => name.endsWith('.json') && (assets === null || assets.some(asset => name.startsWith(asset + '-')))).map(name => {
       const raw = fs.readFileSync(path.join(snapshotDir, name));
       const {snapshot, firstObservedAt} = JSON.parse(raw);
       const sample = samples.get(snapshot.id);
@@ -62,9 +62,9 @@ function loadRows(spec, {directory = DIR, cacheDirectory = path.join(__dirname, 
   return rows;
 }
 
-function summarize(rows, spec) {
+function summarize(rows, spec, assets = ['gold']) {
   const report = {};
-  for (const asset of ['gold', 'btc']) {
+  for (const asset of assets) {
     report[asset] = {};
     for (const group of Object.keys(spec.groups)) {
       report[asset][group] = {};
@@ -88,12 +88,13 @@ function summarize(rows, spec) {
   return report;
 }
 
-function run({quiet = false} = {}) {
+function run({quiet = false, assets = ['gold']} = {}) {
+  if(assets.some(a=>a!=='gold'))throw Error('Only Gold validation is enabled');
   const spec = JSON.parse(fs.readFileSync(path.join(DIR, 'near-miss-spec-v1.json'), 'utf8'));
-  const rows = loadRows(spec);
+  const rows = loadRows(spec, {assets});
   const result = {generatedAt: new Date().toISOString(), specCreatedAt: spec.createdAt, startAfterBar: spec.startAfterBar,
-    note: '前向き分類の分析専用集計。未観測の仮想エントリ、少数例、重複除外後の件数を分け、本番条件は変更しない。', rows: rows.length, report: summarize(rows, spec)};
-  fs.writeFileSync(path.join(DIR, 'near-miss-report-v1.json'), JSON.stringify(result, null, 2));
+    note: '前向き分類の分析専用集計。未観測の仮想エントリ、少数例、重複除外後の件数を分け、本番条件は変更しない。', rows: rows.length, operatingAssets: assets, report: summarize(rows, spec, assets)};
+  fs.writeFileSync(path.join(DIR, 'near-miss-report-gold-v1.json'), JSON.stringify(result, null, 2));
   if (!quiet) console.log(JSON.stringify({generatedAt: result.generatedAt, rows: result.rows, report: result.report}, null, 2));
   return result;
 }

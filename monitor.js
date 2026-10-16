@@ -6,7 +6,7 @@ const { spawnSync } = require('node:child_process');
 const Core = require('./strategy-core.js');
 const Feed = require('./market-feed.js');
 const DIR = path.join(__dirname, '.runtime');
-const instruments = { gold: { symbol: 'XAUUSDT', market: 'futures' }, btc: { symbol: 'BTCUSDT', market: 'spot' } };
+const instruments = { gold: { symbol: 'XAUUSDT', market: 'futures' } };
 const PUBLIC_PAGE = 'https://yuzora-yu.github.io/Multi-Analyzer/';
 
 const { eventFor, alertPolicy } = require('./alert-event.js');

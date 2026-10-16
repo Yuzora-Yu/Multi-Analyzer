@@ -1,5 +1,9 @@
 # GOLD review workflow
 
+## Active scope (2026-10-16 explicit user instruction)
+
+This chat and the collector chat 「デモ検証」 are Gold-only. Stop BTC acquisition, current research/demo evaluation and every BTC notification. The public application offers only Gold. Keep historical BTC sources, frozen registrations and results; record the user-requested stop without inventing liquidation or completing the unfinished validation period. Preserve Gold strategy hashes and behavior. Deploy `cloudflare/gold-only.mjs`, the operational scope wrapper, without rewriting the frozen `cloudflare/monitor.mjs`; the BTC partition's alarm is cancelled and its execution routes are blocked. Gold monitoring, fixed demo-v1, notifications and market-closure rules continue. Existing automation schedules/models remain unchanged. Discord readthrough continues; other symbols in historical posts provide method context only and do not authorize restarting their live research.
+
 ## Research storage policy (2026-10-11 user instruction)
 
 The user explicitly requested that the independent demo/research chats accumulate data in Git instead of growing local downloads. Research observations and sanitized research outputs belong in the dedicated PRIVATE `Yuzora-Yu/Multi-Analyzer-data` repository. This supersedes older instructions that excluded all observation data from Git; secrets, personal information and mail records remain excluded. Never add runtime datasets to the public application repository.

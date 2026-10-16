@@ -147,7 +147,7 @@ test('API reader freezes the view sequence, ignores newer rows and reuses valida
 });
 test('runner retains a complete report on endpoint failure and atomically updates only LATEST',async t=>{
   const dir=fs.mkdtempSync(path.join(os.tmpdir(),'demo-run-'));t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));
-  const fetcher=async()=>({ok:false,status:503});
+  const fetcher=async url=>{assert.equal(new URL(url).searchParams.get('asset'),'gold');return {ok:false,status:503};};
   const first=await Review.run({root:dir,fetcher,now:T});assert.equal(first.valid,false);
   const saved=fs.readFileSync(path.join(dir,'reviews',first.reportDirectory,'report.json'),'utf8');
   const second=await Review.run({root:dir,fetcher,now:T+D});
