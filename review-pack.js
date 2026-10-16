@@ -90,7 +90,7 @@
       const matches=(pack.records||[]).filter(r=>r.asset===a.asset&&r.tf===tf),r=matches[0];
       const frame={tf,available:false,reason:'未取得'};out.frames.push(frame);
       if(matches.length!==1||!r||r.minutes!==minutes||r.snapshotId!==snapshot.id||r.version!==snapshot.version||r.decisionCutoff!==cutoff||r.timeBasis!==(archived?'archived-decision':'latest-closed')){frame.reason='取得元・判定IDが不一致または重複';continue;}
-      if(!r.analysis?.ready||r.analysis.intervalMinutes!==minutes||r.analysis.quality?.stale||r.analysis.quality?.gaps>0){frame.reason='履歴不足・遅延・欠損';continue;}
+      if(r.analysis?.ready!==true||r.analysis.intervalMinutes!==minutes||r.analysis.quality?.stale!==false||r.analysis.quality?.gaps!==0){frame.reason='履歴不足・遅延・欠損・品質未確認';continue;}
       if(!Number.isFinite(r.cutoff)||r.cutoff>pack.capturedAt+2000||archived&&r.cutoff!==cutoff){frame.reason='時間基準が不一致';continue;}
       const rows=r.rows||[],last=rows.at(-1),f=r.analysis.flow?.latest;
       const valid=b=>b&&['time','open','high','low','close','volume'].every(k=>Number.isFinite(b[k]))&&b.time>0&&b.time%(minutes*60000)===0&&b.low>0&&b.high>=Math.max(b.open,b.close,b.low)&&b.low<=Math.min(b.open,b.close)&&b.volume>=0&&b.time+minutes*60000<=r.cutoff;

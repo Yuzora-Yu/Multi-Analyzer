@@ -49,7 +49,7 @@ test('wrong snapshot, instrument, version, time basis or duplicate frame cannot 
   const {pack,entry,capturedAt}=fixture();pack.records.push(structuredClone(pack.records[0]));assert.equal(R.timingContext(pack,entry,capturedAt).frames[0].available,false);
 });
 test('forming, duplicate, conflicting OHLCV, and wrong flow time are rejected',()=>{
-  for(const mutate of [r=>r.rows.push({...r.rows.at(-1),time:cutoff+8*minute}),r=>r.rows.push({...r.rows.at(-1)}),r=>r.analysis.candles.at(-1).volume++,r=>r.analysis.flow.latest.time--,r=>r.rows.at(-1).low=0,r=>r.analysis.quality.gaps=1]){
+  for(const mutate of [r=>r.rows.push({...r.rows.at(-1),time:cutoff+8*minute}),r=>r.rows.push({...r.rows.at(-1)}),r=>r.analysis.candles.at(-1).volume++,r=>r.analysis.flow.latest.time--,r=>r.rows.at(-1).low=0,r=>r.analysis.quality.gaps=1,r=>delete r.analysis.quality,r=>delete r.analysis.quality.stale,r=>delete r.analysis.quality.gaps,r=>r.analysis.ready='true']){
     const {pack,entry,capturedAt}=fixture();mutate(pack.records[0]);assert.equal(R.timingContext(pack,entry,capturedAt).frames[0].available,false);
   }
 });
