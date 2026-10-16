@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=4.3.4-marker-details2">
+  <link rel="stylesheet" href="styles.css?v=4.3.4-chart-layout1">
   <script defer src="https://unpkg.com/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js"></script>
   <script defer src="market-feed.js?v=4.3.3-session"></script>
   <script defer src="price-basis.js?v=1"></script>
@@ -99,6 +99,7 @@
         </div>
 
         <div class="terminal-workspace">
+          <div class="chart-column">
           <div class="chart-area">
             <div class="chart-touch-tools" aria-label="チャート操作">
               <button id="chartZoomOut" type="button" aria-label="チャートを縮小">−</button>
@@ -120,6 +121,7 @@
               <div><span>RSI</span><strong id="rsiValue">—</strong></div>
               <div><span>QUALITY</span><strong id="qualityValue">—</strong></div>
             </div>
+          </div>
 
             <div class="action-compass wait" id="actionCompass" role="status">
               <div class="compass-legend"><span>緑 ▲ 買い</span><span>赤 ▼ 売り</span><span>紫 × 撤退注意</span><span>灰 — 待機</span></div>
