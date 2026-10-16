@@ -123,6 +123,32 @@ test('event phases cover preprint, initial reaction, assimilation and next sessi
  assert.equal(typeof B.session(e.time).direction,'undefined');
 });
 
+test('later import results and G17 schedule do not leak into earlier context or alter original zones',()=>{
+ const e=K.calendar.events.find(e=>e.id==='us-import-202609'),g=K.calendar.events.find(e=>e.id==='us-g17-202609');
+ const before=describe(fixture(new Date(e.result.knownAt-1).toISOString()));
+ const after=describe(fixture(new Date(e.result.knownAt).toISOString()));
+ assert.equal(before.previous.id,e.id);assert.equal(before.previous.result,null);assert.equal(before.upcoming,null);
+ assert.equal(before.sources.some(s=>s.id===e.result.source||s.id===g.source),false);
+ assert.equal(after.previous.result.knownAt,e.result.knownAt);assert.equal(after.upcoming.id,g.id);
+ assert.match(B.html(after),/実績確認 10\/16 22:09 JST/);
+ assert.match(B.html(after),/https:\/\/www\.bls\.gov\/news\.release\/ximpim\.nr0\.htm/);
+ assert.match(B.lines(after).join(' '),/輸入物価 前月比\+1\.1％・前年比\+8\.1％/);
+ assert.match(B.lines(after).join(' '),/予想値・同時刻の金利とドルは未取得/);
+ assert.deepEqual(after.plans,before.plans);assert.equal(after.actionable,false);
+ assert.equal(K.calendar.verifiedAt,Date.parse('2026-10-15T02:16:00Z'));
+ assert.equal(K.calendar.expiresAt,Date.parse('2026-10-17T02:16:00Z'));
+});
+
+test('G17 retains its verified EDT time and no invented result when the scheduled time passes',()=>{
+ const e=K.calendar.events.find(e=>e.id==='us-g17-202609');
+ assert.equal(new Date(e.time).toISOString(),'2026-10-16T13:15:00.000Z');
+ const b=describe(fixture(new Date(e.time+1000).toISOString()));
+ assert.equal(b.previous.id,e.id);assert.equal(b.previous.result,null);
+ assert.match(B.lines(b).join(' '),/発表結果・予想差は背景記録に未収録/);
+ assert.doesNotMatch(B.html(b),/実績確認|輸入物価 前月比/);
+ assert.equal(b.actionable,false);
+});
+
 test('presentation escapes input, uses the selected price basis and keeps limits and sources visible',()=>{
  const b=describe(fixture());b.plans[0].zone.condition='<img src=x onerror=alert(1)>';
  b.plans[0].focus={windows:[{levels:[{label:'4H EMA20',price:106},{label:'15m BB上限',price:108}]}]};
