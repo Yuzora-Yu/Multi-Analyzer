@@ -100,6 +100,22 @@ test('London and New York observation clocks follow separate DST transitions',()
  const clocks=B.clockPoints(Date.parse('2026-10-16T23:00:00Z'));assert.ok(clocks.every(c=>new Date(c.time).getUTCDay()!==0&&new Date(c.time).getUTCDay()!==6));
 });
 
+test('a newly verified Fed appearance is visible only from its review time and does not fabricate remarks',()=>{
+ const e=K.calendar.events.find(e=>e.id==='fed-warsh-imf-20261016');
+ const before=describe(fixture(new Date(e.knownAt-1).toISOString()));
+ const after=describe(fixture(new Date(e.knownAt).toISOString()));
+ assert.equal(new Date(e.time).toISOString(),'2026-10-16T03:30:00.000Z');
+ assert.equal(before.upcoming.id,'us-import-202609');
+ assert.equal(before.sources.some(s=>s.id===e.source),false);
+ assert.equal(after.upcoming.id,e.id);assert.equal(after.upcoming.result,null);
+ assert.match(B.lines(after).join(' '),/12:30 JST.*ウォーシュ/);
+ assert.match(B.html(after),/予定の個別確認 10\/16 12:07 JST/);
+ assert.match(B.html(after),/https:\/\/www\.federalreserve\.gov\/newsevents\/2026-october\.htm/);
+ assert.deepEqual(after.plans,before.plans);assert.equal(after.actionable,false);
+ const started=describe(fixture(new Date(e.time+1000).toISOString()));
+ assert.equal(started.previous.id,e.id);assert.equal(started.previous.result,null);assert.equal(started.anchors,null);
+});
+
 test('event phases cover preprint, initial reaction, assimilation and next session without encoding a direction',()=>{
  const e={time:Date.parse('2026-10-14T12:30:00Z')};
  for(const [minutes,stage]of [[-1,'BEFORE'],[0,'IMPULSE'],[5,'FIRST_HOUR'],[60,'ASSIMILATION'],[240,'FOLLOW_THROUGH'],[900,'NEXT_SESSION'],[2200,'OLDER']])assert.equal(B.eventStage(e,e.time+minutes*60000),stage);

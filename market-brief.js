@@ -61,7 +61,8 @@
       high:Math.max(...bars.map(b=>b.high)),low:Math.min(...bars.map(b=>b.low)),count:bars.length};
   }
   function describe(a,{asset,now=Date.now(),mode='live',health=null,snapshotId=null,zoneReviews=null,knowledge=K}={}){
-    const base={version:VERSION,knowledgeVersion:knowledge?.version??null,observedAt:now,sourceId:snapshotId,available:false,actionable:false,scope:'CURRENT_CONTEXT_OVERLAY',plans:[],knowledge:knowledge?.principles||[],sources:knowledge?.sources||[]};
+    const visibleSources=(knowledge?.sources||[]).filter(s=>s.knownAt==null||finiteTime(s.knownAt)&&s.knownAt<=now);
+    const base={version:VERSION,knowledgeVersion:knowledge?.version??null,observedAt:now,sourceId:snapshotId,available:false,actionable:false,scope:'CURRENT_CONTEXT_OVERLAY',plans:[],knowledge:knowledge?.principles||[],sources:visibleSources};
     if(asset!=='gold')return {...base,reason:'この背景モデルはGOLD用です。BTCへ金の時間帯仮説を流用しません。',knowledge:[],sources:[]};
     if(mode!=='live')return {...base,reason:'保存記録・CSVには当時の背景保存がないため、現在の知識・予定を当時の判断へ混ぜません。',knowledge:[],sources:[]};
     if(!finiteTime(now)||!knowledge||knowledge.reviewedAt>now)return {...base,reason:'この時点で確認済みの背景資料がありません。',knowledge:[],sources:[]};
@@ -106,7 +107,8 @@
   function lines(b){
     if(!b)return [];if(!b.available)return ['時間帯・材料の事前シナリオ：'+b.reason];
     return [`時間帯・材料の事前シナリオ：${b.stance} / ${b.session.label}`,`背景確認 ${jst(b.observedAt)} / 15分確定 ${jst(b.priceClosedAt)} / Bybit ${price(b.price)}`,
-      b.technicalReason,b.macroConclusion,b.upcoming?`次の掲載指標 ${jst(b.upcoming.time)} ${b.upcoming.name}（掲載予定は一部）`:'次の指標はこの背景記録では確認できません。',
+      b.technicalReason,b.macroConclusion,b.upcoming?`次の掲載指標・発言 ${jst(b.upcoming.time)} ${b.upcoming.name}（掲載予定は一部）`:'次の指標・発言はこの背景記録では確認できません。',
+      ...(b.upcoming?[`予定の個別確認 ${jst(b.upcoming.knownAt)} / 出典 ${b.sources.find(s=>s.id===b.upcoming.source)?.url||'未確認'}`]:[]),
       ...(b.previous?[`${b.previous.name} ${jst(b.previous.time)} / ${stageLabel(b.previous.stage)}`,b.previous.result?.text||'発表結果・予想差は背景記録に未収録。']:[]),
       ...(b.previous?.result?[`実績確認 ${jst(b.previous.result.knownAt)} / 出典 ${b.sources.find(s=>s.id===b.previous.result.source)?.url||'未確認'}`]:[]),
       ...(b.anchors?[`指標前15分終値 ${price(b.anchors.preClose)} / 初動15分 ${price(b.anchors.first15.low)}～${price(b.anchors.first15.high)} / 初動1時間 ${price(b.anchors.firstHour.low)}～${price(b.anchors.firstHour.high)}。${b.anchors.note}`]:[]),
@@ -126,7 +128,8 @@
     return '<h3>時間帯・材料の事前シナリオ</h3>'+`<p class="brief-stance"><strong>${esc(b.stance)}</strong><span>${esc(b.session.label)} / 条件付き仮説</span></p>`+
       p(`背景確認 ${jst(b.observedAt)} / 15分確定 ${jst(b.priceClosedAt)}。価格は候補帯と同じ基準。`)+p(b.technicalReason)+
       (b.nearEvent?p('指標直前・初動の観察時間。発表前の仮説をそのまま持ち越さず、結果・実スプレッド・短期足を再確認。'):'')+
-      p(b.upcoming?`次の掲載指標 ${jst(b.upcoming.time)} ${b.upcoming.name}（一部予定）`:'次の指標はこの背景記録では未確認。')+
+      p(b.upcoming?`次の掲載指標・発言 ${jst(b.upcoming.time)} ${b.upcoming.name}（一部予定）`:'次の指標・発言はこの背景記録では未確認。')+
+      (b.upcoming?p(`予定の個別確認 ${jst(b.upcoming.knownAt)}`)+link(source(b.upcoming.source)):'')+
       (b.previous?p(`${b.previous.name}後：${stageLabel(b.previous.stage)}。指標前・初動の水準に対する拒否/回復を確認。`):'')+
       cards+(cards?'':p('撤回を除外した有効な元候補を確認できません。新しい価格帯は推定しません。'))+
       `<details ${expanded?'open':''}><summary>時間帯・指標後の水準・根拠を見る</summary>`+
