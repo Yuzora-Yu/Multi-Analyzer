@@ -55,6 +55,8 @@ GitHubのprimary rateヘッダーと書込予算を確認します。標準で�
 
 `contentWrites:0` はその実行でPOST/PATCHを試行していないことを示します。書込試行があって応答不明なら、既存のremote ref/readback照合を維持します。通信エラーだけで障害原因や保存成功を断定せず、過去の詳細がない失敗記録を後から書き換えません。自動再試行やLOCK破棄は追加しません。[GitHub REST APIの障害確認](https://docs.github.com/en/rest/using-the-rest-api/troubleshooting-the-rest-api)。
 
+ローカル入力の走査中は、選択した保存元の別名と相対パスのSHA256を `progress.localSource` に記録します。実パス・ファイル名・本文は残しません。ディレクトリ列挙後の読取りやcache照合時に保存元が利用できなくなった場合も、どの別名・入力を選択していたかを区別できます。これは原因の診断情報であり、ファイル消失の原因や復旧・Git保存の成功を示しません。走査完了後はこの情報を外します。過去の失敗記録へ後から付加しません。
+
 サイズや構造による除外は保存完了として扱いません。`SOURCE_FILE_TOO_LARGE_OR_NON_REGULAR`、`SOURCE_FILE_TOO_LARGE`、`STORED_FILE_TOO_LARGE`、`INFLATED_FILE_TOO_LARGE`、`INVALID_OR_OVERSIZED_GZIP`、`JSON_STRUCTURE_BUDGET_EXCEEDED`等が1件でも発生したら、親の収集担当へ**保存障害として連携**し、原本を保持します。64 MiBを超える入力も黙って無視しません。上限を拡大する前に、検査・展開・復元の資源上限と追加検証が必要です。
 
 ## 実行

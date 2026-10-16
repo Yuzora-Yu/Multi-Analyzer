@@ -693,6 +693,10 @@ async function sync(options) {
     outer: for (const alias of config.roots || Object.keys(ROOT_PATHS)) for (const entry of walk(alias, allRoots)) {
       progress.phase = 'SCAN_LOCAL_INPUTS';
       if (entry.reason) { exclude(summary, entry.reason); continue; }
+      // Only an allowlisted alias and a one-way path digest enter diagnostics.
+      // Keep this before either cached stat or file read: a root can disappear
+      // after walk selected its file. Never retain the private filename/path.
+      progress.localSource = { alias, relativeSha256: sha256(Buffer.from(entry.relative, 'utf8')) };
       const indexKey = `${alias}/${entry.relative}`, oldIndex = previousIndex[indexKey];
       if (oldIndex && known.has(recordKey({ alias, relative: entry.relative, originalSha256: oldIndex.originalSha256, privacyPolicy: POLICY }))) {
         const stat = fs.statSync(resolveSource(alias, entry.relative, allRoots));
@@ -722,6 +726,7 @@ async function sync(options) {
       payloadBatchBytes += payload.length; known.add(key);
       summary.acceptedFiles++; summary.acceptedBytes += file.storedBytes; summary.redactedFiles += Number(file.redacted);
     }
+    delete progress.localSource;
     await flush();
     progress.phase = 'PUBLISH_COMMIT';
     const commit = await api.append(tree, additions);

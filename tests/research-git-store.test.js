@@ -75,6 +75,29 @@ test('catalog read interruption records progress without publishing or changing 
   assert.equal(fs.existsSync(path.join(dir,'LOCK')),false);assert.doesNotMatch(JSON.stringify(result),/Bearer|private-value/);
 });
 
+test('a root unavailable between walk and read records only its alias and path digest without retry or deletion', async t => {
+  for (const cached of [false, true]) await t.test(cached ? 'cached stat' : 'fresh read', async t => {
+    const f=fixture(t),remote=fakeGitHub(),relative='private-file.json';
+    const target=f.write('hourly-observation',relative,{close:3});
+    if(cached)await Archive.sync({...remote,workspace:f.workspace});
+    const root=f.allRoots['hourly-observation'],before=fs.readFileSync(target),refBefore=remote.state.ref;
+    const writesBefore=remote.api.contentWrites,callsBefore=remote.state.calls.length;
+    const exists=fs.existsSync;let rootProbes=0;
+    fs.existsSync=function(value){if(value===root&&++rootProbes===2)return false;return exists.apply(this,arguments);};
+    try{await assert.rejects(Archive.sync({...remote,workspace:f.workspace}),/SOURCE_ROOT_MISSING/);}
+    finally{fs.existsSync=exists;}
+    const report=JSON.parse(fs.readFileSync(path.join(f.workspace,'.runtime/git-data-store/FAILURE-LATEST.json')));
+    assert.equal(rootProbes,2);
+    assert.equal(report.progress.phase,'SCAN_LOCAL_INPUTS');
+    assert.deepEqual(report.progress.localSource,{alias:'hourly-observation',relativeSha256:Archive.sha256(Buffer.from(relative))});
+    assert.doesNotMatch(JSON.stringify(report),/private-file|codex-archive|Users|Bearer|example\.test/);
+    assert.equal(report.contentWrites,writesBefore);assert.equal(report.noAutomaticRetry,true);assert.equal(report.localFilesPruned,0);
+    assert.ok(remote.state.calls.slice(callsBefore).every(call=>call.method==='GET'));
+    assert.equal(remote.state.ref,refBefore);assert.deepEqual(fs.readFileSync(target),before);
+    assert.equal(fs.existsSync(path.join(f.workspace,'.runtime/git-data-store/LOCK')),false);
+  });
+});
+
 test('remote inspection reads metadata only and respects private repository, fixed ref and foreign lock', async t => {
   const f=fixture(t),remote=fakeGitHub();f.write('hourly-observation','one.json',{close:1});
   await Archive.sync({...remote,workspace:f.workspace});const ref=remote.state.ref;
