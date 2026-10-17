@@ -99,6 +99,10 @@ node --test tests/research-git-store.test.js
 
 `inspect` は同じLOCKで直列化したGETのみの接続点検です。アカウント・非公開保存先、mainのcommit・treeの完全性と点検前後のref一致を確認します。通常8 GETで、manifest・packの本文や市場データを取得せず、保存・復元・削除や再同期を行いません。出力は `REMOTE_METADATA_VERIFIED`、`dataIntegrityVerified:false` です。これは接続とGitメタデータの確認であり、停止した同期の成功、全原本の保存や予測精度の証拠には使いません。
 
+参照の更新は引き続き `force:false` の1回だけです。[更新API](https://docs.github.com/en/rest/git/refs#update-a-reference) が新commitのSHAを返した後、読取APIが元のbaseを返し、[履歴比較](https://docs.github.com/en/rest/commits/commits#compare-two-commits)も `behind` となる場合に限り、500ms・1,000ms後にGETだけを追加確認します。観測は最初を含め最大3回で、POST/PATCHや同期全体の再試行ではありません。更新応答が新SHAを確認できない場合、実際の分岐、別の参照、未確認状態では、この追加読取を行いません。古いbaseが残り続けた場合も保存完了とはせず停止します。新commitまたは後続の参照を確認しても、tree・manifest・pack・各原本hashとプライバシー検査を省略しません。
+
+成功／失敗receiptの `publication` はbase・作成commit・更新応答による確認の有無・各観測refと比較分類・検証段階を記録します。HTTP200だけを履歴継承の証拠にはしません。応答本文、認証値、commit作者の情報は追加しません。以前の失敗でこれらが記録されていなければ、後の正常な履歴だけから当時の原因や同期成功を断定せず、元の失敗と後の検証を分けます。
+
 復元は別名、相対パス、原本SHA256で**版を明示**します。保存先は `.runtime/git-data-store/restored/<別名>/<相対パス>` に限定し、既存ファイルと原本を上書きしません。全体検証後に同じディレクトリの一時ファイルへ書き、fsyncとSHA256を照合し、排他的なhardlinkで完成版だけを公開します。hardlinkを使用できない保存先では停止し、上書きrenameへ切り替えません。失敗時の一時ファイルは整理します。伏字コピーには `--allow-redacted` が必要で、完全な原本復元とは表示しません。
 
 schema 1の個別復元は、現在ref・manifest・pack全体と各圧縮entryのハッシュを照合したうえで、指定したファイルだけを展開し、bytes/SHA256と現在のプライバシーポリシーを検査します。古いpackにメール通知の状態記録が混在していても、安全な市場原本だけを復元できます。通知記録自体の復元は拒否します。schema 2は全断片の再組立と全体検査を維持します。同期・pruneのpack全体検査や削除範囲を緩める変更ではありません。旧Git履歴を編集・削除する処理も含みません。pruneでこのような候補外の混在を検出した場合の保留は、下記の限定した規則に従います。

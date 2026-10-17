@@ -186,7 +186,7 @@ function fakeGitHub() {
   const initialTree = nextSha(); trees.set(initialTree, new Map());
   const initialCommit = nextSha(); commits.set(initialCommit, { tree: initialTree, parents: [] });
   const state = { ref: initialCommit, private: true, visibility: 'private', login: 'Yuzora-Yu',
-    failUpload: false, failAfterUploads: null, mismatchUpload: false, patchMode: 'normal', tamperedBlob: null, blobs, trees, commits, calls };
+    failUpload: false, failAfterUploads: null, mismatchUpload: false, patchMode: 'normal', refReadOverrides: [], tamperedBlob: null, blobs, trees, commits, calls };
   const response = (value, status = 200) => new Response(JSON.stringify(value), { status, headers: { 'Content-Type': 'application/json' } });
   async function fetchImpl(url, options = {}) {
     const endpoint = new URL(url).pathname, method = options.method || 'GET';
@@ -197,7 +197,7 @@ function fakeGitHub() {
     if (endpoint === prefix) return response({ full_name: Archive.REPOSITORY, private: state.private,
       visibility: state.visibility, owner: { login: 'Yuzora-Yu' }, permissions: { push: true }, archived: false });
     const relative = endpoint.slice(prefix.length);
-    if (relative === '/git/ref/heads/main') return response({ object: { type: 'commit', sha: state.ref } });
+    if (relative === '/git/ref/heads/main') return response({ object: { type: 'commit', sha: state.refReadOverrides.length ? state.refReadOverrides.shift() : state.ref } });
     if (relative.startsWith('/git/commits/') && method === 'GET') {
       const sha = relative.split('/').at(-1), commit = commits.get(sha);
       return commit ? response({ sha, tree: { sha: commit.tree }, parents: commit.parents.map(p => ({ sha: p })) }) : response({}, 404);
@@ -228,15 +228,29 @@ function fakeGitHub() {
     if (relative === '/git/refs/heads/main' && method === 'PATCH') {
       assert.equal(body.force, false);
       if (state.patchMode === 'conflict') return response({}, 422);
+      const previous = state.ref;
       state.ref = body.sha;
       if (state.patchMode === 'written-then-timeout') throw Error('simulated private transport exception');
+      if (['stale-once','unacknowledged-stale'].includes(state.patchMode)) state.refReadOverrides.push(previous);
+      if (state.patchMode === 'stale-persistent') state.refReadOverrides.push(previous, previous, previous);
+      if (state.patchMode === 'diverged-after-ack') {
+        state.ref = nextSha(); commits.set(state.ref, { tree: initialTree, parents: [] });
+      }
+      if (state.patchMode === 'ahead-after-ack') {
+        state.ref = nextSha(); commits.set(state.ref, { tree: commits.get(body.sha).tree, parents: [body.sha] });
+      }
+      if (state.patchMode === 'unacknowledged-stale') return response({});
+      if (['diverged-after-ack','ahead-after-ack'].includes(state.patchMode)) return response({ object: { sha: body.sha } });
       return response({ object: { sha: state.ref } });
     }
     if (relative.startsWith('/compare/')) {
       const [base, head] = relative.slice('/compare/'.length).split('...');
       let current = head;
       while (current && current !== base) current = commits.get(current)?.parents[0];
-      return response({ status: current === base ? (head === base ? 'identical' : 'ahead') : 'diverged' });
+      if (current === base) return response({ status: head === base ? 'identical' : 'ahead' });
+      current = base;
+      while (current && current !== head) current = commits.get(current)?.parents[0];
+      return response({ status: current === head ? 'behind' : 'diverged' });
     }
     throw Error(`Unhandled fake API: ${method} ${relative}`);
   }
@@ -379,6 +393,70 @@ test('optimistic conflict stops; written-then-timeout is resolved from actual re
   assert.equal(remote.api.lastFailure.phase,'FETCH_HEADERS');
   assert.equal(remote.api.lastFailure.code,'GITHUB_REQUEST_AMBIGUOUS');
   assert.equal(remote.api.lastFailure.transport,'UNKNOWN_TRANSPORT');
+});
+
+test('acknowledged publication reconciles one stale base read with GETs and verifies archived bytes', async t => {
+  const f=fixture(t), remote=fakeGitHub();
+  const target=f.write('hourly-observation','api.json',{close:4180});
+  const original=fs.readFileSync(target), initial=remote.state.ref;
+  remote.state.patchMode='stale-once';
+  const result=await Archive.sync({...remote,workspace:f.workspace});
+  assert.equal(result.mode,'SYNC_VERIFIED');
+  assert.equal(result.publication.patchAcknowledged,true);
+  assert.equal(result.publication.phase,'VERIFIED');
+  assert.deepEqual(result.publication.observations,[
+    {ref:initial,relation:'behind'}, {ref:result.publishedCommit,relation:'identical'}
+  ]);
+  assert.equal(result.verifiedRef,remote.state.ref);
+  assert.equal(remote.state.calls.filter(c=>c.method==='PATCH').length,1);
+  assert.equal(remote.state.calls.filter(c=>c.method==='POST'&&c.endpoint.endsWith('/git/commits')).length,1);
+  assert.deepEqual(fs.readFileSync(target),original);
+  assert.equal(result.localFilesPruned,0);
+  const index=JSON.parse(fs.readFileSync(path.join(f.workspace,'.runtime/git-data-store/INDEX.json')));
+  assert.equal(index.files['hourly-observation/api.json'].originalSha256,Archive.sha256(original));
+});
+
+test('persistent stale base stops after three observations without replaying the acknowledged write', async t => {
+  const f=fixture(t), remote=fakeGitHub();
+  const target=f.write('hourly-observation','api.json',{close:4180});
+  const original=fs.readFileSync(target); remote.state.patchMode='stale-persistent';
+  await assert.rejects(Archive.sync({...remote,workspace:f.workspace}),/REMOTE_REF_NOT_DESCENDANT/);
+  const failure=JSON.parse(fs.readFileSync(path.join(f.workspace,'.runtime/git-data-store/FAILURE-LATEST.json')));
+  assert.equal(failure.publication.patchAcknowledged,true);
+  assert.equal(failure.publication.observations.length,3);
+  assert.ok(failure.publication.observations.every(x=>x.relation==='behind'));
+  assert.match(failure.publication.createdCommit,/^[a-f0-9]{40}$/);
+  assert.equal(failure.publication.verifiedRef,null);
+  assert.equal(failure.publication.phase,'VERIFY_REF');
+  assert.equal(remote.state.calls.filter(c=>c.method==='PATCH').length,1);
+  assert.equal(remote.state.calls.filter(c=>c.method==='POST'&&c.endpoint.endsWith('/git/commits')).length,1);
+  assert.equal(fs.existsSync(path.join(f.workspace,'.runtime/git-data-store/LATEST.json')),false);
+  assert.deepEqual(fs.readFileSync(target),original);
+  assert.equal(failure.localFilesPruned,0);
+});
+
+test('divergence and an unacknowledged stale read are not eligible for extra publication reads', async t => {
+  for (const mode of ['diverged-after-ack','unacknowledged-stale']) {
+    const f=fixture(t), remote=fakeGitHub();
+    const target=f.write('hourly-observation','api.json',{close:4180});
+    const original=fs.readFileSync(target); remote.state.patchMode=mode;
+    await assert.rejects(Archive.sync({...remote,workspace:f.workspace}),/REMOTE_REF_NOT_DESCENDANT/);
+    assert.equal(remote.api.lastPublication.observations.length,1);
+    assert.equal(remote.api.lastPublication.patchAcknowledged,mode==='diverged-after-ack');
+    assert.equal(remote.state.calls.filter(c=>c.method==='PATCH').length,1);
+    assert.deepEqual(fs.readFileSync(target),original);
+  }
+});
+
+test('a verified descendant after acknowledged publication remains acceptable without read reconciliation', async t => {
+  const f=fixture(t), remote=fakeGitHub(); f.write('hourly-observation','api.json',{close:4180});
+  remote.state.patchMode='ahead-after-ack';
+  const result=await Archive.sync({...remote,workspace:f.workspace});
+  assert.equal(result.mode,'SYNC_VERIFIED');
+  assert.equal(result.publication.observations.length,1);
+  assert.equal(result.publication.observations[0].relation,'ahead');
+  assert.equal(result.verifiedRef,remote.state.ref);
+  assert.equal(remote.state.calls.filter(c=>c.method==='PATCH').length,1);
 });
 
 test('tampered blob/manifest/pack fails restoration and deletion', async t => {

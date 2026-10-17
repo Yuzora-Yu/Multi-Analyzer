@@ -422,23 +422,49 @@ class GitHub {
     return expected;
   }
   async append(base, additions) {
+    this.lastPublication = undefined;
     if (!additions.length) return base.commit;
     for (const addition of additions) if (base.entries.has(addition.path) && base.entries.get(addition.path) !== addition.sha) fail('IMMUTABLE_REMOTE_PATH_CONFLICT');
+    // Only allowlisted publication identities/states enter receipts. Never retain
+    // response bodies, commit metadata, transport messages or credentials here.
+    const publication = this.lastPublication = { baseCommit: base.commit, createdCommit: null,
+      phase: 'CREATE_TREE', patchAcknowledged: false, observations: [], verifiedRef: null };
     const t = await this.request('POST', `${this.base()}/git/trees`, { base_tree: base.tree,
       tree: additions.filter(e => !base.entries.has(e.path)).map(e => ({ path: e.path, mode: '100644', type: 'blob', sha: e.sha })) });
     if (!GIT_SHA.test(t.sha || '')) fail('REMOTE_NEW_TREE_INVALID');
+    publication.phase = 'CREATE_COMMIT';
     const c = await this.request('POST', `${this.base()}/git/commits`, { message: 'Append verified private research archive', tree: t.sha, parents: [base.commit] });
     if (!GIT_SHA.test(c.sha || '')) fail('REMOTE_NEW_COMMIT_INVALID');
+    publication.createdCommit = c.sha; publication.phase = 'UPDATE_REF';
     let updateError;
-    try { await this.request('PATCH', `${this.base()}/git/refs/heads/${this.config.branch}`, { sha: c.sha, force: false }); }
-    catch (error) { updateError = error; }
-    const current = await this.ref();
-    if (current !== c.sha) {
-      const compare = await this.request('GET', `${this.base()}/compare/${c.sha}...${current}`);
-      if (!['ahead', 'identical'].includes(compare.status)) fail(updateError ? 'REMOTE_UPDATE_CONFLICT_OR_UNRESOLVED' : 'REMOTE_REF_NOT_DESCENDANT');
+    try {
+      const updated = await this.request('PATCH', `${this.base()}/git/refs/heads/${this.config.branch}`, { sha: c.sha, force: false });
+      publication.patchAcknowledged = updated.object?.sha === c.sha;
     }
+    catch (error) { updateError = error; }
+    publication.phase = 'VERIFY_REF';
+    let current;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      current = await this.ref();
+      const observation = { ref: current, relation: current === c.sha ? 'identical' : 'unknown' };
+      publication.observations.push(observation);
+      if (current === c.sha) break;
+      const compare = await this.request('GET', `${this.base()}/compare/${c.sha}...${current}?per_page=1`);
+      observation.relation = ['ahead','behind','identical','diverged'].includes(compare.status) ? compare.status : 'unknown';
+      if (['ahead', 'identical'].includes(compare.status)) break;
+      // A successful acknowledged PATCH followed by the old base can be a stale
+      // read. Reconcile only that exact case with at most two additional GETs.
+      // No POST/PATCH replay, conflict repair, forced update or partial success.
+      if (!updateError && publication.patchAcknowledged && current === base.commit &&
+          compare.status === 'behind' && attempt < 2) {
+        await this.scheduler.sleep(500 * (attempt + 1)); continue;
+      }
+      fail(updateError ? 'REMOTE_UPDATE_CONFLICT_OR_UNRESOLVED' : 'REMOTE_REF_NOT_DESCENDANT');
+    }
+    publication.phase = 'VERIFY_TREE';
     const verified = await this.treeAt(current);
     for (const addition of additions) if (verified.entries.get(addition.path) !== addition.sha) fail('REMOTE_COMMIT_VERIFICATION_FAILED');
+    publication.verifiedRef = current; publication.phase = 'VERIFIED';
     return current;
   }
 }
@@ -742,6 +768,7 @@ async function sync(options) {
     const result = { schema: SCHEMA, mode: 'SYNC_VERIFIED', completedAt: new Date().toISOString(),
       repository: verifiedRepository, baseCommit, publishedCommit: commit, verifiedRef: tree.commit,
       manifests: stagedManifests, deferred, rehash, contentWrites: api.contentWrites, quota: api.quota,
+      publication: api.lastPublication,
       ...summary, localOriginalsModified: false, localFilesPruned: 0 };
     // Bounded replaceable index. It is a scan optimization, never archive evidence.
     const index = { schema: SCHEMA, privacyPolicy: POLICY, verifiedRef: tree.commit, files: nextIndex };
@@ -754,6 +781,7 @@ async function sync(options) {
       schema: SCHEMA, stoppedAt: new Date().toISOString(), mode: 'SYNC_STOPPED_OR_REMOTE_UNRESOLVED',
       code: localFailure?.code || safeErrorCode(error), contentWrites: api.contentWrites, quota: api.quota,
       progress, request: api.lastRequest, lastFailedRequest: api.lastFailure,
+      publication: api.lastPublication,
       localFilesystemFailure: localFailure,
       localOriginalsModified: false, localFilesPruned: 0, noAutomaticRetry: true
     });
