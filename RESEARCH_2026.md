@@ -735,4 +735,4 @@ Separate source and event known-at fields withhold the additions before this ver
 
 ## 2026-10-17: distinguish candle quality from predictive accuracy
 
-The chart's generic QUALITY score is an input check based on candle count, gaps and staleness. It is now labelled as candle quality, with an explanation that the value is neither a win rate nor prediction accuracy. The underlying score and every trading condition remain unchanged. This is an interpretation correction; it does not establish predictive improvement or equation equivalence with another indicator.
+The legacy summary's generic QUALITY score is an input check based on candle count, gaps and staleness. Its dormant HTML field is now labelled as candle quality, with an explanation that the value is neither a win rate nor prediction accuracy. The current stylesheet already hides this summary; this correction therefore does not add a visible feature. The underlying score and every trading condition remain unchanged. It does not establish predictive improvement or equation equivalence with another indicator.
