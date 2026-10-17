@@ -123,6 +123,18 @@ schema 1の個別復元は、現在ref・manifest・pack全体と各圧縮entry�
 
 両銘柄の保存済み区切りで、全入力のGit読戻しと元監査の完全一致を確認しました。この補助モジュールは既定auditor／collectorへ接続していません。**現行入力は引き続き保持**し、今回の一致を原本削除や全将来区間の保証には使いません。ローカルへの復元原本ファイル、全履歴clone、市場追加取得は作りません。
 
+### 1,024入力を超える固定区切りの分割読取
+
+分析専用の `buildPagedPlan` / `replayPaged` は、schema 2の入力一覧で `verified-pages-v1` を指定します。これは保存入力を選ぶ版で、売買条件の新バージョンではありません。既存のschema 1、一括1,024入力、通常16入力batch、sequence上限1,023は変更しません。
+
+`readExactPages({inputs, onPage})` は一つのLOCK・Git commit・catalogを共有し、最大128ページ、各16入力・4 MiB以下で原本を検証して渡します。全入力のメタデータ、欠落、伏字、全体容量、ページ境界を先に検査します。返却原本の累計64 MiB、catalog 1,024 manifest／32 MiB、圧縮pack取得累計256 MiBの制限をページごとにリセットしません。任意に上限を広げるAPIではありません。
+
+ページは全体完了前の仮の入力です。`replayPaged` は原本とpayloadのhash・元の取得時刻・順番・銘柄をページ内で照合し、未公開の作業領域へdecodeします。全ページと最後のprivate確認が成功してから、元の全journal/source対応・連鎖・固定口座監査を実行します。後続pack破損、欠落、重複、途中の入力一覧変更、権限確認の失敗では全体が失敗し、途中の帳簿を監査結果にしません。読取APIはraw入力の全配列を返さず、処理済みページのBufferを保持しません。ただし呼出元のdecode済み原本やpack indexもメモリを使うため、64 MiBはプロセス全体の上限ではありません。
+
+元監査との完全一致を比較するときの `auditAt` は、対象assetの個別監査に記録された `generatedAt` を使用します。外側のreportの `generatedAt` は、その後の全体報告書作成時刻であり、同じ値とは限りません。元記録を変更したり、差を都合よく削除して一致扱いにしたりしません。
+
+この読取も既定auditor／collectorへ接続せず、現行入力は保持します。ページ数・sequence・全体容量のいずれかを超える履歴には、さらに別途検証済みの区間・checkpoint設計が必要です。[Git trees](https://docs.github.com/en/rest/git/trees) と [Git blobs](https://docs.github.com/en/rest/git/blobs) のオブジェクト仕様を利用しますが、Gitのhashだけで市場データの真実性を証明するものではありません。
+
 ローカルは現在の作業に必要な入力、最新レビュー、差分index、検証用の一時復元だけを維持する方針です。長期のデータ蓄積を日々ローカルへ積み重ねないよう、保存・検証後に旧生成evaluationを整理します。
 
 今回削除可能なのは `hourly-observation/research-forward/evaluation-<epochMs>.json`（またはgzip）の旧生成レポートだけです。**最新3件、24時間以内、LATESTが指す版、原本・predictions・不変cache・登録・canonicalファイルは保持**します。削除前にGitの現在refからpackを再取得し、ローカル原本とbytes/SHA256が完全一致することを確認します。伏字済み版、未保存版、後から変わった版は削除しません。検査に失敗したpackを削除証拠に使いません。候補自体のプライバシー違反、ハッシュ改ざん、欠落や通信失敗などでは全体を停止し、削除を開始しません。これは生成レポートの個別削除で、観測原本の再帰削除は行いません。

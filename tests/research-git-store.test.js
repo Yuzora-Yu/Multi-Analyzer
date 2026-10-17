@@ -1027,3 +1027,80 @@ test('full set cannot exceed input or compressed transport budgets, or return an
  await assert.rejects(Archive.readExactSet({api:remote.api,workspace:f.workspace,inputs:[input,{...input,relative:'samples/missing.json'}]}),/READ_EXACT_VERSION_NOT_FOUND/);
  assert.equal(fs.existsSync(path.join(f.workspace,'.runtime/git-data-store/LOCK')),false);
 });
+
+test('paged decoding handles more than1024 inputs on one pinned commit without retaining raw results',async t=>{
+ const f=fixture(t),remote=fakeGitHub(),inputs=[],originals=[];
+ for(let i=0;i<1037;i++){
+  const bytes=Buffer.from(JSON.stringify({index:i,price:4000+i/100}));originals.push(bytes);
+  const input={alias:'demo-lab',relative:`samples/paged-${i}.json`,originalSha256:Archive.sha256(bytes)};
+  inputs.push(input);f.write(input.alias,input.relative,bytes);
+ }
+ await Archive.sync({...remote,workspace:f.workspace});const pinned=remote.state.ref;
+ const previous=remote.state.commits.get(pinned).parents[0],seen=new Set();let pages=0;
+ remote.state.calls.length=0;
+ const out=await Archive.readExactPages({api:remote.api,workspace:f.workspace,inputs:inputs.toReversed(),onPage:page=>{
+  assert.ok(page.length<=16);assert.ok(page.reduce((n,v)=>n+v.bytes,0)<=4*1024*1024);pages++;
+  for(const value of page){const originalIndex=1036-value.inputIndex;assert.deepEqual(value.data,originals[originalIndex]);seen.add(value.inputIndex);}
+  remote.state.ref=previous; // Later pages must not resolve this changed main.
+ }});
+ assert.equal(out.mode,'READ_VERIFIED_EXACT_PAGES');assert.equal(out.verifiedRef,pinned);
+ assert.equal(out.verifiedInputs,1037);assert.equal(out.pagesRead,65);assert.equal(pages,65);assert.equal(seen.size,1037);
+ assert.equal(Object.hasOwn(out,'values'),false);assert.equal(out.packFetches,1);
+ assert.equal(remote.state.calls.filter(c=>c.endpoint.endsWith('/git/ref/heads/main')).length,1);
+ assert.ok(remote.state.calls.every(c=>c.method==='GET'));assert.equal(out.datasetCopiesWritten,0);assert.equal(out.gitWrites,0);
+ assert.equal(fs.existsSync(path.join(f.workspace,'.runtime/git-data-store/restored')),false);
+ assert.equal(fs.existsSync(path.join(f.workspace,'.runtime/git-data-store/LOCK')),false);
+});
+
+test('paged reader rejects missing versions, redaction and resource overflow before exposing any provisional page',async t=>{
+ const f=fixture(t),remote=fakeGitHub(),bytes=Buffer.from('{"price":4000}');
+ const input={alias:'demo-lab',relative:'samples/page-budget.json',originalSha256:Archive.sha256(bytes)};
+ f.write(input.alias,input.relative,bytes);await Archive.sync({...remote,workspace:f.workspace});
+ let pages=0;const opts={api:remote.api,workspace:f.workspace,inputs:[input],onPage:()=>{pages++;}};
+ for(const [patch,error] of [[{onPage:undefined},/READ_PAGE_CONSUMER_REQUIRED/],[{maxPageInputs:17},/READ_PAGE_BUDGET_INVALID/],
+  [{maxPages:129},/READ_PAGE_BUDGET_INVALID/],[{maxPageBytes:4*1024*1024+1},/READ_PAGE_BUDGET_INVALID/],
+  [{inputs:[input,input]},/READ_DUPLICATE_INPUT/],[{maxInputs:2049},/READ_INPUT_BUDGET_INVALID/]]){
+  remote.state.calls.length=0;await assert.rejects(Archive.readExactPages({...opts,...patch}),error);assert.equal(remote.state.calls.length,0);
+ }
+ for(const [patch,error] of [[{maxReturnedBytes:1},/READ_RETURN_BUDGET_EXCEEDED/],[{maxPackBytes:1},/READ_PACK_BUDGET_EXCEEDED/],
+  [{maxPageBytes:1},/READ_PAGE_BUDGET_EXCEEDED/],[{inputs:[input,{...input,relative:'samples/missing.json'}]},/READ_EXACT_VERSION_NOT_FOUND/]]){
+  await assert.rejects(Archive.readExactPages({...opts,...patch}),error);
+ }
+ const privateBytes=Buffer.from('{"price":1,"threadId":"private-metadata"}');
+ f.write('demo-lab','samples/redacted-page.json',privateBytes);await Archive.sync({...remote,workspace:f.workspace});
+ await assert.rejects(Archive.readExactPages({...opts,inputs:[{alias:'demo-lab',relative:'samples/redacted-page.json',originalSha256:Archive.sha256(privateBytes)}]}),/READ_REDACTED_COPY_IS_NOT_ORIGINAL/);
+ assert.equal(pages,0);assert.equal(fs.existsSync(path.join(f.workspace,'.runtime/git-data-store/LOCK')),false);
+});
+
+test('page byte boundaries remain bounded and a consumer failure or revoked privacy cannot return success',async t=>{
+ const f=fixture(t),remote=fakeGitHub(),inputs=[];
+ for(let i=0;i<4;i++){const bytes=Buffer.from(JSON.stringify({index:i})),input={alias:'demo-lab',relative:`samples/small-${i}.json`,originalSha256:Archive.sha256(bytes)};inputs.push(input);f.write(input.alias,input.relative,bytes);}
+ await Archive.sync({...remote,workspace:f.workspace});const opts={api:remote.api,workspace:f.workspace,inputs};
+ let pages=0;const out=await Archive.readExactPages({...opts,maxPageBytes:11,onPage:page=>{assert.equal(page.length,1);pages++;}});
+ assert.equal(out.pagesRead,4);assert.equal(pages,4);
+ pages=0;await assert.rejects(Archive.readExactPages({...opts,maxPageBytes:11,maxPages:2,onPage:()=>pages++}),/READ_PAGE_COUNT_EXCEEDED/);assert.equal(pages,0);
+ let result;
+ await assert.rejects(async()=>{result=await Archive.readExactPages({...opts,maxPageInputs:1,onPage:()=>{throw Error('CONSUMER_DECODE_FAILURE');}});},/CONSUMER_DECODE_FAILURE/);
+ assert.equal(result,undefined);assert.equal(fs.existsSync(path.join(f.workspace,'.runtime/git-data-store/LOCK')),false);
+ await assert.rejects(async()=>{result=await Archive.readExactPages({...opts,onPage:()=>{remote.state.private=false;}});},/GITHUB_REPOSITORY_NOT_PRIVATE/);
+ assert.equal(result,undefined);remote.state.private=true;
+ const lock=path.join(f.workspace,'.runtime/git-data-store/LOCK');fs.writeFileSync(lock,'other owner');const count=remote.state.calls.length;
+ await assert.rejects(Archive.readExactPages({...opts,onPage:()=>{}}),/ARCHIVE_LOCK_BUSY/);assert.equal(remote.state.calls.length,count);assert.equal(fs.readFileSync(lock,'utf8'),'other owner');
+ fs.unlinkSync(lock);
+});
+
+test('a corrupted later pack rejects the entire paged session and keeps every original',async t=>{
+ const f=fixture(t),remote=fakeGitHub(),inputs=[],paths=[];
+ for(let i=0;i<17;i++){
+  const bytes=Buffer.from(JSON.stringify({index:i,price:4000})),input={alias:'demo-lab',relative:`samples/late-${i}.json`,originalSha256:Archive.sha256(bytes)};
+  inputs.push(input);paths.push(f.write(input.alias,input.relative,bytes));
+  if(i===15||i===16)await Archive.sync({...remote,workspace:f.workspace});
+ }
+ const blob=remote.api.blob.bind(remote.api);let pages=0,result;
+ remote.api.blob=async sha=>{const bytes=remote.state.blobs.get(sha);if(pages>0&&bytes?.[0]===31&&bytes?.[1]===139)remote.state.tamperedBlob=sha;return blob(sha);};
+ remote.state.calls.length=0;
+ await assert.rejects(async()=>{result=await Archive.readExactPages({api:remote.api,workspace:f.workspace,inputs,maxPageInputs:1,onPage:()=>{pages++;}});},/REMOTE_BLOB_HASH_MISMATCH/);
+ assert.ok(pages>0);assert.equal(result,undefined);assert.ok(remote.state.calls.every(c=>c.method==='GET'));
+ for(const [i,p] of paths.entries())assert.equal(Archive.sha256(fs.readFileSync(p)),inputs[i].originalSha256);
+ assert.equal(fs.existsSync(path.join(f.workspace,'.runtime/git-data-store/LOCK')),false);
+});

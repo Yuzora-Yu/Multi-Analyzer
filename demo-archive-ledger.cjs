@@ -33,7 +33,8 @@ function envelope(bytes, descriptor, auditAt) {
 }
 function requests(plan) {
   partition(plan?.asset, plan?.sequence, plan?.auditAt);
-  if (plan.schemaVersion !== 1 || plan.kind !== 'LATER_EXACT_LEDGER_INPUT_ROSTER' ||
+  const paged = plan.schemaVersion === 2 && plan.kind === 'LATER_EXACT_PAGED_LEDGER_INPUT_ROSTER' && plan.readMode === 'verified-pages-v1';
+  if ((!paged && (plan.schemaVersion !== 1 || plan.kind !== 'LATER_EXACT_LEDGER_INPUT_ROSTER')) ||
       !SHA.test(plan.codeHash || '') || !SHA.test(plan.view?.payloadHash || '') ||
       !Array.isArray(plan.journal) || plan.journal.length !== plan.sequence ||
       !Array.isArray(plan.sources) || !plan.sources.length || plan.sources.length > plan.sequence)
@@ -55,10 +56,12 @@ function requests(plan) {
       fail('ARCHIVE_LEDGER_SOURCE_ROSTER_INVALID');
     ids.add(source.snapshotId); result.push(Input.sourceRequest(source));
   }
-  if (result.length > 1024) fail('ARCHIVE_LEDGER_INPUT_COUNT_EXCEEDED');
+  if (result.length > (paged ? 2048 : 1024)) fail('ARCHIVE_LEDGER_INPUT_COUNT_EXCEEDED');
   return result;
 }
-function buildPlan({ asset, sequence, auditAt, viewHash, workspace = __dirname }) {
+function buildPlan(options) { return buildPlanForMode(options, false); }
+function buildPagedPlan(options) { return buildPlanForMode(options, true); }
+function buildPlanForMode({ asset, sequence, auditAt, viewHash, workspace = __dirname }, paged) {
   partition(asset, sequence, auditAt);
   const identity = Version.identity(); codeCheck(identity.hash);
   const allRoots = Archive.roots(workspace), prefix = `ledger-cache/${asset}/demo-v1`;
@@ -91,12 +94,15 @@ function buildPlan({ asset, sequence, auditAt, viewHash, workspace = __dirname }
     Input.decodeSourceInput(descriptor, fs.readFileSync(Archive.resolveSource('demo-lab', Input.sourceRequest(descriptor).relative, allRoots)));
     sources.set(record.snapshotId, descriptor);
   }
-  const plan = { schemaVersion: 1, kind: 'LATER_EXACT_LEDGER_INPUT_ROSTER', createdAt: Date.now(),
+  const plan = { schemaVersion: paged ? 2 : 1,
+    kind: paged ? 'LATER_EXACT_PAGED_LEDGER_INPUT_ROSTER' : 'LATER_EXACT_LEDGER_INPUT_ROSTER',
+    ...(paged ? { readMode: 'verified-pages-v1' } : {}), createdAt: Date.now(),
     asset, sequence, auditAt, codeHash: identity.hash, view: selectedView.descriptor, journal, sources: [...sources.values()] };
   requests(plan); return plan;
 }
 async function replay(plan, { expectedPlanHash, ...options } = {}) {
   if (!SHA.test(expectedPlanHash || '') || Demo.hash(plan) !== expectedPlanHash) fail('ARCHIVE_LEDGER_PLAN_HASH_MISMATCH');
+  if (plan.schemaVersion !== 1) fail('ARCHIVE_LEDGER_READ_MODE_INVALID');
   const inputs = requests(plan), before = codeCheck(plan.codeHash);
   const read = await Archive.readExactSet({ ...options, inputs });
   if (read.values?.length !== inputs.length) fail('ARCHIVE_LEDGER_INPUT_SET_INCOMPLETE');
@@ -107,14 +113,46 @@ async function replay(plan, { expectedPlanHash, ...options } = {}) {
       fail('ARCHIVE_LEDGER_INPUT_ORDER_MISMATCH');
     return envelope(value.data, descriptors[index], plan.auditAt);
   });
-  const view = envelopes[0].original, records = envelopes.slice(1, plan.sequence + 1).map(e => e.original);
-  if (view.asset !== plan.asset || view.sequence !== plan.sequence || view.protocol?.version !== 'demo-v1' ||
-      view.codeHash !== plan.codeHash || view.engineVersion !== Core.VERSION) fail('ARCHIVE_LEDGER_VIEW_IDENTITY_MISMATCH');
   const sources = new Map();
   for (const [index, descriptor] of plan.sources.entries()) {
     const value = read.values[plan.sequence + 1 + index];
     sources.set(descriptor.snapshotId, Input.decodeSourceInput(descriptor, value.data).source);
   }
+  if (Demo.hash(plan) !== expectedPlanHash) fail('ARCHIVE_LEDGER_PLAN_HASH_MISMATCH');
+  const audit = auditDecoded(plan, envelopes, sources);
+  return reconstructionResult(plan, expectedPlanHash, read, before, audit, false);
+}
+async function replayPaged(plan, { expectedPlanHash, ...options } = {}) {
+  if (!SHA.test(expectedPlanHash || '') || Demo.hash(plan) !== expectedPlanHash) fail('ARCHIVE_LEDGER_PLAN_HASH_MISMATCH');
+  if (plan.schemaVersion !== 2 || plan.readMode !== 'verified-pages-v1') fail('ARCHIVE_LEDGER_READ_MODE_INVALID');
+  const inputs = requests(plan), before = codeCheck(plan.codeHash);
+  const descriptors = [plan.view, ...plan.journal, ...plan.sources], envelopes = new Array(inputs.length), sources = new Map(), seen = new Set();
+  const read = await Archive.readExactPages({ ...options, inputs, onPage: page => {
+    // These decoded objects remain private/provisional. No audit or report is
+    // produced until the entire pinned reader, including its final guard, ends.
+    for (const value of page) {
+      const index = value.inputIndex;
+      if (!Number.isSafeInteger(index) || index < 0 || index >= inputs.length || seen.has(index))
+        fail('ARCHIVE_LEDGER_INPUT_ORDER_MISMATCH');
+      const request = inputs[index];
+      if (value.alias !== request.alias || value.relative !== request.relative || value.originalSha256 !== request.originalSha256)
+        fail('ARCHIVE_LEDGER_INPUT_ORDER_MISMATCH');
+      envelopes[index] = envelope(value.data, descriptors[index], plan.auditAt); seen.add(index);
+      if (index > plan.sequence) {
+        const descriptor = plan.sources[index - plan.sequence - 1];
+        sources.set(descriptor.snapshotId, Input.decodeSourceInput(descriptor, value.data).source);
+      }
+    }
+  } });
+  if (read.verifiedInputs !== inputs.length || seen.size !== inputs.length) fail('ARCHIVE_LEDGER_INPUT_SET_INCOMPLETE');
+  if (Demo.hash(plan) !== expectedPlanHash) fail('ARCHIVE_LEDGER_PLAN_HASH_MISMATCH');
+  const audit = auditDecoded(plan, envelopes, sources);
+  return reconstructionResult(plan, expectedPlanHash, read, before, audit, true);
+}
+function auditDecoded(plan, envelopes, sources) {
+  const view = envelopes[0].original, records = envelopes.slice(1, plan.sequence + 1).map(e => e.original);
+  if (view.asset !== plan.asset || view.sequence !== plan.sequence || view.protocol?.version !== 'demo-v1' ||
+      view.codeHash !== plan.codeHash || view.engineVersion !== Core.VERSION) fail('ARCHIVE_LEDGER_VIEW_IDENTITY_MISMATCH');
   const referenced = new Set();
   for (const [index, record] of records.entries()) {
     if (record.sequence !== index + 1 || record.asset !== plan.asset ||
@@ -124,13 +162,17 @@ async function replay(plan, { expectedPlanHash, ...options } = {}) {
   }
   if (referenced.size !== sources.size) fail('ARCHIVE_LEDGER_UNREFERENCED_SOURCE');
   const audit = Demo.audit(view, records, sources, { now: plan.auditAt });
+  if (!audit.valid) fail('ARCHIVE_LEDGER_AUDIT_FAILED');
+  return audit;
+}
+function reconstructionResult(plan, expectedPlanHash, read, before, audit, paged) {
   const after = codeCheck(plan.codeHash);
   if (after.sourceAudit.sourceHash !== before.sourceAudit.sourceHash) fail('ARCHIVE_LEDGER_EXECUTION_IDENTITY_CHANGED');
-  if (!audit.valid) fail('ARCHIVE_LEDGER_AUDIT_FAILED');
-  return { mode: 'ARCHIVE_LEDGER_RECONSTRUCTION', planHash: expectedPlanHash, verifiedRef: read.verifiedRef,
-    inputCount: inputs.length, catalogManifests: read.catalogManifests, catalogBytes: read.catalogBytes,
+  return { mode: paged ? 'ARCHIVE_PAGED_LEDGER_RECONSTRUCTION' : 'ARCHIVE_LEDGER_RECONSTRUCTION', planHash: expectedPlanHash, verifiedRef: read.verifiedRef,
+    inputCount: requests(plan).length, ...(paged ? { pagesRead: read.pagesRead, pageInputLimit: read.pageInputLimit, pageByteLimit: read.pageByteLimit } : {}),
+    catalogManifests: read.catalogManifests, catalogBytes: read.catalogBytes,
     packFetches: read.packFetches, fetchedPackBytes: read.fetchedPackBytes, returnedBytes: read.returnedBytes,
     audit, sourceAudit: after.sourceAudit, datasetCopiesWritten: read.datasetCopiesWritten, gitWrites: read.gitWrites,
     scope: 'Later reconstruction of a fixed saved ledger cutoff. Not a new prediction, timestamp certificate, trading edge or authorization to delete active inputs.' };
 }
-module.exports = { requests, buildPlan, replay };
+module.exports = { requests, buildPlan, buildPagedPlan, replay, replayPaged };

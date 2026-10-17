@@ -830,7 +830,19 @@ async function readExactBatch(options = {}) {
 async function readExactSet(options = {}) {
   return readExactInputs(options, 1024, true);
 }
-async function readExactInputs(options, inputCeiling, groupPacks) {
+// Provisional, bounded pages for analysis-only decoders. The caller must not
+// publish or audit a partial page set: success is returned only after every
+// input and the final private-repository check pass. Raw page buffers are not
+// retained here after the consumer finishes. Legacy batch/set ceilings stay put.
+async function readExactPages(options = {}) {
+  const { onPage, maxPageInputs = 16, maxPageBytes = 4 * 1024 * 1024, maxPages = 128 } = options;
+  if (typeof onPage !== 'function') fail('READ_PAGE_CONSUMER_REQUIRED');
+  for (const [value, ceiling] of [[maxPageInputs, 16], [maxPageBytes, 4 * 1024 * 1024], [maxPages, 128]]) {
+    if (!Number.isSafeInteger(value) || value < 1 || value > ceiling) fail('READ_PAGE_BUDGET_INVALID');
+  }
+  return readExactInputs(options, maxPageInputs * maxPages, true, { onPage, maxPageInputs, maxPageBytes, maxPages });
+}
+async function readExactInputs(options, inputCeiling, groupPacks, paging) {
   const { workspace = __dirname, inputs, maxInputs = inputCeiling, maxCatalogManifests = 1024,
     maxCatalogBytes = 32 * 1024 * 1024, maxReturnedBytes = MAX_SOURCE_FILE,
     maxPackBytes = 256 * 1024 * 1024 } = options;
@@ -891,9 +903,29 @@ async function readExactInputs(options, inputCeiling, groupPacks) {
         }
         return lastBytes;
       } };
-      const completed = new Map(), ordered = [...requested];
+      const completed = new Map(), ordered = [...requested], inputOrder = new Map([...requested.keys()].map((key, index) => [key, index]));
       if (groupPacks) ordered.sort(([a], [b]) => manifestPacks(selected.get(a).value)[0].gitSha.localeCompare(manifestPacks(selected.get(b).value)[0].gitSha));
-      for (const [key, input] of ordered) {
+      // Plan all page boundaries from verified metadata before any pack data or
+      // provisional page is exposed. Aggregate raw/transport budgets above are
+      // shared by the entire pinned session, not reset for each page.
+      const groups = [];
+      if (paging) {
+        let group = [], bytes = 0;
+        for (const entry of ordered) {
+          const size = selected.get(entry[0]).record.storedBytes;
+          if (size > paging.maxPageBytes) fail('READ_PAGE_BUDGET_EXCEEDED');
+          if (group.length && (group.length === paging.maxPageInputs || bytes + size > paging.maxPageBytes)) {
+            groups.push(group); group = []; bytes = 0;
+          }
+          group.push(entry); bytes += size;
+        }
+        if (group.length) groups.push(group);
+        if (groups.length > paging.maxPages) fail('READ_PAGE_COUNT_EXCEEDED');
+      } else groups.push(ordered);
+      let pagesRead = 0, verifiedInputs = 0;
+      for (const group of groups) {
+       const page = [];
+       for (const [key, input] of group) {
         const chosen = selected.get(key); let data;
         if (chosen.value.schema === FRAGMENT_SCHEMA) data = await verifiedFragmentRecord(packApi, tree, chosen.value);
         else {
@@ -909,13 +941,19 @@ async function readExactInputs(options, inputCeiling, groupPacks) {
         }
         if (data.length !== chosen.record.originalBytes || sha256(data) !== input.originalSha256)
           fail('READ_ORIGINAL_HASH_MISMATCH');
-        completed.set(key, { ...input, data, bytes: data.length, schema: chosen.value.schema,
-          manifestPath: chosen.path, manifestGitSha: chosen.gitSha, exactOriginalRestorable: true });
+        const value = { ...input, data, bytes: data.length, schema: chosen.value.schema,
+          manifestPath: chosen.path, manifestGitSha: chosen.gitSha, exactOriginalRestorable: true };
+        if (paging) page.push({ ...value, inputIndex: inputOrder.get(key) });
+        else completed.set(key, value);
+        verifiedInputs++;
+       }
+       if (paging) { await paging.onPage(page); page.length = 0; pagesRead++; }
       }
       await api.verifyPrivate();
-      return { mode: groupPacks ? 'READ_VERIFIED_EXACT_INPUT_SET' : 'READ_VERIFIED_EXACT_INPUTS', repository, verifiedRef: tree.commit,
+      return { mode: paging ? 'READ_VERIFIED_EXACT_PAGES' : groupPacks ? 'READ_VERIFIED_EXACT_INPUT_SET' : 'READ_VERIFIED_EXACT_INPUTS', repository, verifiedRef: tree.commit,
         catalogManifests, catalogBytes, packFetches, fetchedPackBytes, returnedBytes,
-        values: [...requested.keys()].map(key => completed.get(key)),
+        ...(paging ? { verifiedInputs, pagesRead, pageInputLimit: paging.maxPageInputs, pageByteLimit: paging.maxPageBytes }
+          : { values: [...requested.keys()].map(key => completed.get(key)) }),
         datasetCopiesWritten: 0, gitWrites: 0, originalsModified: false };
     });
   } finally { if (ownedApi) api.token = undefined; }
@@ -1130,4 +1168,4 @@ module.exports = { SCHEMA, FRAGMENT_SCHEMA, FRAGMENT_FORMAT, POLICY, REPOSITORY,
   sha256, gitBlobSha, within, cleanRelative, roots, resolveSource, excludedPath, walk, redactText, redactJson,
   sanitize, readSafeFile, recordKey, withLock, lockStatus, loadConfig, GitHub, validateManifest, manifests, buildPack,
   unpack, verifiedPack, verifiedSelectedRecord, verifiedFragmentRecord, verifyArchiveManifest, manifestPacks,
-  inventory, sync, inspectRemote, readExactBatch, readExactSet, restoreTarget, restore, evaluationRun, protectedEvaluations, prune };
+  inventory, sync, inspectRemote, readExactBatch, readExactSet, readExactPages, restoreTarget, restore, evaluationRun, protectedEvaluations, prune };
