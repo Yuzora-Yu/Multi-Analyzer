@@ -109,6 +109,14 @@ schema 1の個別復元は、現在ref・manifest・pack全体と各圧縮entry�
 
 ## ローカル容量
 
+### 同じ保存目録の反復取得を減らす
+
+`sync` と `prune` は、毎回の非公開リポジトリ確認と現在のref・tree取得を維持し、取得済みmanifestの正確なbytesだけを `.runtime/git-data-store/MANIFEST-CACHE.json` から再利用できます。現在のtree内のpath/Git blob SHA、bytesから計算したGit blob SHA、pathのSHA256、manifestのschema・方針・各packの現在tree内の対応を毎回照合します。過去のrefやローカル一覧だけを根拠に保存済みとは判定しません。[Git blobs](https://docs.github.com/en/rest/git/blobs) と [Git trees](https://docs.github.com/en/rest/git/trees) の内容IDを使用します。
+
+この置換可能なローカル目録は最大1,024件・保存ファイル20 MiBです。価格原本、pack、認証値、API応答本文はキャッシュしません。壊れたbytesは使用せず通常の遠隔取得へ戻り、読書き不能なキャッシュは最適化だけを停止します。上限を超える目録は通常どおり取得します。途中で同期が停止しても、それまで完全照合できた目録を保持でき、全同期を自動再実行しません。LOCK・GitHub残量保護は維持します。
+
+新規publication後のmanifest・pack・各保存ファイルの遠隔読戻し、およびprune候補の遠隔pack・原本bytes照合には、このキャッシュを使いません。復元・分析専用readerの取得方式と上限も変更しません。原本削除の証明や長期の研究保存先ではありません。実行記録の `catalogCache` はcache命中、blob読取試行、容量保留等を区別します。
+
 ### 評価入力を複製せず読む
 
 `research-git-store.cjs` の `readExactBatch({inputs})` は、許可済み別名・相対パス・原本SHA256を指定した版だけをメモリへ返します。現在のcommitを固定し、manifestと必要なpackを照合し、全体SHA256と現在のプライバシー検査を通します。伏字版、欠落版、改ざん版、曖昧な版は返しません。一部が失敗したbatchを部分成功として評価へ渡しません。Git書込、復元データファイルの生成、原本変更、市場取得はありません。既存の制御LOCKは取得・解放します。

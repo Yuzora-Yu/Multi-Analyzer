@@ -56,6 +56,7 @@ test('catalog read interruption records progress without publishing or changing 
   const target=f.write('hourly-observation','three.json',{close:3}),before=fs.readFileSync(target);
   const refBefore=remote.state.ref,dir=path.join(f.workspace,'.runtime/git-data-store');
   const successBefore=fs.readFileSync(path.join(dir,'LATEST.json'));
+  fs.unlinkSync(path.join(dir,'MANIFEST-CACHE.json')); // Exercise a cold remote catalog interruption.
   const rawFetch=remote.api.fetchImpl;let blobReads=0;
   const api=new Archive.GitHub('fake-memory-only-credential',remote.config,async(url,opts)=>{
     if(opts.method==='GET'&&new URL(url).pathname.includes('/git/blobs/')&&++blobReads===2){
@@ -66,13 +67,94 @@ test('catalog read interruption records progress without publishing or changing 
   const callStart=remote.state.calls.length;
   await assert.rejects(Archive.sync({api,config:remote.config,workspace:f.workspace}),/GITHUB_REQUEST_AMBIGUOUS/);
   const result=JSON.parse(fs.readFileSync(path.join(dir,'FAILURE-LATEST.json')));
-  assert.deepEqual(result.progress,{phase:'READ_CATALOG',catalogManifestsRead:1,baseCommit:refBefore});
+  assert.deepEqual({phase:result.progress.phase,catalogManifestsRead:result.progress.catalogManifestsRead,baseCommit:result.progress.baseCommit},
+    {phase:'READ_CATALOG',catalogManifestsRead:1,baseCommit:refBefore});
+  assert.equal(result.progress.catalogCache.remoteFetches,2);assert.equal(result.progress.catalogCache.hits,0);
   assert.equal(result.contentWrites,0);assert.equal(result.noAutomaticRetry,true);assert.equal(result.localFilesPruned,0);
   assert.equal(result.lastFailedRequest.operation,'READ_BLOB');assert.equal(result.lastFailedRequest.phase,'FETCH_HEADERS');
   assert.equal(result.lastFailedRequest.transport,'ETIMEDOUT');assert.equal(blobReads,2);
   assert.equal(remote.state.ref,refBefore);assert.ok(remote.state.calls.slice(callStart).every(c=>c.method==='GET'));
   assert.deepEqual(fs.readFileSync(target),before);assert.deepEqual(fs.readFileSync(path.join(dir,'LATEST.json')),successBefore);
   assert.equal(fs.existsSync(path.join(dir,'LOCK')),false);assert.doesNotMatch(JSON.stringify(result),/Bearer|private-value/);
+  const next=await Archive.sync({...remote,workspace:f.workspace});
+  assert.equal(next.catalogCache.hits,1);assert.equal(next.catalogCache.remoteFetches,1);
+});
+
+test('warm catalog reuses exact manifests on a fresh remote tree while new publication still reads back remote bytes', async t => {
+  const f=fixture(t),remote=fakeGitHub();f.write('hourly-observation','one.json',{close:1});
+  const first=await Archive.sync({...remote,workspace:f.workspace});
+  const warm=await Archive.sync({...remote,workspace:f.workspace});assert.equal(warm.catalogCache.remoteFetches,1);
+  const begin=remote.state.calls.length,next=await Archive.sync({...remote,workspace:f.workspace});
+  const calls=remote.state.calls.slice(begin);
+  assert.equal(next.catalogCache.hits,1);assert.equal(next.catalogCache.remoteFetches,0);
+  assert.ok(calls.some(c=>c.endpoint.endsWith('/git/ref/heads/main')));
+  assert.ok(calls.some(c=>c.endpoint==='/repos/'+Archive.REPOSITORY));
+  assert.ok(calls.every(c=>c.method==='GET'&&!c.endpoint.includes('/git/blobs/')));
+  f.write('hourly-observation','two.json',{close:2});const start=remote.state.calls.length;
+  const added=await Archive.sync({...remote,workspace:f.workspace}),writes=remote.state.calls.slice(start);
+  assert.equal(added.catalogCache.hits,1);assert.equal(added.catalogCache.remoteFetches,0);
+  assert.ok(writes.some(c=>c.method==='GET'&&c.endpoint.endsWith('/git/blobs/'+added.manifests[0].sha)));
+  assert.ok(!writes.some(c=>c.method==='GET'&&c.endpoint.endsWith('/git/blobs/'+first.manifests[0].sha)));
+  remote.state.private=false;await assert.rejects(Archive.sync({...remote,workspace:f.workspace}),/GITHUB_REPOSITORY_NOT_PRIVATE/);
+});
+
+test('corrupt metadata falls back to remote hashes and a current-tree pack omission still rejects a warm manifest', async t => {
+  const f=fixture(t),remote=fakeGitHub();f.write('hourly-observation','one.json',{close:1});
+  const first=await Archive.sync({...remote,workspace:f.workspace});await Archive.sync({...remote,workspace:f.workspace});
+  const cachePath=path.join(f.workspace,'.runtime/git-data-store/MANIFEST-CACHE.json');
+  const corrupt=()=>{const c=JSON.parse(fs.readFileSync(cachePath));c.entries[0].content=Buffer.from('tampered').toString('base64');fs.writeFileSync(cachePath,JSON.stringify(c));};
+  corrupt();const repaired=await Archive.sync({...remote,workspace:f.workspace});
+  assert.equal(repaired.catalogCache.invalidEntries,1);assert.equal(repaired.catalogCache.remoteFetches,1);
+  const tree=await remote.api.treeAt(remote.state.ref),m=JSON.parse(remote.state.blobs.get(first.manifests[0].sha));
+  tree.entries.delete(m.pack.path);
+  await assert.rejects(async()=>{for await(const row of Archive.manifests(remote.api,tree,new Archive.ManifestCache(f.workspace,tree)))void row;},/MANIFEST_PACK_MISSING_FROM_REF/);
+  corrupt();remote.state.tamperedBlob=first.manifests[0].sha;
+  await assert.rejects(Archive.sync({...remote,workspace:f.workspace}),/REMOTE_BLOB_HASH_MISMATCH/);
+  assert.equal(fs.existsSync(path.join(f.workspace,'.runtime/git-data-store/LOCK')),false);
+});
+
+test('cache membership never substitutes an old manifest for the current tree and unsafe or oversized caches are optional', async t => {
+  const f=fixture(t),remote=fakeGitHub();f.write('hourly-observation','one.json',{close:1});
+  const first=await Archive.sync({...remote,workspace:f.workspace});await Archive.sync({...remote,workspace:f.workspace});
+  const tree=await remote.api.treeAt(remote.state.ref),cachePath=path.join(f.workspace,'.runtime/git-data-store/MANIFEST-CACHE.json');
+  const original=fs.readFileSync(cachePath);tree.entries.delete(first.manifests[0].path);
+  const rows=[];for await(const m of Archive.manifests(remote.api,tree,new Archive.ManifestCache(f.workspace,tree)))rows.push(m);
+  assert.equal(rows.length,0);
+  for(const value of [Buffer.alloc(Archive.MAX_MANIFEST_CACHE_BYTES+1),Buffer.from('{broken'),
+    Buffer.from(JSON.stringify({schema:1,repository:Archive.REPOSITORY,privacyPolicy:Archive.POLICY,entries:Array(Archive.MAX_MANIFEST_CACHE_ENTRIES+1).fill({})}))]){
+    fs.writeFileSync(cachePath,value);const out=await Archive.sync({...remote,workspace:f.workspace});
+    assert.equal(out.catalogCache.load,'IGNORED_INVALID');assert.equal(out.catalogCache.remoteFetches,1);
+    assert.ok(fs.statSync(cachePath).size<=Archive.MAX_MANIFEST_CACHE_BYTES);
+  }
+  fs.unlinkSync(cachePath);fs.mkdirSync(cachePath);
+  const out=await Archive.sync({...remote,workspace:f.workspace});
+  assert.equal(out.catalogCache.load,'UNAVAILABLE');assert.equal(out.catalogCache.remoteFetches,1);
+  assert.ok(fs.statSync(cachePath).isDirectory());
+  assert.ok(original.length>0);
+});
+
+test('warm prune still downloads the selected pack and rejects corruption before deletion', async t => {
+  const f=fixture(t),remote=fakeGitHub(),old=Date.now()-3*86400000;
+  const target=f.write('hourly-observation','research-forward/evaluation-'+old+'.json',{value:1});
+  for(let i=1;i<=4;i++)f.write('hourly-observation','research-forward/evaluation-'+(old+i)+'.json',{value:i});
+  fs.utimesSync(target,new Date(old),new Date(old));
+  const first=await Archive.sync({...remote,workspace:f.workspace});await Archive.sync({...remote,workspace:f.workspace});
+  const m=JSON.parse(remote.state.blobs.get(first.manifests[0].sha));remote.state.tamperedBlob=m.pack.gitSha;
+  const start=remote.state.calls.length;await assert.rejects(Archive.prune({...remote,workspace:f.workspace,apply:true,olderThanDays:1}),/REMOTE_BLOB_HASH_MISMATCH/);
+  assert.ok(fs.existsSync(target));assert.ok(remote.state.calls.slice(start).some(c=>c.endpoint.endsWith('/git/blobs/'+m.pack.gitSha)));
+  const fail=JSON.parse(fs.readFileSync(path.join(f.workspace,'.runtime/git-data-store/PRUNE_FAILURE-LATEST.json')));
+  assert.equal(fail.progress.catalogCache.hits,1);assert.equal(fail.generatedFilesPruned,0);
+});
+
+test('optional metadata cache persistence failures cannot certify or interrupt a remotely verified sync', async t => {
+  const f=fixture(t),remote=fakeGitHub();const target=f.write('hourly-observation','one.json',{close:1});
+  await Archive.sync({...remote,workspace:f.workspace});const before=fs.readFileSync(target);
+  const rename=fs.renameSync,cachePath=path.join(f.workspace,'.runtime/git-data-store/MANIFEST-CACHE.json');
+  fs.renameSync=function(from,to){if(to===cachePath){const e=new Error('Bearer private-value');e.code='EACCES';throw e;}return rename.apply(this,arguments);};
+  let out;try{out=await Archive.sync({...remote,workspace:f.workspace});}finally{fs.renameSync=rename;}
+  assert.equal(out.mode,'SYNC_VERIFIED');assert.equal(out.catalogCache.write,'UNAVAILABLE');assert.equal(out.catalogCache.remoteFetches,1);
+  assert.deepEqual(fs.readFileSync(target),before);assert.doesNotMatch(JSON.stringify(out),/Bearer|private-value/);
+  assert.ok(fs.readdirSync(path.dirname(cachePath)).every(n=>!/^MANIFEST-CACHE.*\.tmp$/.test(n)));
 });
 
 test('a root unavailable between walk and read records only its alias and path digest without retry or deletion', async t => {

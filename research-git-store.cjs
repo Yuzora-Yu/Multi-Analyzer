@@ -21,6 +21,7 @@ const FRAGMENT_BYTES = 8 * 1024 * 1024;
 const MAX_INFLATED = MAX_SOURCE_FILE;
 const MAX_JSON_NODES = 2000000, MAX_JSON_DEPTH = 128;
 const MAX_REPLY = 32 * 1024 * 1024;
+const MAX_MANIFEST_CACHE_BYTES = MAX_BLOB, MAX_MANIFEST_CACHE_ENTRIES = 1024;
 const ROOT_PATHS = Object.freeze({
   'hourly-observation': '.runtime/hourly-observation',
   'demo-lab': '.runtime/demo-lab',
@@ -503,14 +504,114 @@ function validateManifest(manifest, filePath) {
   }
   return manifest;
 }
-async function* manifests(api, tree) {
+// Replaceable metadata only. Current remote tree membership and both content
+// identities are checked again; cached packs/data never certify publication or deletion.
+class ManifestCache {
+  constructor(workspace, tree) {
+    this.dir = path.join(path.resolve(workspace), '.runtime', 'git-data-store');
+    this.target = path.join(this.dir, 'MANIFEST-CACHE.json');
+    this.tree = tree; this.entries = new Map(); this.bytes = 256; this.dirty = false;
+    this.stats = { hits: 0, misses: 0, remoteFetches: 0, invalidEntries: 0, capacitySkips: 0, load: 'EMPTY', write: 'NOT_NEEDED' };
+    this.enabled = this.safeParent();
+    if (!this.enabled) { this.stats.load = 'UNAVAILABLE'; return; }
+    let fd;
+    try {
+      const before = fs.lstatSync(this.target);
+      if (!before.isFile() || before.isSymbolicLink() || before.nlink !== 1) {
+        this.enabled = false; this.stats.load = 'UNAVAILABLE'; return;
+      }
+      if (before.size > MAX_MANIFEST_CACHE_BYTES) { this.stats.load = 'IGNORED_INVALID'; return; }
+      fd = fs.openSync(this.target, 'r');
+      if (statFingerprint(before) !== statFingerprint(fs.fstatSync(fd))) throw Error('changed');
+      const data = Buffer.alloc(before.size); let offset = 0;
+      while (offset < data.length) {
+        const read = fs.readSync(fd, data, offset, data.length - offset, offset);
+        if (!read) throw Error('short'); offset += read;
+      }
+      if (statFingerprint(before) !== statFingerprint(fs.fstatSync(fd)) || data.length > MAX_MANIFEST_CACHE_BYTES) throw Error('changed');
+      const value = JSON.parse(data.toString('utf8'));
+      if (value.schema !== 1 || value.repository !== REPOSITORY || value.privacyPolicy !== POLICY ||
+          !Array.isArray(value.entries) || value.entries.length > MAX_MANIFEST_CACHE_ENTRIES) throw Error('invalid');
+      for (const entry of value.entries) {
+        if (!GIT_SHA.test(entry?.gitSha || '') || !/^manifests\/[a-f0-9]{64}\.json$/.test(entry.path || '') ||
+            typeof entry.content !== 'string' || entry.content.length % 4 || entry.content.length > Math.ceil(MAX_BLOB / 3) * 4 ||
+            !/^[A-Za-z0-9+/]*={0,2}$/.test(entry.content) ||
+            this.tree.entries.get(entry.path) !== entry.gitSha || this.entries.has(entry.gitSha)) {
+          this.stats.invalidEntries++; this.dirty = true; continue;
+        }
+        const safe = { gitSha: entry.gitSha, path: entry.path, content: entry.content };
+        const size = Buffer.byteLength(JSON.stringify(safe)) + 1;
+        if (this.bytes + size > MAX_MANIFEST_CACHE_BYTES) { this.stats.capacitySkips++; this.dirty = true; continue; }
+        this.entries.set(safe.gitSha, safe); this.bytes += size;
+      }
+      this.stats.load = 'LOADED';
+    } catch (error) { this.stats.load = error.code === 'ENOENT' ? 'EMPTY' : 'IGNORED_INVALID'; }
+    finally { if (fd != null) { try { fs.closeSync(fd); } catch { this.stats.load = 'UNAVAILABLE'; } } }
+  }
+  safeParent() {
+    try {
+      for (const dir of [path.dirname(this.dir), this.dir]) {
+        if (fs.lstatSync(dir).isSymbolicLink() || fs.realpathSync(dir) !== dir) return false;
+      }
+      return within(this.dir, this.target);
+    } catch { return false; }
+  }
+  get(name, sha) {
+    const entry = this.enabled && this.entries.get(sha);
+    if (entry && entry.path === name && this.tree.entries.get(name) === sha) {
+      const bytes = Buffer.from(entry.content, 'base64');
+      if (bytes.length <= MAX_BLOB && bytes.toString('base64') === entry.content && gitBlobSha(bytes) === sha &&
+          name === `manifests/${sha256(bytes)}.json`) { this.stats.hits++; return bytes; }
+      this.entries.delete(sha); this.bytes -= Buffer.byteLength(JSON.stringify(entry)) + 1;
+      this.stats.invalidEntries++; this.dirty = true;
+    }
+    this.stats.misses++; return null;
+  }
+  remember(name, sha, bytes) {
+    if (!this.enabled || this.tree.entries.get(name) !== sha || this.entries.has(sha)) return;
+    const entry = { gitSha: sha, path: name, content: bytes.toString('base64') };
+    const size = Buffer.byteLength(JSON.stringify(entry)) + 1;
+    if (this.entries.size >= MAX_MANIFEST_CACHE_ENTRIES || this.bytes + size > MAX_MANIFEST_CACHE_BYTES) {
+      this.stats.capacitySkips++; return;
+    }
+    this.entries.set(sha, entry); this.bytes += size; this.dirty = true;
+  }
+  save() {
+    if (!this.enabled || !this.dirty) return;
+    let temp, fd;
+    try {
+      if (!this.safeParent()) throw Error('unsafe');
+      if (fs.existsSync(this.target)) {
+        const s = fs.lstatSync(this.target);
+        if (!s.isFile() || s.isSymbolicLink() || s.nlink !== 1) throw Error('unsafe');
+      }
+      const bytes = Buffer.from(JSON.stringify({ schema: 1, repository: REPOSITORY, privacyPolicy: POLICY, entries: [...this.entries.values()] }));
+      if (bytes.length > MAX_MANIFEST_CACHE_BYTES) throw Error('budget');
+      temp = path.join(this.dir, 'MANIFEST-CACHE.' + crypto.randomUUID() + '.tmp');
+      if (!within(this.dir, temp)) throw Error('unsafe');
+      fd = fs.openSync(temp, 'wx'); fs.writeFileSync(fd, bytes); fs.fsyncSync(fd); fs.closeSync(fd); fd = undefined;
+      if (!this.safeParent() || !within(this.dir, this.target)) throw Error('unsafe');
+      fs.renameSync(temp, this.target); temp = undefined; this.stats.write = 'SAVED';
+    } catch { this.stats.write = 'UNAVAILABLE'; }
+    finally {
+      if (fd != null) { try { fs.closeSync(fd); } catch { this.stats.write = 'UNAVAILABLE'; } }
+      if (temp && this.safeParent() && within(this.dir, temp)) { try { fs.unlinkSync(temp); } catch {} }
+    }
+  }
+  summary() { return { ...this.stats, entries: this.entries.size, maxEntries: MAX_MANIFEST_CACHE_ENTRIES,
+    maxBytes: MAX_MANIFEST_CACHE_BYTES, scope: 'Current-tree-bound manifest bytes only; remoteFetches counts blob-read attempts; no pack/data or deletion certificate' }; }
+}
+async function* manifests(api, tree, cache = null) {
   for (const [name, sha] of [...tree.entries].sort((a,b) => a[0].localeCompare(b[0]))) {
     if (!name.startsWith('manifests/')) continue;
-    const bytes = await api.blob(sha);
+    let bytes = cache?.get(name, sha);
+    if (!bytes) { if (cache) cache.stats.remoteFetches++; bytes = await api.blob(sha); }
+    if (gitBlobSha(bytes) !== sha) fail('MANIFEST_GIT_SHA_MISMATCH');
     if (name !== `manifests/${sha256(bytes)}.json`) fail('MANIFEST_CONTENT_ADDRESS_MISMATCH');
     let value; try { value = JSON.parse(bytes.toString('utf8')); } catch { fail('MANIFEST_NOT_JSON'); }
     validateManifest(value, name);
     for (const pack of manifestPacks(value)) if (tree.entries.get(pack.path) !== pack.gitSha) fail('MANIFEST_PACK_MISSING_FROM_REF');
+    cache?.remember(name, sha, bytes);
     yield { value, path: name, gitSha: sha, byteLength: bytes.length };
   }
 }
@@ -652,10 +753,13 @@ async function sync(options) {
     const baseCommit = tree.commit;
     progress.baseCommit = baseCommit; progress.phase = 'READ_CATALOG';
     const known = new Set();
-    for await (const m of manifests(api, tree)) {
-      progress.catalogManifestsRead++;
-      for (const record of m.value.records) known.add(recordKey(record));
-    }
+    const catalogCache = new ManifestCache(workspace, tree);
+    try {
+      for await (const m of manifests(api, tree, catalogCache)) {
+        progress.catalogManifestsRead++;
+        for (const record of m.value.records) known.add(recordKey(record));
+      }
+    } finally { catalogCache.save(); progress.catalogCache = catalogCache.summary(); }
     progress.phase = 'SCAN_LOCAL_INPUTS';
     const allRoots = roots(workspace), summary = summarize(), additions = [], stagedManifests = [];
     const indexPath = path.join(workspace, '.runtime/git-data-store/INDEX.json');
@@ -768,7 +872,7 @@ async function sync(options) {
     const result = { schema: SCHEMA, mode: 'SYNC_VERIFIED', completedAt: new Date().toISOString(),
       repository: verifiedRepository, baseCommit, publishedCommit: commit, verifiedRef: tree.commit,
       manifests: stagedManifests, deferred, rehash, contentWrites: api.contentWrites, quota: api.quota,
-      publication: api.lastPublication,
+      publication: api.lastPublication, catalogCache: catalogCache.summary(),
       ...summary, localOriginalsModified: false, localFilesPruned: 0 };
     // Bounded replaceable index. It is a scan optimization, never archive evidence.
     const index = { schema: SCHEMA, privacyPolicy: POLICY, verifiedRef: tree.commit, files: nextIndex };
@@ -1076,7 +1180,8 @@ async function prune(options) {
       retainedLegacyPacks: 0, completedWithWarnings: false, archiveWarnings: [] };
     const candidates = [], retainedLegacyPackHashes = new Set();
     progress.phase = 'READ_CATALOG';
-    for await (const m of manifests(api, tree)) {
+    const catalogCache = new ManifestCache(workspace, tree);
+    try { for await (const m of manifests(api, tree, catalogCache)) {
       progress.phase = 'READ_CATALOG'; progress.catalogManifestsRead++;
       // Large originals remain working inputs. This change does not enlarge the
       // deletion policy; fragment archives must first have an operational review.
@@ -1136,6 +1241,7 @@ async function prune(options) {
         }
       }
     }
+    } finally { catalogCache.save(); progress.catalogCache = catalogCache.summary(); result.catalogCache = catalogCache.summary(); }
     if (apply) {
       // Fail before deletions if ref/repository changed after verification.
       progress.phase = 'FINAL_DELETE_GUARDS';
@@ -1194,6 +1300,7 @@ if (require.main === module) main().then(result => console.log(JSON.stringify(re
 module.exports = { SCHEMA, FRAGMENT_SCHEMA, FRAGMENT_FORMAT, POLICY, REPOSITORY, MAX_BLOB, MAX_PLAIN_PACK, MAX_RAW_PACK,
   PACK_PAYLOAD_BUDGET, MAX_FILE, MAX_SOURCE_FILE, FRAGMENT_BYTES, MAX_INFLATED, MAX_JSON_NODES, MAX_JSON_DEPTH, ROOT_PATHS, PRUNE_PREFIXES,
   sha256, gitBlobSha, within, cleanRelative, roots, resolveSource, excludedPath, walk, redactText, redactJson,
-  sanitize, readSafeFile, recordKey, withLock, lockStatus, loadConfig, GitHub, validateManifest, manifests, buildPack,
+  sanitize, readSafeFile, recordKey, withLock, lockStatus, loadConfig, GitHub, validateManifest, ManifestCache,
+  MAX_MANIFEST_CACHE_BYTES, MAX_MANIFEST_CACHE_ENTRIES, manifests, buildPack,
   unpack, verifiedPack, verifiedSelectedRecord, verifiedFragmentRecord, verifyArchiveManifest, manifestPacks,
   inventory, sync, inspectRemote, readExactBatch, readExactSet, readExactPages, restoreTarget, restore, evaluationRun, protectedEvaluations, prune };
