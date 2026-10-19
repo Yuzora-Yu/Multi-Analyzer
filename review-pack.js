@@ -247,7 +247,7 @@
       note:'この保存判定に含まれる確定足での撤回条件通過です。元の共通判定・通知・保存済み追跡は変更しません。表示範囲外の過去は未確認です。'};
   }
   function withdrawalText(w,price=num){
-    return `${jst(w.closedAt)} の15分終値 ${price(w.close)} が元の撤回境界 ${price(w.invalidationClose)} を${w.direction==='SHORT'?'上回り':'下回り'}ました。帯内に戻っても、元の見立ては再開しません。新しい固定追跡・確認価格・残り値幅は表示しません。`;
+    return `${jst(w.closedAt)} の15分終値 ${price(w.close)} がこの画面の撤回境界 ${price(w.invalidationClose)} を${w.direction==='SHORT'?'上回り':'下回り'}ました。この15分条件の候補は再開しません。別途保存した追跡は、その保存条件で確認します。SL参考への価格到達とも別の判定です。新しい固定追跡・確認価格・残り値幅は表示しません。`;
   }
   function confirmationContext(a,z,price=num,health=null){
     if(health?.blocked)return {available:false,minutes:15,scope:'suspended-checkpoint-preview',reason:health.kind||'PRESENTATION_BLOCKED',text:'判断保留中のため、新しい固定追跡の確認価格は表示しません。'+(health.message||'共通判定の状態を確認してください。')+' 保存済み追跡は元条件を維持します。'};
@@ -303,7 +303,7 @@
   }
   function decisionText(d){const q=d.consultation;return [...(q?.checkpointText?.length?['前回固定したチェックポイント（元条件で先に確認）',...q.checkpointText]:[]),...timingText(d.timingContext),...(q?.marketBrief?globalThis.MultiAnalyzerMarketBrief?.lines(q.marketBrief)||[]:[]),...(d.health?[`鮮度確認 ${jst(d.health.assessedAt)}：${d.health.message}`]:[]),`${d.verdict} / ${d.direction}`,...calendarText(d),d.exit||'今回の足に黄EXITなし',
     ...(q?[q.basis,...(q.trendContext?[`現在地の基準：15分確定価格 ${num(q.trendContext.price)} / ${q.trendContext.priceClosedAt?jst(q.trendContext.priceClosedAt):'未取得'}`]:[]),...(q.trendContext?.frames||[]).flatMap(f=>[`${f.name} 構造 ${f.structure} / MA ${f.ma} / ${f.available?'確定 '+jst(f.closedAt):f.sessionWait?sessionWaitText(f.sessionWait):'未取得・遅延'}：${f.levels.map(l=>`${l.label} ${num(l.price)} の${l.position}（15分確定価格比）`).join(' / ')}`,...(f.leg?[`${f.name} 確認済み${f.leg.direction} ${num(f.leg.start.price)}→${num(f.leg.end.price)}（終点確認 ${jst(f.leg.end.confirmedAt)}）から ${num(f.leg.ratio)}％ / ${f.leg.levels.map(l=>`${num(l.percent)}％ ${num(l.price)}`).join(' / ')}。${f.leg.note}`]:[])]),...q.zones.flatMap(({zone:z,focus:f,geometryText,geometryBasis,confirmationPreview,withdrawal,roleContext})=>[
-      `${withdrawal?'撤回確認済み・元の':''}背景 ${z.direction} ${z.frame} ${z.type} ${num(z.low)}～${num(z.high)} / ${z.condition} / 15分終値 ${num(z.invalidationClose)}${z.direction==='SHORT'?'超':'未満'}で撤回 / SL参考 ${num(z.protectiveStop)}`,
+      `${withdrawal?'15分条件で撤回・元の':''}背景 ${z.direction} ${z.frame} ${z.type}（帯の形成足） ${num(z.low)}～${num(z.high)} / ${z.condition} / この画面は15分終値 ${num(z.invalidationClose)}${z.direction==='SHORT'?'超':'未満'}で撤回 / SL参考 ${num(z.protectiveStop)}`,
       ...(roleContext?[roleContext.label+'。'+roleContext.note]:[]),
       ...(confirmationPreview?[confirmationPreview.text]:[]),
       ...(f?.windows||[]).map(w=>`局所観察 ${num(w.low)}～${num(w.high)}：${w.levels.map(r=>r.label+' '+num(r.price)).join(' / ')}（接触や重合数は勝率・入場条件ではありません）`),

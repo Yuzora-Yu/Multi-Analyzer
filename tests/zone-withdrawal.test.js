@@ -15,7 +15,9 @@ test('revisited upper-frame zone retains the observed M15 withdrawal without cha
     const {a,z}=fixture(direction),before=JSON.stringify({a,z}),w=R.zoneWithdrawal(a,z);
     assert.equal(w.closedAt,18*STEP);assert.equal(w.invalidationClose,z.invalidationClose);assert.equal(w.zoneId,z.id);
     assert.equal(w.scope,'available-snapshot-closed-candles');assert.match(w.note,/表示範囲外の過去は未確認/);
-    assert.match(R.withdrawalText(w),/元の見立ては再開しません/);
+    assert.match(R.withdrawalText(w),/この15分条件の候補は再開しません/);
+    assert.match(R.withdrawalText(w),/別途保存した追跡は、その保存条件で確認/);
+    assert.match(R.withdrawalText(w),/SL参考への価格到達とも別/);
     const preview=R.confirmationContext(a,z);assert.equal(preview.available,false);assert.equal(preview.reason,'WITHDRAWAL_OBSERVED');assert.equal(preview.boundary,undefined);
     assert.equal(JSON.stringify({a,z}),before);assert.equal(a.marketMap.candidates[0].phase,'IN_ZONE');
   }
@@ -50,12 +52,14 @@ test('actual candidate renderer and AI export suppress renewed tracking and geom
   asset.consultation=R.consultation(asset,a.generatedAt);
   assert.deepEqual(asset.consultation.zones[0].zone,z);assert.equal(asset.consultation.zones[0].geometry,null);
   assert.deepEqual(asset.consultation.zones[0].geometryText,[]);
-  assert.match(R.decisionText(R.decision(asset,a.generatedAt)).join('\n'),/元の見立ては再開しません/);
+  assert.match(R.decisionText(R.decision(asset,a.generatedAt)).join('\n'),/この15分条件の候補は再開しません/);
   const archived=R.consultation(asset,a.generatedAt,{archived:true});
   assert.equal(archived.zones[0].withdrawal.closedAt,18*STEP);assert.match(archived.zones[0].confirmationPreview.text,/後日再構築/);
   const source=fs.readFileSync(require.resolve('../app.js'),'utf8'),block=source.slice(source.indexOf('  function renderMarketMap(a)'),source.indexOf('  function renderPlan()')),box={};
   const render=vm.runInNewContext(block+';renderMarketMap',{window:{MultiAnalyzerReview:R,MultiAnalyzerZoneGeometry:global.MultiAnalyzerZoneGeometry},state:{offlineCsv:false},INITIAL_PARAMS:new Set(),snapshotHealth:()=>null,$:()=>box,priceBasis:()=>({label:'元市場'}),mappedPrice:v=>v.toFixed(2),fmt:String,esc:String,Date});
-  render(a);assert.match(box.innerHTML,/撤回確認済み・売り背景/);assert.match(box.innerHTML,/撤回した確定足/);
+  render(a);assert.match(box.innerHTML,/15分条件で撤回・売り背景/);assert.match(box.innerHTML,/撤回した確定足/);
+  assert.match(box.innerHTML,/4H OB（帯の形成足）/);assert.match(box.innerHTML,/この画面の撤回条件/);
+  assert.match(box.innerHTML,/別途保存した追跡は、その保存条件で確認/);
   assert.match(box.innerHTML,/data-track-zone="0" disabled/);assert.doesNotMatch(box.innerHTML,/data-geometry-zone/);
   assert.equal(JSON.stringify({a,z}),before);
 });
