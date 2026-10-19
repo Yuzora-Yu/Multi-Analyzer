@@ -22,6 +22,25 @@ test('label spacing preserves transition explanations over nearby exit notices w
  E.spaceLabels(m,5);assert.equal(m.length,3);assert.equal(m[0].text,'リボン ↓');assert.equal(m[1].text,'');assert.equal(m[2].text,'方向転換 売 B');
 });
 
+test('same-candle structure events survive a moving recent-event boundary and label collisions',()=>{
+ const target=20000000,pair=[{time:target,type:'BOS',side:'bull',price:102},{time:target,type:'SWEEP',side:'bull',price:98}];
+ const before=[...Array.from({length:11},(_,i)=>({time:target-(11-i)*900000,type:'SWEEP',side:'bear'})),...pair];
+ const after=[...before,...Array.from({length:11},(_,i)=>({time:target+(i+1)*900000,type:'SWEEP',side:'bear'}))];
+ const original=structuredClone(after),old=E.structureMarkers(before,target),next=E.structureMarkers(after,target);
+ assert.deepEqual(old.map(m=>m.text),['BOS','SWEEP']);
+ assert.deepEqual(next.filter(m=>m.time===target/1000),old);
+ const laid=E.viewportLabels(next,()=>100,300,()=>40);
+ assert.equal(laid.filter(m=>m.time===target/1000).length,2);
+ assert.deepEqual(E.structureMarkers(after,target).filter(m=>m.time===target/1000),old);
+ assert.deepEqual(after,original);
+});
+
+test('structure display filters only unsupported or out-of-view events, not nearby confirmed events',()=>{
+ const events=[{time:1000,type:'BOS',side:'bull'},{time:2000,type:'CHoCH',side:'bear'},{time:2000,type:'OB BREAK',side:'bull'},
+  {time:3000,type:'ENTRY',side:'bull'},{time:3000,type:'SWEEP',side:'unknown'},{time:NaN,type:'BOS',side:'bull'}];
+ assert.deepEqual(E.structureMarkers(events,2000).map(m=>[m.text,m.position]),[['CHoCH','aboveBar'],['OB BREAK','belowBar']]);
+});
+
 test('short-frame timing keeps direction, ribbon disagreement and historical turn close separate from P',()=>{
  const time=Date.parse('2026-10-16T02:00:00Z');
  for(const minutes of [1,5]){

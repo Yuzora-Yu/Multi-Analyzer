@@ -543,13 +543,7 @@
 
     state.volumeSeries.setData(visible.map(c=>({time:toChartTime(c.time),value:c.volume,color:c.close>=c.open?'#43d49d66':'#ff6b7866'})));
     const markers = window.MultiAnalyzerEvidence.markers(state.analysis.exec.flow?.history||[],visible[0].time);
-    let lastMarkerTime = 0;
-    for (const e of (state.analysis.exec.smc?.events || []).slice(-12)) {
-      if (e.time - lastMarkerTime < currentTf().minutes * 60000 * 3) continue;
-      lastMarkerTime = e.time;
-      if (e.time < visible[0].time) continue;
-      markers.push({ time: toChartTime(e.time), position: e.side === 'bull' ? 'belowBar' : 'aboveBar', color: e.side === 'bull' ? '#43d49d' : '#ff6b78', shape: e.side === 'bull' ? 'arrowUp' : 'arrowDown', text: e.type });
-    }
+    markers.push(...window.MultiAnalyzerEvidence.structureMarkers(state.analysis.exec.smc?.events||[],visible[0].time));
     if (state.analysis.actionable) markers.push({ time: toChartTime(state.analysis.exec.candles.at(-1).time), position: state.analysis.direction === 'LONG' ? 'belowBar' : 'aboveBar', color: '#e6b85c', shape: 'circle', text: state.analysis.direction === 'LONG' ? '買い候補' : '売り候補' });
     markers.sort((a, b) => a.time - b.time);
     // Keep original explanations so zooming or panning can restore hidden labels.

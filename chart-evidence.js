@@ -21,6 +21,14 @@
     if(!last||last.time+3600000>executionClose||h1.quality?.stale)return [];
     return (h1.smc?.zones||[]).filter(z=>z.type==='OB'&&z.status==='active'&&z.time+3600000<=executionClose&&Number.isFinite(z.low)&&Number.isFinite(z.high)).slice(-2);
   }
+  function structureMarkers(events,start){
+    // Keep every supplied event on a visible candle. Cutting a tail before layout
+    // can split a same-candle BOS/SWEEP pair as newer events arrive.
+    return events.filter(e=>Number.isSafeInteger(e.time)&&e.time>=start&&
+      ['bull','bear'].includes(e.side)&&['BOS','CHoCH','SWEEP','OB BREAK'].includes(e.type))
+      .map(e=>({time:Math.floor(e.time/1000),position:e.side==='bull'?'belowBar':'aboveBar',
+        color:e.side==='bull'?'#43d49d':'#ff6b78',shape:e.side==='bull'?'arrowUp':'arrowDown',text:e.type}));
+  }
   function spaceLabels(markers,seconds){
     const priority=m=>m.text.startsWith('方向転換')?4:m.text.startsWith('リボン')?3:m.text.startsWith('P ')?2:m.text.includes('EXIT')?1:0;
     const used=[];
@@ -80,5 +88,5 @@
     }
     return out;
   }
-  return {markers,hourlyZones,spaceLabels,viewportLabels,currentEventsText,context,timingSummary};
+  return {markers,structureMarkers,hourlyZones,spaceLabels,viewportLabels,currentEventsText,context,timingSummary};
 });
