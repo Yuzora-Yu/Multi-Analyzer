@@ -755,6 +755,6 @@ Tree, manifest, pack, current privacy policy and every archived file hash still 
 
 ## 2026-10-19: name the candle used to withdraw a displayed zone
 
-A zone's H1 or H4 formation frame is distinct from the existing displayed candidate's M15 close withdrawal rule. A separately saved research hypothesis can retain a different original close frame; an M15 display must not imply that this other hypothesis was withdrawn. Zone headings, field labels and AI consultation text now state the 15-minute scope, identify the zone's formation frame and preserve separate saved tracking conditions and protective-stop evidence.
+A zone's H1 or H4 formation frame is distinct from the existing displayed candidate's M15 close withdrawal rule. A separately saved research hypothesis can retain a different original close frame; an M15 display must not imply that this other hypothesis was withdrawn. Zone headings, field labels and AI consultation text now state the 15-minute scope, identify the zone's formation frame and preserve separate saved tracking conditions and protective-stop evidence. Status paragraphs use the full card width instead of inheriting the map's narrow two-column label layout.
 
 This is a wording correction. The original withdrawal calculation, candidate suppression, fixed checkpoints, underlying market map, canonical P/EXIT decisions, notifications and demo execution identities are unchanged. Later prices do not rewrite earlier records, and the clarification does not establish improved predictive accuracy.
