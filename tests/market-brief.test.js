@@ -149,6 +149,33 @@ test('G17 retains its verified EDT time and no invented result when the schedule
  assert.equal(b.actionable,false);
 });
 
+test('calendar rechecks become visible at their own clock without renewing earlier context',()=>{
+ const review=K.calendar.reviews[0],before=describe(fixture(new Date(review.verifiedAt-1).toISOString())),after=describe(fixture(new Date(review.verifiedAt).toISOString()));
+ assert.equal(before.calendar.fresh,false);assert.equal(before.upcoming,null);
+ assert.equal(before.sources.some(s=>s.id===review.source),false);
+ assert.equal(after.calendar.fresh,true);assert.equal(after.calendar.verifiedAt,review.verifiedAt);
+ assert.equal(after.upcoming.id,'us-state-employment-202609');assert.equal(after.upcoming.result,null);
+ assert.equal(new Date(after.upcoming.time).toISOString(),'2026-10-20T14:00:00.000Z');
+ assert.match(B.lines(after).join(' '),/10\/20 23:00 JST.*州別雇用/);
+ assert.match(B.html(after),/予定の個別確認 10\/20 14:00 JST/);
+ assert.match(after.calendar.note,/部分記録|掲載なしを指標なしと判断しません/);
+ assert.deepEqual(after.plans,before.plans);assert.equal(after.actionable,false);
+ assert.equal(K.calendar.verifiedAt,Date.parse('2026-10-15T02:16:00Z'));
+ assert.equal(K.calendar.expiresAt,Date.parse('2026-10-17T02:16:00Z'));
+});
+
+test('a reviewed schedule expires without rolling back and future rechecks cannot leak in',()=>{
+ const review=K.calendar.reviews[0],knowledge=structuredClone(K),f=fixture(new Date(review.verifiedAt+60000).toISOString());
+ knowledge.calendar.reviews.push({...structuredClone(review),verifiedAt:f.now+60000,events:[{...review.events[0],name:'FUTURE_RECHECK'}]});
+ let b=describe(f,{knowledge});assert.equal(b.calendar.verifiedAt,review.verifiedAt);assert.doesNotMatch(B.lines(b).join(' '),/FUTURE_RECHECK/);
+ b=describe(fixture(new Date(review.expiresAt+1).toISOString()));
+ assert.equal(b.calendar.verifiedAt,review.verifiedAt);assert.equal(b.calendar.fresh,false);assert.equal(b.previous,null);assert.equal(b.upcoming,null);
+ assert.match(B.lines(b).join(' '),/掲載なしを指標なしと判断せず/);
+ for(const mode of ['archive','csv']){b=describe(f,{mode});assert.equal(b.available,false);assert.deepEqual(b.sources,[]);assert.equal(b.upcoming,undefined);}
+ const earnings=review.events.find(e=>e.id==='us-weekly-earnings-2026q3');
+ assert.equal(new Date(earnings.time).toISOString(),'2026-10-21T14:00:00.000Z');assert.equal(earnings.result,undefined);
+});
+
 test('presentation escapes input, uses the selected price basis and keeps limits and sources visible',()=>{
  const b=describe(fixture());b.plans[0].zone.condition='<img src=x onerror=alert(1)>';
  b.plans[0].focus={windows:[{levels:[{label:'4H EMA20',price:106},{label:'15m BB上限',price:108}]}]};

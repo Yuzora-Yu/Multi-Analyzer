@@ -5,6 +5,7 @@
   const ppiResultKnownAt=Date.parse('2026-10-15T13:06:10Z');
   const fedScheduleKnownAt=Date.parse('2026-10-16T03:07:59Z');
   const october16UpdateKnownAt=Date.parse('2026-10-16T13:09:30Z');
+  const october20CalendarKnownAt=Date.parse('2026-10-20T05:00:39Z');
   const sources=[
     {id:'wgc-2026',title:'WGC: Gold Mid-Year Outlook 2026',url:'https://www.gold.org/goldhub/research/gold-mid-year-outlook-2026',kind:'期間を限定した金市場分析',period:'2026年上半期、6月26日まで。セッション分析はスポット金の20分価格。'},
     {id:'wgc-2024',title:'WGC: Let’s tally the rally',url:'https://www.gold.org/download/file/19260/let%27s-tally-the-rally.pdf',kind:'過去のセッション比較',period:'2024年1～10月。2026年版とは時間帯の区分も異なる。'},
@@ -20,7 +21,8 @@
     {id:'bls-ppi',title:'BLS: September 2026 PPI',url:'https://www.bls.gov/news.release/ppi.nr0.htm',kind:'発表機関の実績',knownAt:ppiResultKnownAt,period:'2026年10月15日08:30 ET公表。月次で更新される原本URLの9月実績を確認。予想値の出典は含まない。'},
     {id:'fed-calendar-oct2026',title:'FRB: Calendar October 2026',url:'https://www.federalreserve.gov/newsevents/2026-october.htm',kind:'発表機関の予定',knownAt:fedScheduleKnownAt,period:'10月15日23:30 EDT＝16日12:30 JST、IMFでの議長対談開始予定を確認。発言内容・結果は未取得。'},
     {id:'bls-import-202609',title:'BLS: September 2026 Import and Export Price Indexes',url:'https://www.bls.gov/news.release/ximpim.nr0.htm',kind:'発表機関の実績',knownAt:october16UpdateKnownAt,period:'2026年10月16日08:30 EDT公表。月次で更新される原本URLの9月実績を確認。過去月改定あり。予想値は未取得。'},
-    {id:'fed-g17-oct2026',title:'FRB: October 2026 G.17 release schedule',url:'https://www.federalreserve.gov/newsevents/2026-october.htm',kind:'発表機関の予定',knownAt:october16UpdateKnownAt,period:'10月16日09:15 EDT＝22:15 JST、鉱工業生産・設備稼働率の公表予定を確認。実績・予想値は未取得。'}
+    {id:'fed-g17-oct2026',title:'FRB: October 2026 G.17 release schedule',url:'https://www.federalreserve.gov/newsevents/2026-october.htm',kind:'発表機関の予定',knownAt:october16UpdateKnownAt,period:'10月16日09:15 EDT＝22:15 JST、鉱工業生産・設備稼働率の公表予定を確認。実績・予想値は未取得。'},
+    {id:'bls-calendar-20261020',title:'BLS: October 20–21, 2026 release schedule',url:'https://www.bls.gov/schedule/2026/10_sched.htm',kind:'発表機関の予定の再照合',knownAt:october20CalendarKnownAt,period:'10月20日と21日の10:00 EDT＝各23:00 JSTの掲載予定を確認。州別雇用と週間賃金。全国雇用統計ではなく、実績・予想値は未取得。'}
   ];
   const principles=[
     {id:'sessions',title:'時間帯の癖を相場環境と組み合わせる',finding:'2026年上半期のWGC分析ではアジアの反発・米国の下落が目立った。',use:'前セッション高安、上位足、当日の材料を重ねて戻り売り・押し目買いの観察順を決める。',limit:'期間限定の傾向。アジア＝常にレンジ、特定の時刻＝必ず下落、とはしない。',sources:['wgc-2026','wgc-2024'],evidence:'過去の観察'},
@@ -38,7 +40,13 @@
       {id:'fed-warsh-imf-20261016',name:'ウォーシュFRB議長・IMF対談（開始予定）',time:Date.parse('2026-10-16T03:30:00Z'),knownAt:fedScheduleKnownAt,source:'fed-calendar-oct2026'},
       {id:'us-import-202609',name:'米輸出入物価（9月）',time:Date.parse('2026-10-16T12:30:00Z'),knownAt:reviewedAt,source:'bls-calendar',result:{knownAt:october16UpdateKnownAt,source:'bls-import-202609',text:'輸入物価 前月比+1.1％・前年比+8.1％、非燃料輸入 前月比+0.7％・前年比+6.0％。輸出物価 前月比+2.2％・前年比+11.6％。過去月改定あり。予想値・同時刻の金利とドルは未取得。価格変動の原因や売買方向は、この実績だけでは確定しません。'}},
       {id:'us-g17-202609',name:'米鉱工業生産・設備稼働率（9月）',time:Date.parse('2026-10-16T13:15:00Z'),knownAt:october16UpdateKnownAt,source:'fed-g17-oct2026'}
-    ]};
+    ],reviews:[{
+      verifiedAt:october20CalendarKnownAt,expiresAt:Date.parse('2026-10-22T05:00:39Z'),coverage:'partial',source:'bls-calendar-20261020',
+      note:'BLSの10月20・21日の掲載予定を再照合した部分記録です。他省庁・地方連銀・各国・突発材料は未収録。掲載なしを指標なしと判断しません。実績・予想値は未取得。',events:[
+        {id:'us-state-employment-202609',name:'米州別雇用・失業（9月、全国雇用統計とは別）',time:Date.parse('2026-10-20T14:00:00Z'),knownAt:october20CalendarKnownAt,source:'bls-calendar-20261020'},
+        {id:'us-weekly-earnings-2026q3',name:'米通常週間賃金（2026年7～9月期）',time:Date.parse('2026-10-21T14:00:00Z'),knownAt:october20CalendarKnownAt,source:'bls-calendar-20261020'}
+      ]
+    }]};
   function freeze(v){if(v&&typeof v==='object'){Object.values(v).forEach(freeze);Object.freeze(v);}return v;}
   return freeze({version:'gold-context-knowledge-v1',reviewedAt,sources,principles,calendar,
     missing:['現在のドル・米2年/10年/実質金利','当日の地政学・要人発言の新規材料','最新の建玉・ETFフロー・実スプレッド'],

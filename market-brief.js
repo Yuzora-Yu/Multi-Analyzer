@@ -70,7 +70,11 @@
     const m15=a?.m15,bar=m15?.candles?.at(-1),closedAt=bar?.time+STEP;
     if(health?.blocked||!Trend.known(m15,a?.generatedAt)||m15.intervalMinutes!==15||!finiteTime(a?.generatedAt)||a.generatedAt>now||now-a.generatedAt>20*MINUTE||!Number.isFinite(bar?.close)||bar.close<=0||bar.time%STEP!==0||!a.marketMap?.valid)
       return {...base,reason:'確定足・鮮度・共通判定の整合を確認できないため、新しい事前シナリオは保留です。'};
-    const cal=knowledge.calendar,calendarFresh=finiteTime(cal?.verifiedAt)&&cal.verifiedAt<=now&&finiteTime(cal?.expiresAt)&&now<=cal.expiresAt;
+    // Select a review only after it was actually checked; retain earlier clocks and expiry.
+    const originalCalendar=knowledge.calendar;
+    const cal=[originalCalendar,...(Array.isArray(originalCalendar?.reviews)?originalCalendar.reviews:[])]
+      .filter(c=>finiteTime(c?.verifiedAt)&&c.verifiedAt<=now).sort((x,y)=>y.verifiedAt-x.verifiedAt)[0]||originalCalendar;
+    const calendarFresh=finiteTime(cal?.verifiedAt)&&cal.verifiedAt<=now&&finiteTime(cal?.expiresAt)&&now<=cal.expiresAt;
     const events=calendarFresh?(cal.events||[]).filter(e=>finiteTime(e.time)&&finiteTime(e.knownAt)&&e.knownAt<=now).map(e=>({...e,result:e.time<=now&&e.result?.knownAt<=now?e.result:null,stage:eventStage(e,now)})):[];
     const upcoming=events.filter(e=>e.time>=now).sort((x,y)=>x.time-y.time)[0]||null;
     const previous=events.filter(e=>e.time<=now&&e.stage!=='OLDER').sort((x,y)=>y.time-x.time)[0]||null;
