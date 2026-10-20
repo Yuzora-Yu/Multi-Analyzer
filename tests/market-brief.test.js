@@ -169,11 +169,30 @@ test('a reviewed schedule expires without rolling back and future rechecks canno
  knowledge.calendar.reviews.push({...structuredClone(review),verifiedAt:f.now+60000,events:[{...review.events[0],name:'FUTURE_RECHECK'}]});
  let b=describe(f,{knowledge});assert.equal(b.calendar.verifiedAt,review.verifiedAt);assert.doesNotMatch(B.lines(b).join(' '),/FUTURE_RECHECK/);
  b=describe(fixture(new Date(review.expiresAt+1).toISOString()));
- assert.equal(b.calendar.verifiedAt,review.verifiedAt);assert.equal(b.calendar.fresh,false);assert.equal(b.previous,null);assert.equal(b.upcoming,null);
+ assert.equal(b.calendar.verifiedAt,K.calendar.reviews.at(-1).verifiedAt);assert.equal(b.calendar.fresh,false);assert.equal(b.previous,null);assert.equal(b.upcoming,null);
  assert.match(B.lines(b).join(' '),/掲載なしを指標なしと判断せず/);
  for(const mode of ['archive','csv']){b=describe(f,{mode});assert.equal(b.available,false);assert.deepEqual(b.sources,[]);assert.equal(b.upcoming,undefined);}
  const earnings=review.events.find(e=>e.id==='us-weekly-earnings-2026q3');
  assert.equal(new Date(earnings.time).toISOString(),'2026-10-21T14:00:00.000Z');assert.equal(earnings.result,undefined);
+});
+
+test('state employment result keeps publication, observation and market reopening clocks separate',()=>{
+ const review=K.calendar.reviews.at(-1),event=review.events.find(e=>e.id==='us-state-employment-202609');
+ assert.equal(new Date(event.time).toISOString(),'2026-10-20T14:00:00.000Z');
+ assert.equal(new Date(event.result.knownAt).toISOString(),'2026-10-20T21:00:44.000Z');
+ assert.equal(review.expiresAt,K.calendar.reviews[0].expiresAt);
+ const before=describe(fixture('2026-10-20T20:59:59Z'));
+ assert.equal(before.calendar.verifiedAt,K.calendar.reviews[0].verifiedAt);assert.equal(before.previous.result,null);
+ assert.equal(before.sources.some(s=>s.id===event.result.source),false);
+ const paused=describe(fixture(new Date(review.verifiedAt).toISOString()));assert.equal(paused.available,false);assert.equal(paused.previous,undefined);
+ const f=fixture('2026-10-20T22:00:10Z'),after=describe(f),oldKnowledge=structuredClone(K);oldKnowledge.calendar.reviews.pop();
+ const old=describe(f,{knowledge:oldKnowledge});
+ assert.equal(after.previous.id,event.id);assert.equal(after.previous.result.knownAt,event.result.knownAt);assert.equal(after.previous.stage,'NEXT_SESSION');
+ assert.match(B.html(after),/実績確認 10\/21 06:00 JST/);assert.match(B.html(after),/https:\/\/www\.bls\.gov\/news\.release\/laus\.nr0\.htm/);
+ assert.match(B.lines(after).join(' '),/5州で低下、45州とDCは概ね不変/);assert.match(B.lines(after).join(' '),/全国雇用統計の再発表ではありません/);
+ assert.equal(after.upcoming.id,'us-weekly-earnings-2026q3');assert.equal(after.upcoming.result,null);
+ assert.deepEqual(after.plans,old.plans);assert.equal(after.actionable,false);
+ for(const mode of ['archive','csv']){const b=describe(f,{mode});assert.equal(b.available,false);assert.equal(b.previous,undefined);assert.deepEqual(b.sources,[]);}
 });
 
 test('presentation escapes input, uses the selected price basis and keeps limits and sources visible',()=>{

@@ -6,6 +6,7 @@
   const fedScheduleKnownAt=Date.parse('2026-10-16T03:07:59Z');
   const october16UpdateKnownAt=Date.parse('2026-10-16T13:09:30Z');
   const october20CalendarKnownAt=Date.parse('2026-10-20T05:00:39Z');
+  const october21StateResultKnownAt=Date.parse('2026-10-20T21:00:44Z');
   const sources=[
     {id:'wgc-2026',title:'WGC: Gold Mid-Year Outlook 2026',url:'https://www.gold.org/goldhub/research/gold-mid-year-outlook-2026',kind:'期間を限定した金市場分析',period:'2026年上半期、6月26日まで。セッション分析はスポット金の20分価格。'},
     {id:'wgc-2024',title:'WGC: Let’s tally the rally',url:'https://www.gold.org/download/file/19260/let%27s-tally-the-rally.pdf',kind:'過去のセッション比較',period:'2024年1～10月。2026年版とは時間帯の区分も異なる。'},
@@ -22,7 +23,9 @@
     {id:'fed-calendar-oct2026',title:'FRB: Calendar October 2026',url:'https://www.federalreserve.gov/newsevents/2026-october.htm',kind:'発表機関の予定',knownAt:fedScheduleKnownAt,period:'10月15日23:30 EDT＝16日12:30 JST、IMFでの議長対談開始予定を確認。発言内容・結果は未取得。'},
     {id:'bls-import-202609',title:'BLS: September 2026 Import and Export Price Indexes',url:'https://www.bls.gov/news.release/ximpim.nr0.htm',kind:'発表機関の実績',knownAt:october16UpdateKnownAt,period:'2026年10月16日08:30 EDT公表。月次で更新される原本URLの9月実績を確認。過去月改定あり。予想値は未取得。'},
     {id:'fed-g17-oct2026',title:'FRB: October 2026 G.17 release schedule',url:'https://www.federalreserve.gov/newsevents/2026-october.htm',kind:'発表機関の予定',knownAt:october16UpdateKnownAt,period:'10月16日09:15 EDT＝22:15 JST、鉱工業生産・設備稼働率の公表予定を確認。実績・予想値は未取得。'},
-    {id:'bls-calendar-20261020',title:'BLS: October 20–21, 2026 release schedule',url:'https://www.bls.gov/schedule/2026/10_sched.htm',kind:'発表機関の予定の再照合',knownAt:october20CalendarKnownAt,period:'10月20日と21日の10:00 EDT＝各23:00 JSTの掲載予定を確認。州別雇用と週間賃金。全国雇用統計ではなく、実績・予想値は未取得。'}
+    {id:'bls-calendar-20261020',title:'BLS: October 20–21, 2026 release schedule',url:'https://www.bls.gov/schedule/2026/10_sched.htm',kind:'発表機関の予定の再照合',knownAt:october20CalendarKnownAt,period:'10月20日と21日の10:00 EDT＝各23:00 JSTの掲載予定を確認。州別雇用と週間賃金。全国雇用統計ではなく、実績・予想値は未取得。'},
+    {id:'bls-calendar-20261021',title:'BLS: October 20–21, 2026 schedule recheck',url:'https://www.bls.gov/schedule/2026/10_sched.htm',kind:'発表機関の予定の再照合',knownAt:october21StateResultKnownAt,period:'21日06:00 JSTに20・21日の10:00 EDT予定を再照合。21日通常週間賃金の結果はまだ未取得。'},
+    {id:'bls-state-employment-202609',title:'BLS: September 2026 State Employment and Unemployment',url:'https://www.bls.gov/news.release/laus.nr0.htm',kind:'発表機関の実績',knownAt:october21StateResultKnownAt,period:'2026年10月20日10:00 EDT公表、21日06:00 JST確認。月次で更新される原本URLの9月州別資料。州推計は速報値を含み、後日改定され得る。全国雇用統計の再発表ではない。予想値は未取得。'}
   ];
   const principles=[
     {id:'sessions',title:'時間帯の癖を相場環境と組み合わせる',finding:'2026年上半期のWGC分析ではアジアの反発・米国の下落が目立った。',use:'前セッション高安、上位足、当日の材料を重ねて戻り売り・押し目買いの観察順を決める。',limit:'期間限定の傾向。アジア＝常にレンジ、特定の時刻＝必ず下落、とはしない。',sources:['wgc-2026','wgc-2024'],evidence:'過去の観察'},
@@ -44,6 +47,12 @@
       verifiedAt:october20CalendarKnownAt,expiresAt:Date.parse('2026-10-22T05:00:39Z'),coverage:'partial',source:'bls-calendar-20261020',
       note:'BLSの10月20・21日の掲載予定を再照合した部分記録です。他省庁・地方連銀・各国・突発材料は未収録。掲載なしを指標なしと判断しません。実績・予想値は未取得。',events:[
         {id:'us-state-employment-202609',name:'米州別雇用・失業（9月、全国雇用統計とは別）',time:Date.parse('2026-10-20T14:00:00Z'),knownAt:october20CalendarKnownAt,source:'bls-calendar-20261020'},
+        {id:'us-weekly-earnings-2026q3',name:'米通常週間賃金（2026年7～9月期）',time:Date.parse('2026-10-21T14:00:00Z'),knownAt:october20CalendarKnownAt,source:'bls-calendar-20261020'}
+      ]
+    },{
+      verifiedAt:october21StateResultKnownAt,expiresAt:Date.parse('2026-10-22T05:00:39Z'),coverage:'partial',source:'bls-calendar-20261021',
+      note:'BLSの20・21日の予定を再照合し、州別雇用の実績を個別の確認時刻で追記。元の期限は延長しません。他省庁・地方連銀・各国・突発材料は未収録。掲載なしを指標なしと判断しません。週間賃金の結果・予想値・同時刻の金利とドルは未取得。',events:[
+        {id:'us-state-employment-202609',name:'米州別雇用・失業（9月、全国雇用統計とは別）',time:Date.parse('2026-10-20T14:00:00Z'),knownAt:october20CalendarKnownAt,source:'bls-calendar-20261020',result:{knownAt:october21StateResultKnownAt,source:'bls-state-employment-202609',text:'9月の失業率は5州で低下、45州とDCは概ね不変。非農業雇用は2州で増加、1州で減少、47州とDCは概ね不変。州推計は速報値を含み、後日改定され得ます。全国雇用統計の再発表ではありません。予想値・同時刻の金利とドルは未取得。この実績だけで金の方向や価格変動の原因は確定しません。'}},
         {id:'us-weekly-earnings-2026q3',name:'米通常週間賃金（2026年7～9月期）',time:Date.parse('2026-10-21T14:00:00Z'),knownAt:october20CalendarKnownAt,source:'bls-calendar-20261020'}
       ]
     }]};
