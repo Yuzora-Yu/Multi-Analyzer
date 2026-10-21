@@ -7,6 +7,7 @@
   const october16UpdateKnownAt=Date.parse('2026-10-16T13:09:30Z');
   const october20CalendarKnownAt=Date.parse('2026-10-20T05:00:39Z');
   const october21StateResultKnownAt=Date.parse('2026-10-20T21:00:44Z');
+  const october22EarningsResultKnownAt=Date.parse('2026-10-21T17:00:53Z');
   const sources=[
     {id:'wgc-2026',title:'WGC: Gold Mid-Year Outlook 2026',url:'https://www.gold.org/goldhub/research/gold-mid-year-outlook-2026',kind:'期間を限定した金市場分析',period:'2026年上半期、6月26日まで。セッション分析はスポット金の20分価格。'},
     {id:'wgc-2024',title:'WGC: Let’s tally the rally',url:'https://www.gold.org/download/file/19260/let%27s-tally-the-rally.pdf',kind:'過去のセッション比較',period:'2024年1～10月。2026年版とは時間帯の区分も異なる。'},
@@ -25,7 +26,9 @@
     {id:'fed-g17-oct2026',title:'FRB: October 2026 G.17 release schedule',url:'https://www.federalreserve.gov/newsevents/2026-october.htm',kind:'発表機関の予定',knownAt:october16UpdateKnownAt,period:'10月16日09:15 EDT＝22:15 JST、鉱工業生産・設備稼働率の公表予定を確認。実績・予想値は未取得。'},
     {id:'bls-calendar-20261020',title:'BLS: October 20–21, 2026 release schedule',url:'https://www.bls.gov/schedule/2026/10_sched.htm',kind:'発表機関の予定の再照合',knownAt:october20CalendarKnownAt,period:'10月20日と21日の10:00 EDT＝各23:00 JSTの掲載予定を確認。州別雇用と週間賃金。全国雇用統計ではなく、実績・予想値は未取得。'},
     {id:'bls-calendar-20261021',title:'BLS: October 20–21, 2026 schedule recheck',url:'https://www.bls.gov/schedule/2026/10_sched.htm',kind:'発表機関の予定の再照合',knownAt:october21StateResultKnownAt,period:'21日06:00 JSTに20・21日の10:00 EDT予定を再照合。21日通常週間賃金の結果はまだ未取得。'},
-    {id:'bls-state-employment-202609',title:'BLS: September 2026 State Employment and Unemployment',url:'https://www.bls.gov/news.release/laus.nr0.htm',kind:'発表機関の実績',knownAt:october21StateResultKnownAt,period:'2026年10月20日10:00 EDT公表、21日06:00 JST確認。月次で更新される原本URLの9月州別資料。州推計は速報値を含み、後日改定され得る。全国雇用統計の再発表ではない。予想値は未取得。'}
+    {id:'bls-state-employment-202609',title:'BLS: September 2026 State Employment and Unemployment',url:'https://www.bls.gov/news.release/laus.nr0.htm',kind:'発表機関の実績',knownAt:october21StateResultKnownAt,period:'2026年10月20日10:00 EDT公表、21日06:00 JST確認。月次で更新される原本URLの9月州別資料。州推計は速報値を含み、後日改定され得る。全国雇用統計の再発表ではない。予想値は未取得。'},
+    {id:'bls-calendar-20261022',title:'BLS: October 2026 schedule recheck on October 22',url:'https://www.bls.gov/schedule/2026/10_sched.htm',kind:'発表機関の予定の再照合',knownAt:october22EarningsResultKnownAt,period:'21日10:00 EDTの7～9月期通常週間賃金の掲載予定を再照合。BLS以外と突発材料を網羅せず、元の確認期限も延長しない。'},
+    {id:'bls-weekly-earnings-2026q3',title:'BLS: Third Quarter 2026 Usual Weekly Earnings',url:'https://www.bls.gov/news.release/wkyeng.nr0.htm',kind:'発表機関の実績',knownAt:october22EarningsResultKnownAt,period:'2026年10月21日10:00 EDT公表、22日02:00 JST確認。四半期で更新される原本URLの7～9月期実績。季節調整前のフルタイム賃金・給与労働者の通常週収中央値。予想値は未取得。'}
   ];
   const principles=[
     {id:'sessions',title:'時間帯の癖を相場環境と組み合わせる',finding:'2026年上半期のWGC分析ではアジアの反発・米国の下落が目立った。',use:'前セッション高安、上位足、当日の材料を重ねて戻り売り・押し目買いの観察順を決める。',limit:'期間限定の傾向。アジア＝常にレンジ、特定の時刻＝必ず下落、とはしない。',sources:['wgc-2026','wgc-2024'],evidence:'過去の観察'},
@@ -56,6 +59,11 @@
         {id:'us-weekly-earnings-2026q3',name:'米通常週間賃金（2026年7～9月期）',time:Date.parse('2026-10-21T14:00:00Z'),knownAt:october20CalendarKnownAt,source:'bls-calendar-20261020'}
       ]
     }]};
+  const priorEarningsCalendar=calendar.reviews.at(-1);
+  calendar.reviews.push({...priorEarningsCalendar,verifiedAt:october22EarningsResultKnownAt,source:'bls-calendar-20261022',
+    note:'BLS予定と7～9月期通常週間賃金の実績を再照合し、個別の確認時刻で追記。元の期限は延長しません。他省庁・地方連銀・各国・突発材料は未収録。掲載なしを指標なしと判断しません。予想値・同時刻の金利とドルは未取得。',
+    events:priorEarningsCalendar.events.map(e=>e.id==='us-weekly-earnings-2026q3'?{...e,result:{knownAt:october22EarningsResultKnownAt,source:'bls-weekly-earnings-2026q3',text:'2026年7～9月期の通常週収中央値は1,232ドル、前年比+1.5％（季節調整前、フルタイム賃金・給与労働者）。同資料が比較する同期間のCPI-Uは+3.5％で、月次CPIの新規発表ではありません。予想値・同時刻の金利とドルは未取得。この実績だけで金の方向や価格変動の原因は確定しません。'}}:e)
+  });
   function freeze(v){if(v&&typeof v==='object'){Object.values(v).forEach(freeze);Object.freeze(v);}return v;}
   return freeze({version:'gold-context-knowledge-v1',reviewedAt,sources,principles,calendar,
     missing:['現在のドル・米2年/10年/実質金利','当日の地政学・要人発言の新規材料','最新の建玉・ETFフロー・実スプレッド'],

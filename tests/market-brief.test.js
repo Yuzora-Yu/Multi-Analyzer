@@ -177,7 +177,7 @@ test('a reviewed schedule expires without rolling back and future rechecks canno
 });
 
 test('state employment result keeps publication, observation and market reopening clocks separate',()=>{
- const review=K.calendar.reviews.at(-1),event=review.events.find(e=>e.id==='us-state-employment-202609');
+ const review=K.calendar.reviews.find(r=>r.source==='bls-calendar-20261021'),event=review.events.find(e=>e.id==='us-state-employment-202609');
  assert.equal(new Date(event.time).toISOString(),'2026-10-20T14:00:00.000Z');
  assert.equal(new Date(event.result.knownAt).toISOString(),'2026-10-20T21:00:44.000Z');
  assert.equal(review.expiresAt,K.calendar.reviews[0].expiresAt);
@@ -185,7 +185,7 @@ test('state employment result keeps publication, observation and market reopenin
  assert.equal(before.calendar.verifiedAt,K.calendar.reviews[0].verifiedAt);assert.equal(before.previous.result,null);
  assert.equal(before.sources.some(s=>s.id===event.result.source),false);
  const paused=describe(fixture(new Date(review.verifiedAt).toISOString()));assert.equal(paused.available,false);assert.equal(paused.previous,undefined);
- const f=fixture('2026-10-20T22:00:10Z'),after=describe(f),oldKnowledge=structuredClone(K);oldKnowledge.calendar.reviews.pop();
+ const f=fixture('2026-10-20T22:00:10Z'),after=describe(f),oldKnowledge=structuredClone(K);oldKnowledge.calendar.reviews=oldKnowledge.calendar.reviews.filter(r=>r.verifiedAt<review.verifiedAt);
  const old=describe(f,{knowledge:oldKnowledge});
  assert.equal(after.previous.id,event.id);assert.equal(after.previous.result.knownAt,event.result.knownAt);assert.equal(after.previous.stage,'NEXT_SESSION');
  assert.match(B.html(after),/実績確認 10\/21 06:00 JST/);assert.match(B.html(after),/https:\/\/www\.bls\.gov\/news\.release\/laus\.nr0\.htm/);
@@ -193,6 +193,23 @@ test('state employment result keeps publication, observation and market reopenin
  assert.equal(after.upcoming.id,'us-weekly-earnings-2026q3');assert.equal(after.upcoming.result,null);
  assert.deepEqual(after.plans,old.plans);assert.equal(after.actionable,false);
  for(const mode of ['archive','csv']){const b=describe(f,{mode});assert.equal(b.available,false);assert.equal(b.previous,undefined);assert.deepEqual(b.sources,[]);}
+});
+
+test('quarterly earnings result appears only at its observation clock with unchanged expiry and plans',()=>{
+ const review=K.calendar.reviews.find(r=>r.source==='bls-calendar-20261022'),event=review.events.find(e=>e.id==='us-weekly-earnings-2026q3');
+ assert.equal(new Date(event.time).toISOString(),'2026-10-21T14:00:00.000Z');
+ assert.equal(new Date(event.result.knownAt).toISOString(),'2026-10-21T17:00:53.000Z');
+ const before=describe(fixture(new Date(event.result.knownAt-1).toISOString())),after=describe(fixture(new Date(event.result.knownAt).toISOString()));
+ assert.equal(before.previous.id,event.id);assert.equal(before.previous.result,null);assert.equal(before.sources.some(s=>s.id===event.result.source),false);
+ assert.equal(after.previous.result.knownAt,event.result.knownAt);assert.equal(after.calendar.verifiedAt,review.verifiedAt);
+ assert.equal(review.expiresAt,K.calendar.reviews[0].expiresAt);
+ assert.match(B.lines(after).join(' '),/通常週収中央値は1,232ドル、前年比\+1\.5％/);
+ assert.match(B.lines(after).join(' '),/季節調整前、フルタイム賃金・給与労働者/);
+ assert.match(B.html(after),/実績確認 10\/22 02:00 JST/);assert.match(B.html(after),/https:\/\/www\.bls\.gov\/news\.release\/wkyeng\.nr0\.htm/);
+ assert.match(B.lines(after).join(' '),/月次CPIの新規発表ではありません/);assert.match(B.lines(after).join(' '),/予想値・同時刻の金利とドルは未取得/);
+ assert.deepEqual(after.plans,before.plans);assert.equal(after.actionable,false);
+ for(const old of K.calendar.reviews.filter(r=>r.verifiedAt<review.verifiedAt))assert.equal(old.events.find(e=>e.id===event.id).result,undefined);
+ for(const mode of ['archive','csv']){const b=describe(fixture(new Date(review.verifiedAt).toISOString()),{mode});assert.equal(b.available,false);assert.equal(b.previous,undefined);assert.deepEqual(b.sources,[]);}
 });
 
 test('presentation escapes input, uses the selected price basis and keeps limits and sources visible',()=>{
