@@ -26,6 +26,13 @@
 .chart-focus #focusMode { color:var(--gold); border-color:var(--gold); }
 #chartBands{min-width:44px;padding:6px}
 #chartBands[aria-pressed=true]{color:var(--blue);border-color:var(--blue)}
+#chartReversal[aria-pressed=true]{color:var(--gold);border-color:var(--gold)}
+.reversal-overlay{position:absolute;inset:0;pointer-events:none;z-index:3}
+.reversal-context .reversal-card{margin:10px 0;padding:12px;border:1px solid #3b5268;border-left:3px solid #5bc4ee;border-radius:8px;background:#101c28;min-width:0}
+.reversal-context .reversal-card.zone-short{border-left-color:#ed985a}
+.reversal-context .reversal-card h4{margin:0 0 8px;font-size:13px}
+.reversal-context .reversal-card p{display:block;margin:6px 0;line-height:1.65;overflow-wrap:anywhere}
+@media(max-width:760px){.workspace-modes{flex-wrap:wrap;gap:4px}.workspace-modes button{padding-inline:7px;font-size:11px;min-height:40px}.reversal-context .reversal-card{padding:10px}}
 .bb-legend{color:var(--blue)}
 .zone-card {margin:12px 0;padding:12px;border:1px solid var(--border);border-left:3px solid var(--muted);border-radius:8px;min-width:0;}
 .zone-card.zone-short {border-left-color:var(--red)}

@@ -105,6 +105,7 @@ class Handler(SimpleHTTPRequestHandler):
             '/price-basis.js', '/chart-viewport.js', '/zone-focus.js', '/zone-view.js',
             '/zone-geometry.js', '/zone-checkpoint.js', '/trend-context.js',
             '/snapshot-health.js', '/demo-panel.js', '/market-knowledge.js', '/market-brief.js',
+            '/reversal-context.js', '/reversal-chart.js',
         })
         if parsed.path not in allowed:
             self._error(HTTPStatus.NOT_FOUND, "Not found")

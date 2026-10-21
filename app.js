@@ -24,6 +24,7 @@
   const STORAGE_KEY = 'multiAnalyzerUltimate.v4.usd';
   const POSITION_KEY = 'multiAnalyzerUltimate.position';
   const CHART_BANDS_KEY = 'multiAnalyzerUltimate.chartBands';
+  const REVERSAL_BANDS_KEY = 'multiAnalyzerUltimate.reversalBands';
   const STATIC_HOST = location.hostname.endsWith('.github.io');
   const INITIAL_PARAMS = new URLSearchParams(location.search);
   // Old market links open the active Gold workspace, never a mismatched archive.
@@ -65,6 +66,8 @@
     vwapSeries: null,
     bbSeries: [],
     showChartBands: loadChartBands(),
+    showReversalBands: loadReversalBands(),
+    reversalContext: null,
     priceLines: [],
     chartResizeObserver: null,
     chartResizeFrame: 0,
@@ -89,6 +92,7 @@
 
   function currentInstrument() { return INSTRUMENTS[state.instrumentId]; }
   function loadChartBands(){try{return localStorage.getItem(CHART_BANDS_KEY)!=='off';}catch{return true;}}
+  function loadReversalBands(){try{return localStorage.getItem(REVERSAL_BANDS_KEY)!=='off';}catch{return true;}}
   function currentTf() { return TF[state.tf]; }
   function priceBasis(){return Basis.resolve(state.settings.goldPriceBasis,state.instrumentId);}
   function mappedPrice(value){const b=priceBasis();return b.enabled?`${fmt(Basis.convert(value,b))}［元 ${fmt(value)}］`:fmt(value);}
@@ -176,6 +180,9 @@
     $('actionTargets').textContent='休場中は新しい価格・判定を取得しません';
     $('referenceQuote').textContent='GOLD休場・参考価格の取得停止';
     if($('marketBrief'))$('marketBrief').textContent='GOLD休場・新しい背景付き候補の提示を停止しています。';
+    state.reversalContext=null;
+    if($('reversalContext'))$('reversalContext').textContent='GOLD休場・新しい反転候補の表示を停止しています。';
+    state.redrawFlow?.();
     return true;
   }
 
@@ -213,7 +220,8 @@
       $(`${prefix}Trend`).textContent='—';$(`${prefix}Trend`).className='trend-neutral';
       $(`${prefix}Rsi`).textContent='—';$(`${prefix}Adx`).textContent='—';
     }
-    for (const id of ['marketBrief','marketMap','trendContext','flowSummary','smcContext','smcDetails']) $(id).textContent='データ取得後に判定します。';
+    state.reversalContext=null;
+    for (const id of ['marketBrief','reversalContext','marketMap','trendContext','flowSummary','smcContext','smcDetails']) $(id).textContent='データ取得後に判定します。';
     $('checkpointStatus').textContent='';$('checkpointStatus').hidden=true;
     $('snapshotHealth').hidden=false;$('snapshotHealth').textContent='共通判定の確認待ち';
     $('currentSnapshotLink').href='?asset='+state.instrumentId+'&tf=15m';
@@ -509,12 +517,14 @@
     state.vwapSeries = state.chart.addLineSeries({ color: '#a58cff', lineWidth: 1, lineStyle: 2, priceLineVisible: false, lastValueVisible: false });
     state.bbSeries=['upper','mid','lower'].map((key,index)=>({key,series:state.chart.addLineSeries({color:index===1?'#7297c699':'#64a8ffb3',lineWidth:1,lineStyle:index===1?2:0,priceLineVisible:false,lastValueVisible:false,crosshairMarkerVisible:false,visible:state.showChartBands})}));
     $('chartBands').setAttribute('aria-pressed',String(state.showChartBands));
+    $('chartReversal').setAttribute('aria-pressed',String(state.showReversalBands));
     state.chartResizeObserver = new ResizeObserver(scheduleChartResize);
     state.chartResizeObserver.observe(container);
     state.volumeSeries=state.chart.addHistogramSeries({priceFormat:{type:'volume'},priceScaleId:'volume',priceLineVisible:false,lastValueVisible:false});
     state.volumeSeries.priceScale().applyOptions({scaleMargins:{top:.87,bottom:0}});
     const canvas=document.createElement('canvas');canvas.className='flow-overlay';container.appendChild(canvas);state.flowCanvas=canvas;
-    const redraw=()=>requestAnimationFrame(()=>{if(canvas.isConnected && state.chart && state.analysis?.exec?.flow){renderChartMarkerLabels();window.MultiAnalyzerOverlay.draw(canvas,state.chart,state.candleSeries,state.analysis.exec.candles,state.analysis.exec.flow);}});
+    const reversalCanvas=document.createElement('canvas');reversalCanvas.className='reversal-overlay';reversalCanvas.setAttribute('aria-hidden','true');container.appendChild(reversalCanvas);state.reversalCanvas=reversalCanvas;
+    const redraw=()=>requestAnimationFrame(()=>{if(canvas.isConnected && state.chart && state.analysis?.exec?.flow){renderChartMarkerLabels();window.MultiAnalyzerOverlay.draw(canvas,state.chart,state.candleSeries,state.analysis.exec.candles,state.analysis.exec.flow);window.MultiAnalyzerReversalChart?.draw(reversalCanvas,state.chart,state.candleSeries,chartCandles(),state.reversalContext,state.showReversalBands&&!state.marketPaused&&!snapshotHealth()?.blocked&&Date.now()-(state.reversalContext?.sourceGeneratedAt||0)<=20*60000);}});
     state.redrawFlow=redraw;
     state.chart.timeScale().subscribeVisibleLogicalRangeChange(redraw);
     container.addEventListener('pointermove',redraw);container.addEventListener('wheel',redraw,{passive:true});
@@ -555,7 +565,7 @@
     for (const line of state.priceLines) state.candleSeries.removePriceLine(line);
     state.priceLines = [];
     const executionClose=state.analysis.exec.candles.at(-1).time+currentTf().minutes*60000;
-    for(const z of window.MultiAnalyzerEvidence.hourlyZones(state.analysis.h1,executionClose)){
+    for(const z of state.showReversalBands?window.MultiAnalyzerEvidence.hourlyZones(state.analysis.h1,executionClose):[]){
       for(const [edge,price] of [['下端',z.low],['上端',z.high]]){
         state.priceLines.push(state.candleSeries.createPriceLine({price,color:z.side==='bull'?'#43d49d':'#ed9851',lineWidth:2,lineStyle:2,axisLabelVisible:true,title:`H1 ${z.side==='bull'?'買':'売'}OB ${edge}`}));
       }
@@ -714,6 +724,7 @@
     renderTrendContext(a);
     renderMarketMap(a);
     renderMarketBrief(a);
+    renderReversalContext(a);
     $('longScore').textContent = a.longScore;
     $('shortScore').textContent = a.shortScore;
     $('longScoreBar').style.width = `${a.longScore}%`;
@@ -758,6 +769,13 @@
     const brief=B.describe(view,{asset:state.instrumentId,now:Date.now(),mode:state.offlineCsv?'csv':INITIAL_PARAMS.has('snapshot')?'archive':'live',
       health:snapshotHealth(),snapshotId:state.snapshot?.id||null,zoneReviews});
     box.innerHTML=B.html(brief,{formatPrice:mappedPrice,expanded:box.querySelector('details')?.open===true});
+  }
+
+  function renderReversalContext(a) {
+    const box=$('reversalContext'),R=window.MultiAnalyzerReversal;if(!box||!R)return;
+    state.reversalContext=R.describe(window.MultiAnalyzerZoneView?.analysis(a)||a,{asset:state.instrumentId,now:Date.now(),
+      mode:state.offlineCsv?'csv':INITIAL_PARAMS.has('snapshot')?'archive':'live',health:snapshotHealth(),snapshotId:state.snapshot?.id||null});
+    box.innerHTML=R.html(state.reversalContext,{formatPrice:mappedPrice,expanded:box.querySelector('details')?.open===true});
   }
 
   function renderTrendContext(a) {
@@ -915,6 +933,7 @@
   function renderZones() {
     for (const series of state.zoneSeries) state.chart.removeSeries(series);
     state.zoneSeries = [];
+    if(!state.showReversalBands)return;
     const m = state.analysis.exec.smc;
     if (!m) return;
     const end = toChartTime(state.data.exec.at(-1).time);
@@ -1168,6 +1187,12 @@
   }
 
   function bindEvents() {
+    $('chartReversal').addEventListener('click',()=>{
+      state.showReversalBands=!state.showReversalBands;
+      $('chartReversal').setAttribute('aria-pressed',String(state.showReversalBands));
+      try{localStorage.setItem(REVERSAL_BANDS_KEY,state.showReversalBands?'on':'off');}catch{}
+      renderChart();
+    });
     $('chartBands').addEventListener('click',()=>{
       state.showChartBands=!state.showChartBands;
       $('chartBands').setAttribute('aria-pressed',String(state.showChartBands));
@@ -1248,6 +1273,7 @@
     state.chartResizeFrame = 0;
     if(state.redrawFlow){$('chartContainer').removeEventListener('pointermove',state.redrawFlow);$('chartContainer').removeEventListener('wheel',state.redrawFlow);}
     state.flowCanvas?.remove();state.flowCanvas=null;state.redrawFlow=null;
+    state.reversalCanvas?.remove();state.reversalCanvas=null;
     state.chartMarkers=[];state.markerLayoutKey=null;
     renderMarkerDetails();
     if (state.chart) state.chart.remove();
@@ -1255,6 +1281,7 @@
     state.bbSeries=[];
     state.priceLines = [];
     state.zoneSeries = [];
+    state.reversalContext=null;state.reversalCanvas=null;
     state.chartSize = { width: 0, height: 0 };
     state.chartFitted = false;
   }

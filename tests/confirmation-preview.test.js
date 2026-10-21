@@ -21,7 +21,7 @@ test('actual renderer and archived AI export retain the same preview without cha
  const fs=require('node:fs'),vm=require('node:vm'),src=fs.readFileSync(require.resolve('../app.js'),'utf8'),block=src.slice(src.indexOf('  function renderMarketMap(a)'),src.indexOf('  function renderPlan()')),box={};
  a.generatedAt=Date.now();a.marketMap.trends=[];a.marketMap.entryState='条件待ち';a.marketMap.eventRisk={events:[],message:'部分'};z.phase='IN_ZONE';
  const render=vm.runInNewContext(block+';renderMarketMap',{window:{MultiAnalyzerZoneGeometry:G,MultiAnalyzerReview:R},state:{offlineCsv:false},INITIAL_PARAMS:new Set(),snapshotHealth:()=>null,$:()=>box,priceBasis:()=>({label:'元市場'}),mappedPrice:v=>v.toFixed(2),fmt:String,esc:String,Date});render(a);
- assert.match(box.innerHTML,/固定追跡の確認価格/);assert.match(box.innerHTML,/後続15分終値が 95.00 を下回る/);assert.match(box.innerHTML,/data-track-zone="0"/);assert.match(box.innerHTML,/15分終値110.00超で背景帯の見立て無効/);
+ assert.match(box.innerHTML,/固定追跡の確認価格/);assert.match(box.innerHTML,/後続15分終値が 95.00 を下回る/);assert.match(box.innerHTML,/data-track-zone="0"/);assert.match(box.innerHTML,/この画面の撤回条件/);assert.match(box.innerHTML,/15分終値110.00超で撤回/);assert.match(box.innerHTML,/別途保存した追跡は、その保存条件で確認/);
 });
 
 test('blocked presentation suppresses new numeric preview and geometry in actual renderer and AI export',t=>{
@@ -33,5 +33,5 @@ test('blocked presentation suppresses new numeric preview and geometry in actual
  const archived=R.consultation(asset,900001,{archived:true});assert.equal(archived.zones[0].confirmationPreview.boundary,95);assert.equal(archived.zones[0].confirmationPreview.scope,'saved-decision-checkpoint-reconstruction');
  const fs=require('node:fs'),vm=require('node:vm'),src=fs.readFileSync(require.resolve('../app.js'),'utf8'),block=src.slice(src.indexOf('  function renderMarketMap(a)'),src.indexOf('  function renderPlan()')),box={};a.generatedAt=Date.now();a.marketMap.trends=[];a.marketMap.entryState='条件待ち';a.marketMap.eventRisk={events:[],message:'部分'};z.phase='IN_ZONE';
  const render=vm.runInNewContext(block+';renderMarketMap',{window:{MultiAnalyzerZoneGeometry:G,MultiAnalyzerReview:R},state:{offlineCsv:false},INITIAL_PARAMS:new Set(),snapshotHealth:()=>health,$:()=>box,priceBasis:()=>({label:'元市場'}),mappedPrice:v=>v.toFixed(2),fmt:String,esc:String,Date});render(a);
- assert.match(box.innerHTML,/判断保留中/);assert.doesNotMatch(box.innerHTML,/後続15分終値が|data-geometry-zone/);assert.match(box.innerHTML,/15分終値110.00超で背景帯の見立て無効/);assert.match(box.innerHTML,/disabled/);
+ assert.match(box.innerHTML,/判断保留中/);assert.doesNotMatch(box.innerHTML,/後続15分終値が|data-geometry-zone/);assert.match(box.innerHTML,/この画面の撤回条件/);assert.match(box.innerHTML,/15分終値110.00超で撤回/);assert.match(box.innerHTML,/別途保存した追跡は、その保存条件で確認/);assert.match(box.innerHTML,/disabled/);
 });

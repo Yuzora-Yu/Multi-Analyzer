@@ -26,6 +26,8 @@ class PublicAssetsTests(unittest.TestCase):
             script_paths = [s.split('?')[0] for s in scripts]
             self.assertIn('market-brief.js', script_paths)
             self.assertIn('marker-details.js', script_paths)
+            self.assertIn('reversal-context.js', script_paths)
+            self.assertIn('reversal-chart.js', script_paths)
             for script in scripts:
                 with self.subTest(script=script), urllib.request.urlopen(base + '/' + script) as response:
                     self.assertEqual(response.status, 200)
