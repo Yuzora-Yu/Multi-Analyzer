@@ -1,0 +1,8 @@
+{
+  "version": "1.0.0-preview.1",
+  "mqlVersion": "1.000",
+  "stage": "preview",
+  "sourceFiles": ["MultiAnalyzerGold.mq5", "MAZoneCore.mqh", "README_JA.txt", "CHANGELOG.md"],
+  "scope": "XM Goldの確定足による価格型SMC反転帯・EMA/BB・表示切替。元P/EXITなどは未移植。",
+  "runtimeVerification": "XM実チャートでの稼働・見え方・計算一致は未確認"
+}

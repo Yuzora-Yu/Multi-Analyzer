@@ -1,0 +1,25 @@
+name: Publish MT5 indicator
+on:
+  push:
+    tags:
+      - 'mt5-v*'
+permissions:
+  contents: read
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Verify tagged package and release guards
+        run: |
+          node mt5/release-tools.cjs
+          node --test tests/mt5-release.test.js
+          python3 mt5/verify-archive.py
+      - name: Publish verified assets without replacing old releases
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node mt5/publish-release.cjs

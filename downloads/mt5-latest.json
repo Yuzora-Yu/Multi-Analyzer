@@ -1,0 +1,27 @@
+{
+  "version": "1.0.0-preview.1",
+  "mqlVersion": "1.000",
+  "stage": "preview",
+  "sourceFiles": [
+    "MultiAnalyzerGold.mq5",
+    "MAZoneCore.mqh",
+    "README_JA.txt",
+    "CHANGELOG.md"
+  ],
+  "scope": "XM Goldの確定足による価格型SMC反転帯・EMA/BB・表示切替。元P/EXITなどは未移植。",
+  "runtimeVerification": "XM実チャートでの稼働・見え方・計算一致は未確認",
+  "file": "MultiAnalyzerGold-1.0.0-preview.1.zip",
+  "bytes": 47724,
+  "sha256": "627787876808f0eb693418a0efd921bc2ed8285da5672de8d1b0f799afaed5b5",
+  "sources": {
+    "MultiAnalyzerGold.mq5": "ca0cb89da0e22432738da1d538d83a8e85f2e62e8a3ea948d9e0b89b948d0d0a",
+    "MAZoneCore.mqh": "042dd528cd3e7cd048b7877bbd6f9c71791d623e2870d0e8236756e8d69356c7",
+    "README_JA.txt": "077ffbf543efe8ff521a2018c6a22f509c9f3c5ab2bbc51e43412bd7cb19b4ea",
+    "CHANGELOG.md": "23e76aed2c9d3f1fdfded510d7d014fae86cb8f6c0ea952353dee9986143abfb"
+  },
+  "compiledSha256": "fa2d3cc861c75a019760f4d242a264a057e7c958c08267c7e50a699d2f6433ca",
+  "compiler": {
+    "errors": 0,
+    "warnings": 0
+  }
+}

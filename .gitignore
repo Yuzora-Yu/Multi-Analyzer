@@ -10,3 +10,4 @@ monitor-config.json
 node_modules/
 .wrangler/
 .dev.vars
+mt5/*.ex5

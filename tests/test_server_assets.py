@@ -37,6 +37,16 @@ class PublicAssetsTests(unittest.TestCase):
                     urllib.request.urlopen(base + private)
                 self.assertEqual(error.exception.code, 404)
                 error.exception.close()
+            import json
+            meta = json.loads((root / 'downloads/mt5-latest.json').read_text(encoding='utf-8'))
+            for name in ['mt5.html', 'downloads/mt5-latest.json', 'downloads/' + meta['file']]:
+                with self.subTest(download=name), urllib.request.urlopen(base + '/' + name) as response:
+                    self.assertEqual(response.read(), (root / name).read_bytes())
+            for private in ['/downloads/other.zip', '/downloads/../.runtime/test.json', '/mt5/MultiAnalyzerGold.log']:
+                with self.subTest(private=private), self.assertRaises(urllib.error.HTTPError) as error:
+                    urllib.request.urlopen(base + private)
+                self.assertEqual(error.exception.code, 404)
+                error.exception.close()
         finally:
             server.shutdown()
             server.server_close()
