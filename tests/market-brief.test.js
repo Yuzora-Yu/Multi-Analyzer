@@ -233,10 +233,33 @@ test('new partial DOL review expires independently and is excluded from archived
  const review=K.calendar.reviews.find(r=>r.source==='bls-calendar-20261022-morning');
  const f=fixture(new Date(review.verifiedAt+1000).toISOString());
  for(const mode of ['archive','csv']){const b=describe(f,{mode});assert.equal(b.available,false);assert.equal(b.upcoming,undefined);assert.deepEqual(b.sources,[]);}
- const expired=describe(fixture(new Date(review.expiresAt+1).toISOString()));
+ const oldKnowledge=structuredClone(K);oldKnowledge.calendar.reviews=oldKnowledge.calendar.reviews.filter(r=>r.verifiedAt<=review.verifiedAt);
+ const expired=describe(fixture(new Date(review.expiresAt+1).toISOString()),{knowledge:oldKnowledge});
  assert.equal(expired.calendar.verifiedAt,review.verifiedAt);assert.equal(expired.calendar.fresh,false);assert.equal(expired.upcoming,null);assert.equal(expired.previous,null);
  assert.match(B.lines(expired).join(' '),/予定の確認期限切れ|掲載なしを指標なしと判断せず/);
  assert.equal(K.calendar.reviews[0].expiresAt,Date.parse('2026-10-22T05:00:39Z'));
+});
+
+test('weekly claims result preserves release and observation clocks, revisions, different weeks and original plans',()=>{
+ const review=K.calendar.reviews.find(r=>r.source==='dol-claims-20261022'),event=review.events.find(e=>e.id==='us-weekly-claims-20261022');
+ const morning=K.calendar.reviews.find(r=>r.source==='bls-calendar-20261022-morning');
+ assert.equal(new Date(event.time).toISOString(),'2026-10-22T12:30:00.000Z');
+ assert.equal(new Date(event.result.knownAt).toISOString(),'2026-10-22T13:07:00.000Z');
+ assert.equal(review.expiresAt,morning.expiresAt);assert.equal(event.knownAt,morning.verifiedAt);
+ const before=describe(fixture(new Date(event.result.knownAt-1).toISOString())),after=describe(fixture(new Date(event.result.knownAt).toISOString()));
+ assert.equal(before.previous.id,event.id);assert.equal(before.previous.result,null);assert.equal(before.sources.some(s=>s.id===event.result.source),false);
+ assert.equal(after.previous.result.knownAt,event.result.knownAt);assert.equal(after.calendar.verifiedAt,review.verifiedAt);
+ assert.match(B.lines(after).join(' '),/19万4,000件.*20万件から6,000件減/);
+ assert.match(B.lines(after).join(' '),/19万9,000件から上方改定/);
+ assert.match(B.lines(after).join(' '),/172万8,000件.*10月10日終了週/);
+ assert.match(B.lines(after).join(' '),/新規申請とは対象週が異なります/);
+ assert.match(B.lines(after).join(' '),/予想値・同時刻の金利とドルは未取得/);
+ assert.match(B.html(after),/実績確認 10\/22 22:07 JST/);assert.match(B.html(after),/https:\/\/www\.dol\.gov\/ui\/data\.pdf/);
+ assert.equal(after.anchors,null); // Four post-release M15 bars have not yet closed.
+ assert.deepEqual(after.plans,before.plans);assert.equal(after.actionable,false);
+ for(const old of K.calendar.reviews.filter(r=>r.verifiedAt<review.verifiedAt))assert.equal(old.events.find(e=>e.id===event.id)?.result,undefined);
+ for(const mode of ['archive','csv']){const b=describe(fixture(new Date(review.verifiedAt).toISOString()),{mode});assert.equal(b.available,false);assert.equal(b.previous,undefined);assert.deepEqual(b.sources,[]);}
+ const expired=describe(fixture(new Date(review.expiresAt+1).toISOString()));assert.equal(expired.calendar.verifiedAt,review.verifiedAt);assert.equal(expired.calendar.fresh,false);assert.equal(expired.previous,null);
 });
 
 test('presentation escapes input, uses the selected price basis and keeps limits and sources visible',()=>{

@@ -9,6 +9,7 @@
   const october21StateResultKnownAt=Date.parse('2026-10-20T21:00:44Z');
   const october22EarningsResultKnownAt=Date.parse('2026-10-21T17:00:53Z');
   const october22ClaimsScheduleKnownAt=Date.parse('2026-10-22T01:07:44Z');
+  const october22ClaimsResultKnownAt=Date.parse('2026-10-22T13:07:00Z');
   const sources=[
     {id:'wgc-2026',title:'WGC: Gold Mid-Year Outlook 2026',url:'https://www.gold.org/goldhub/research/gold-mid-year-outlook-2026',kind:'期間を限定した金市場分析',period:'2026年上半期、6月26日まで。セッション分析はスポット金の20分価格。'},
     {id:'wgc-2024',title:'WGC: Let’s tally the rally',url:'https://www.gold.org/download/file/19260/let%27s-tally-the-rally.pdf',kind:'過去のセッション比較',period:'2024年1～10月。2026年版とは時間帯の区分も異なる。'},
@@ -32,7 +33,8 @@
     {id:'bls-weekly-earnings-2026q3',title:'BLS: Third Quarter 2026 Usual Weekly Earnings',url:'https://www.bls.gov/news.release/wkyeng.nr0.htm',kind:'発表機関の実績',knownAt:october22EarningsResultKnownAt,period:'2026年10月21日10:00 EDT公表、22日02:00 JST確認。四半期で更新される原本URLの7～9月期実績。季節調整前のフルタイム賃金・給与労働者の通常週収中央値。予想値は未取得。'},
     {id:'bls-calendar-20261022-morning',title:'BLS: October 2026 schedule, October 22 morning recheck',url:'https://www.bls.gov/schedule/2026/10_sched.htm',kind:'発表機関の予定の再照合',knownAt:october22ClaimsScheduleKnownAt,period:'22・23日にBLS掲載予定なし。BLS以外の予定や突発材料がないという意味ではない。'},
     {id:'dol-weekly-claims-clock',title:'DOL: Weekly Claims publication clock during email transition',url:'https://content.govdelivery.com/accounts/USDOL/bulletins/42c4a8a',kind:'発表機関の公表時刻',knownAt:october22ClaimsScheduleKnownAt,period:'DOLの案内は毎週木曜08:30 Eastern。10月22日はEDTで21:30 JST。メール移行中も公式PDFを公表する案内。22日の実績・予想値は未取得。'},
-    {id:'dol-claims-schedule-2026',title:'DOL ETA: Weekly Claims schedule and holiday exceptions',url:'https://oui.doleta.gov/unemploy/archive.asp',kind:'発表機関の予定・休日例外',knownAt:october22ClaimsScheduleKnownAt,period:'毎週木曜の公表と2026年の休日例外を照合。10月22日の例外は掲載なし。一般欄のEST表記はDOLのEastern Time案内と夏時間を区別して適用。'}
+    {id:'dol-claims-schedule-2026',title:'DOL ETA: Weekly Claims schedule and holiday exceptions',url:'https://oui.doleta.gov/unemploy/archive.asp',kind:'発表機関の予定・休日例外',knownAt:october22ClaimsScheduleKnownAt,period:'毎週木曜の公表と2026年の休日例外を照合。10月22日の例外は掲載なし。一般欄のEST表記はDOLのEastern Time案内と夏時間を区別して適用。'},
+    {id:'dol-claims-20261022',title:'DOL: October 22, 2026 Weekly Claims',url:'https://www.dol.gov/ui/data.pdf',kind:'発表機関の実績',knownAt:october22ClaimsResultKnownAt,period:'2026年10月22日08:30 EDT公表、22:07 JST確認。毎週更新される公式PDFの22日版。新規申請は17日終了週、継続受給は10日終了週の季節調整済速報値。過去週改定あり。予想値は未取得。'}
   ];
   const principles=[
     {id:'sessions',title:'時間帯の癖を相場環境と組み合わせる',finding:'2026年上半期のWGC分析ではアジアの反発・米国の下落が目立った。',use:'前セッション高安、上位足、当日の材料を重ねて戻り売り・押し目買いの観察順を決める。',limit:'期間限定の傾向。アジア＝常にレンジ、特定の時刻＝必ず下落、とはしない。',sources:['wgc-2026','wgc-2024'],evidence:'過去の観察'},
@@ -71,6 +73,11 @@
   calendar.reviews.push({verifiedAt:october22ClaimsScheduleKnownAt,expiresAt:Date.parse('2026-10-22T22:00:00Z'),coverage:'partial',source:'bls-calendar-20261022-morning',
     note:'BLS月間予定と22日のDOL週間失業保険の公表時刻・休日例外を照合した部分記録。DOLは08:30 Eastern＝本日21:30 JST。取得した公式PDFは15日版で、22日の実績・予想値は未取得。他の指標・発言・突発材料を網羅せず、掲載なしを安全とは判断しません。',
     events:[...calendar.reviews.at(-1).events,{id:'us-weekly-claims-20261022',name:'米週間失業保険申請（DOLの週間公表予定）',time:Date.parse('2026-10-22T12:30:00Z'),knownAt:october22ClaimsScheduleKnownAt,source:'dol-weekly-claims-clock'}]
+  });
+  const priorClaimsCalendar=calendar.reviews.at(-1);
+  calendar.reviews.push({...priorClaimsCalendar,verifiedAt:october22ClaimsResultKnownAt,source:'dol-claims-20261022',
+    note:'DOL公式PDFの10月22日版を確認し、実績を個別の確認時刻で追記。元の確認期限は延長しません。他省庁・発言・突発材料を網羅せず、予想値・同時刻の金利とドル・価格変動の原因は未確認です。',
+    events:priorClaimsCalendar.events.map(e=>e.id==='us-weekly-claims-20261022'?{...e,name:'米週間失業保険申請（10月22日）',result:{knownAt:october22ClaimsResultKnownAt,source:'dol-claims-20261022',text:'新規申請は19万4,000件（10月17日終了週、季節調整済速報値）、前週改定値20万件から6,000件減。前週は19万9,000件から上方改定。継続受給は172万8,000件（10月10日終了週）、前週改定値170万3,000件から2万5,000件増で、新規申請とは対象週が異なります。予想値・同時刻の金利とドルは未取得。この実績だけで金の方向や価格変動の原因は確定しません。'}}:e)
   });
   function freeze(v){if(v&&typeof v==='object'){Object.values(v).forEach(freeze);Object.freeze(v);}return v;}
   return freeze({version:'gold-context-knowledge-v1',reviewedAt,sources,principles,calendar,
