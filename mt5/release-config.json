@@ -1,8 +1,8 @@
 {
-  "version": "1.0.0-preview.1",
-  "mqlVersion": "1.000",
+  "version": "1.1.0-preview.3",
+  "mqlVersion": "1.102",
   "stage": "preview",
-  "sourceFiles": ["MultiAnalyzerGold.mq5", "MAZoneCore.mqh", "README_JA.txt", "CHANGELOG.md"],
-  "scope": "XM Goldの確定足による価格型SMC反転帯・EMA/BB・表示切替。元P/EXITなどは未移植。",
-  "runtimeVerification": "XM実チャートでの稼働・見え方・計算一致は未確認"
+  "sourceFiles": ["MultiAnalyzerGold.mq5", "MAZoneCore.mqh", "MAFlowCore.mqh", "MAHistoryCore.mqh", "README_JA.txt", "CHANGELOG.md"],
+  "scope": "XM確定足のリボン・TURN・P・買い/売り保有EXIT、SMC反転帯、BB、POC近似、6時間足のAI用ローカル保存。出来高条件はXMティック数を区別する独立版。",
+  "runtimeVerification": "XM実チャートでM15/H1の帯・リボン・黄EXIT、ローカル保存で6時間足の計算状態を確認。Flow数式は10600本をMQL実行とJSで照合。全期間のデータ完全性・収益精度は未確認"
 }
