@@ -168,8 +168,9 @@ test('a reviewed schedule expires without rolling back and future rechecks canno
  const review=K.calendar.reviews[0],knowledge=structuredClone(K),f=fixture(new Date(review.verifiedAt+60000).toISOString());
  knowledge.calendar.reviews.push({...structuredClone(review),verifiedAt:f.now+60000,events:[{...review.events[0],name:'FUTURE_RECHECK'}]});
  let b=describe(f,{knowledge});assert.equal(b.calendar.verifiedAt,review.verifiedAt);assert.doesNotMatch(B.lines(b).join(' '),/FUTURE_RECHECK/);
- b=describe(fixture(new Date(review.expiresAt+1).toISOString()));
- assert.equal(b.calendar.verifiedAt,K.calendar.reviews.at(-1).verifiedAt);assert.equal(b.calendar.fresh,false);assert.equal(b.previous,null);assert.equal(b.upcoming,null);
+ const oldKnowledge=structuredClone(K);oldKnowledge.calendar.reviews=oldKnowledge.calendar.reviews.filter(r=>r.expiresAt===review.expiresAt);
+ b=describe(fixture(new Date(review.expiresAt+1).toISOString()),{knowledge:oldKnowledge});
+ assert.equal(b.calendar.verifiedAt,oldKnowledge.calendar.reviews.at(-1).verifiedAt);assert.equal(b.calendar.fresh,false);assert.equal(b.previous,null);assert.equal(b.upcoming,null);
  assert.match(B.lines(b).join(' '),/掲載なしを指標なしと判断せず/);
  for(const mode of ['archive','csv']){b=describe(f,{mode});assert.equal(b.available,false);assert.deepEqual(b.sources,[]);assert.equal(b.upcoming,undefined);}
  const earnings=review.events.find(e=>e.id==='us-weekly-earnings-2026q3');
@@ -210,6 +211,32 @@ test('quarterly earnings result appears only at its observation clock with uncha
  assert.deepEqual(after.plans,before.plans);assert.equal(after.actionable,false);
  for(const old of K.calendar.reviews.filter(r=>r.verifiedAt<review.verifiedAt))assert.equal(old.events.find(e=>e.id===event.id).result,undefined);
  for(const mode of ['archive','csv']){const b=describe(fixture(new Date(review.verifiedAt).toISOString()),{mode});assert.equal(b.available,false);assert.equal(b.previous,undefined);assert.deepEqual(b.sources,[]);}
+});
+
+test('DOL weekly schedule uses EDT and its own knowledge clock without inventing a result',()=>{
+ const review=K.calendar.reviews.find(r=>r.source==='bls-calendar-20261022-morning'),event=review.events.find(e=>e.id==='us-weekly-claims-20261022');
+ const before=describe(fixture(new Date(review.verifiedAt-1).toISOString())),after=describe(fixture(new Date(review.verifiedAt).toISOString()));
+ assert.equal(before.upcoming,null);assert.equal(before.sources.some(s=>s.id===event.source),false);
+ assert.equal(after.upcoming.id,event.id);assert.equal(after.upcoming.result,null);assert.equal(after.upcoming.knownAt,review.verifiedAt);
+ assert.equal(event.time,B.localTime(event.time,'America/New_York',8,30).time);
+ assert.equal(new Date(event.time).toISOString(),'2026-10-22T12:30:00.000Z');
+ assert.match(B.lines(after).join(' '),/10\/22 21:30 JST.*週間失業保険/);
+ assert.match(B.html(after),/予定の個別確認 10\/22 10:07 JST/);assert.match(B.html(after),/content\.govdelivery\.com\/accounts\/USDOL\/bulletins\/42c4a8a/);
+ assert.match(after.calendar.note,/公式PDFは15日版/);assert.match(after.calendar.note,/22日の実績・予想値は未取得/);
+ assert.deepEqual(after.plans,before.plans);assert.equal(after.actionable,false);
+ const released=describe(fixture(new Date(event.time+1000).toISOString()));
+ assert.equal(released.previous.id,event.id);assert.equal(released.previous.result,null);assert.match(B.lines(released).join(' '),/発表結果・予想差は背景記録に未収録/);
+ for(const old of K.calendar.reviews.filter(r=>r.verifiedAt<review.verifiedAt))assert.equal(old.events.some(e=>e.id===event.id),false);
+});
+
+test('new partial DOL review expires independently and is excluded from archived or CSV context',()=>{
+ const review=K.calendar.reviews.find(r=>r.source==='bls-calendar-20261022-morning');
+ const f=fixture(new Date(review.verifiedAt+1000).toISOString());
+ for(const mode of ['archive','csv']){const b=describe(f,{mode});assert.equal(b.available,false);assert.equal(b.upcoming,undefined);assert.deepEqual(b.sources,[]);}
+ const expired=describe(fixture(new Date(review.expiresAt+1).toISOString()));
+ assert.equal(expired.calendar.verifiedAt,review.verifiedAt);assert.equal(expired.calendar.fresh,false);assert.equal(expired.upcoming,null);assert.equal(expired.previous,null);
+ assert.match(B.lines(expired).join(' '),/予定の確認期限切れ|掲載なしを指標なしと判断せず/);
+ assert.equal(K.calendar.reviews[0].expiresAt,Date.parse('2026-10-22T05:00:39Z'));
 });
 
 test('presentation escapes input, uses the selected price basis and keeps limits and sources visible',()=>{
