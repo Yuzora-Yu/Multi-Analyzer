@@ -1,6 +1,6 @@
 {
-  "version": "1.1.0-preview.6",
-  "mqlVersion": "1.105",
+  "version": "1.1.0-preview.7",
+  "mqlVersion": "1.106",
   "stage": "preview",
   "sourceFiles": [
     "MultiAnalyzerGold.mq5",
@@ -12,6 +12,6 @@
     "README_JA.txt",
     "CHANGELOG.md"
   ],
-  "scope": "赤・緑のトレンド雲を独立切替。M5と表示足のSMC帯、短期圧力と突破後の再試し経過、停滞時のEXIT文字集約・重なり回避、青いEXIT点、SMC帯の元ID・撤回経過をAI保存に追加。",
-  "runtimeVerification": "今回の版はコンパイル・自動検証。既存Flow/P/EXITの数式は維持。新しい雲・集約表示のXM実画面確認と予測精度は未確認"
+  "scope": "preview.6の赤いトレンド雲が黒くなる配色初期化を修正。赤・緑の雲、青いEXITと停滞時のラベル集約、短期SMC帯・圧力表示を継続。",
+  "runtimeVerification": "コンパイル・自動検証。既存Flow/P/EXITの数式は維持。全時間足・全配色・全銘柄と予測精度は未確認"
 }

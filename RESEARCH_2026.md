@@ -821,3 +821,10 @@ An additional partial review retains the original schedule, earlier knowledge cl
 User-requested presentation changes add selected short-frame SMC zones, separate current EMA13/21 pressure from held direction, and describe confirmed swing close breaks and later retests. Observation-only v1 fixes a pre-break ATR×0.15 tolerance and a twelve-bar expiry; no trading condition or frozen demo dependency changes. Failed observations are withdrawn rather than expanded. MT5 AI exports add zone identity, lifecycle and reconstructed context with an explicit reconstruction basis.
 
 The native indicator adds the Web ribbon cloud, with an independent toggle and background-aware pale colors. Range EXIT text can be grouped and placed apart while all original events and export rows remain. Blue EXIT dots differ from red/green trend context. Compilation and automated checks cover source parity and causal input handling; new MT5 chart rendering and predictive accuracy remain unverified. No screen operation, new collector or data-upload path is introduced.
+
+
+## 2026-10-23: native XM cloud palette verification and preview.7
+
+During the user-authorized installation, preview.6 displayed downward ribbon fills in black on the white XM chart. The fill had only its first palette slot registered; the second color was left at the terminal default. Compilation and arithmetic parity checks did not establish correct native rendering. Preview.7 explicitly declares both fill colors and reserves both palette entries before setting the theme. Display and exported version strings were reconciled as well.
+
+XM GOLD M1 and M5 were inspected through the actual desktop application: pale red/green cloud, cloud OFF/ON, blue EXIT points and grouped range labels, SMC bands and the preview.7 detail header were visible. HistoryBars was restored to the original 500; the original first GOLD M1 chart, details OFF, ribbon OFF, other indicators and 935 by 807 window size were restored. Other timeframes, dark themes and predictive accuracy remain unverified. No trading formula, order operation, collector or fixed-demo dependency changed.

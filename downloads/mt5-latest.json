@@ -1,6 +1,6 @@
 {
-  "version": "1.1.0-preview.6",
-  "mqlVersion": "1.105",
+  "version": "1.1.0-preview.7",
+  "mqlVersion": "1.106",
   "stage": "preview",
   "sourceFiles": [
     "MultiAnalyzerGold.mq5",
@@ -12,22 +12,22 @@
     "README_JA.txt",
     "CHANGELOG.md"
   ],
-  "scope": "赤・緑のトレンド雲を独立切替。M5と表示足のSMC帯、短期圧力と突破後の再試し経過、停滞時のEXIT文字集約・重なり回避、青いEXIT点、SMC帯の元ID・撤回経過をAI保存に追加。",
-  "runtimeVerification": "今回の版はコンパイル・自動検証。既存Flow/P/EXITの数式は維持。新しい雲・集約表示のXM実画面確認と予測精度は未確認",
-  "file": "MultiAnalyzerGold-1.1.0-preview.6.zip",
-  "bytes": 190715,
-  "sha256": "19604a81d7bea8ecfc38456947e55fc068d08414dbfc879d63b04db738f420eb",
+  "scope": "preview.6の赤いトレンド雲が黒くなる配色初期化を修正。赤・緑の雲、青いEXITと停滞時のラベル集約、短期SMC帯・圧力表示を継続。",
+  "runtimeVerification": "コンパイル・自動検証。既存Flow/P/EXITの数式は維持。全時間足・全配色・全銘柄と予測精度は未確認",
+  "file": "MultiAnalyzerGold-1.1.0-preview.7.zip",
+  "bytes": 189618,
+  "sha256": "0d052d4e427f03d17bc6f982ba3ce813d681a12539d2170d5b1cbe93761c8e11",
   "sources": {
-    "MultiAnalyzerGold.mq5": "8a9b03e2fec76c715b905f7e81c9a50a4de425ba6709092924a12026e04a439b",
+    "MultiAnalyzerGold.mq5": "d0795cae0631c92ab871158906fc094cbc5f8e67afc5dceecd283bafd4ba43fe",
     "MAZoneCore.mqh": "878b328cc1e0f8fe1f39b8e5c72b8a17af93f13d7a50213ebc004b9089d1f464",
     "MAFlowCore.mqh": "306ada4dc5297e406f9f443e2bc2153e06b7f321e5ffecb063fda8a3205ed2b5",
     "MAHistoryCore.mqh": "46bff12e6dde4c851d9d6ec8479f318731f40962a86cb9a204ee487b777a02f0",
     "MAResponseCore.mqh": "7d4d35274c485caaf5e2d65230bdd58896732c5626c59a32da3761f66e622d29",
     "MAVisualCore.mqh": "d0ed2754852f9e326aac42b692269630afeea05c24f653d06a7c22f7cd970934",
-    "README_JA.txt": "d56c218073cb87e60c1e7feaee0f59477313bafc7d59f87aad28a0a8ef086e5c",
-    "CHANGELOG.md": "9bd49c81a2e7f002b98b353522fda53d31ad714d351f88aaa64ad26834d7b0a4"
+    "README_JA.txt": "47d09ab07e564134d59294d76c8d1abf77d3c43779018a1f75080301b93cbc1b",
+    "CHANGELOG.md": "cc1878f1479e3c59648abb9bab230266c0f1432108f76d8c94069fa9fe229bfc"
   },
-  "compiledSha256": "84fbc82c15ce9d222da790ab58e53155b706087f568670affa709c9acf38c997",
+  "compiledSha256": "ef43717b5373076eead5f3036e67324a2300010c6424798a11b6ccb0e4c63649",
   "compiler": {
     "errors": 0,
     "warnings": 0

@@ -1,7 +1,7 @@
 #property copyright "Multi-Analyzer"
 #property link "https://yuzora-yu.github.io/Multi-Analyzer/"
-#property version "1.105"
-#property description "XM Gold 1.1.0-preview.6. Ribbon cloud, closed response, readable EXIT. No trading."
+#property version "1.106"
+#property description "XM Gold 1.1.0-preview.7. Two-color cloud palette initialization fix. No trading."
 #property indicator_chart_window
 #property indicator_buffers 33
 #property indicator_plots 26
@@ -20,6 +20,20 @@
 #property indicator_label5 "BB lower"
 #property indicator_type5 DRAW_LINE
 #property indicator_color5 clrSlateGray
+#property indicator_type20 DRAW_FILLING
+#property indicator_color20 C'209,237,224',C'248,220,223'
+#property indicator_type21 DRAW_FILLING
+#property indicator_color21 C'209,237,224',C'248,220,223'
+#property indicator_type22 DRAW_FILLING
+#property indicator_color22 C'209,237,224',C'248,220,223'
+#property indicator_type23 DRAW_FILLING
+#property indicator_color23 C'209,237,224',C'248,220,223'
+#property indicator_type24 DRAW_FILLING
+#property indicator_color24 C'209,237,224',C'248,220,223'
+#property indicator_type25 DRAW_FILLING
+#property indicator_color25 C'209,237,224',C'248,220,223'
+#property indicator_type26 DRAW_FILLING
+#property indicator_color26 C'209,237,224',C'248,220,223'
 #include "MAFlowCore.mqh"
 #include "MAHistoryCore.mqh"
 #include "MAResponseCore.mqh"
@@ -115,6 +129,8 @@ void ApplyPalette() {
  for(int i=0;i<19;i++) PlotIndexSetInteger(i,PLOT_LINE_COLOR,LightChart()?light[i]:dark[i]);
  PlotIndexSetInteger(13,PLOT_LINE_COLOR,ExitColor());PlotIndexSetInteger(14,PLOT_LINE_COLOR,ExitColor());
  for(int i=19;i<26;i++) {
+  // Reserve both DRAW_FILLING colors before assigning the downward color.
+  PlotIndexSetInteger(i,PLOT_COLOR_INDEXES,2);
   PlotIndexSetInteger(i,PLOT_LINE_COLOR,0,LightChart()?C'209,237,224':C'24,67,53');
   PlotIndexSetInteger(i,PLOT_LINE_COLOR,1,LightChart()?C'248,220,223':C'80,34,46');
  }
@@ -362,13 +378,13 @@ void Refresh(const bool force=false) {
  MqlTick tick;
  if(!ReadSessions()) {
   ObjectsDeleteAll(0,prefix+"zone");retryHistory=true;
-  Panel("MT5 1.1.0-preview.6 | "+_Symbol+" | 業者セッションを取得できず新規判定を保留\n接続・休場とは区別。セッション不明のまま営業中と推定しません。");return;
+  Panel("MT5 1.1.0-preview.7 | "+_Symbol+" | 業者セッションを取得できず新規判定を保留\n接続・休場とは区別。セッション不明のまま営業中と推定しません。");return;
  }
  bool live=TerminalInfoInteger(TERMINAL_CONNECTED) && SymbolInfoTick(_Symbol,tick) && TimeTradeServer()>=tick.time && TimeTradeServer()-tick.time<120;
  if(!live || !SessionOpen(TimeCurrent())) {
   ObjectsDeleteAll(0,prefix+"zone");lastM15=0;
   retryHistory=true;
-  Panel("MT5 1.1.0-preview.6 | "+_Symbol+" | 休場・未接続・価格更新待ち\n新規判定停止。過去サインは確定履歴。EXITは反転エントリーではありません。"); return;
+  Panel("MT5 1.1.0-preview.7 | "+_Symbol+" | 休場・未接続・価格更新待ち\n新規判定停止。過去サインは確定履歴。EXITは反転エントリーではありません。"); return;
  }
  datetime m=iTime(_Symbol,PERIOD_M15,1),h=iTime(_Symbol,PERIOD_H1,1),q=iTime(_Symbol,PERIOD_H4,1);
  datetime x=iTime(_Symbol,(ENUM_TIMEFRAMES)_Period,1),minute=iTime(_Symbol,PERIOD_M1,1);
@@ -432,7 +448,7 @@ void Refresh(const bool force=false) {
  if(showBands && nearATR<=0) bandState+=" / M15距離選別は保留";
  if(zoneDrawError!="") holds+=zoneDrawError+"\n";
  PaintSignals();PaintProfile();
- Panel("MT5 1.1.0-preview.6 | "+_Symbol+" | broker時刻 / XM独立版\n"+current+"\n"+response+"\n"+entry+"\n"+volume+"\n"+quote+" / P費用 "+DoubleToString(AssumedRoundTripCostBps,1)+"bps仮定\n"+bandState+"\nEXIT表示 "+IntegerToString(exitLabels)+"組 / 停滞中の集約 "+IntegerToString(exitGroups)+"組（点・保存は全件）\n"+holds+historyNotes+"ニュース自動判定なし / "+(ManualBlackout?"手動P停止中":"Pは研究条件・注文なし")+(ShowFrameDetails?"\n"+status:""));
+ Panel("MT5 1.1.0-preview.7 | "+_Symbol+" | broker時刻 / XM独立版\n"+current+"\n"+response+"\n"+entry+"\n"+volume+"\n"+quote+" / P費用 "+DoubleToString(AssumedRoundTripCostBps,1)+"bps仮定\n"+bandState+"\nEXIT表示 "+IntegerToString(exitLabels)+"組 / 停滞中の集約 "+IntegerToString(exitGroups)+"組（点・保存は全件）\n"+holds+historyNotes+"ニュース自動判定なし / "+(ManualBlackout?"手動P停止中":"Pは研究条件・注文なし")+(ShowFrameDetails?"\n"+status:""));
  ChartRedraw();
 }
 void SetPlots() {
@@ -476,7 +492,7 @@ void ExportAnalysis() {
  int file=FileOpen(name,FILE_WRITE|FILE_TXT|FILE_ANSI,0,CP_UTF8);if(file==INVALID_HANDLE) {Print("Gold export could not open local file");return;}
  string symbol=_Symbol;StringReplace(symbol,"\\","\\\\");StringReplace(symbol,"\"","\\\"");
  MqlTick quote;ZeroMemory(quote);bool quoted=SymbolInfoTick(_Symbol,quote);
- FileWriteString(file,"{\"version\":\"1.1.0-preview.6\",\"symbol\":\""+symbol+"\",\"clock\":\"BROKER_WALL_CLOCK_NOT_UTC\",\"exportedServerTime\":"+IntegerToString((long)TimeTradeServer())+",\"connected\":"+JBool((bool)TerminalInfoInteger(TERMINAL_CONNECTED))+",\"bid\":"+(quoted?JNumber(quote.bid):"null")+",\"ask\":"+(quoted?JNumber(quote.ask):"null")+",\"quoteTime\":"+(quoted?IntegerToString((long)quote.time):"null")+",\"assumedCostBps\":"+JNumber(AssumedRoundTripCostBps)+",\"volumeBasis\":\""+MAVolumeName(VolumeBasis)+"\",\"aggressorDelta\":null,\"cvd\":null,\"sessions\":[");
+ FileWriteString(file,"{\"version\":\"1.1.0-preview.7\",\"symbol\":\""+symbol+"\",\"clock\":\"BROKER_WALL_CLOCK_NOT_UTC\",\"exportedServerTime\":"+IntegerToString((long)TimeTradeServer())+",\"connected\":"+JBool((bool)TerminalInfoInteger(TERMINAL_CONNECTED))+",\"bid\":"+(quoted?JNumber(quote.bid):"null")+",\"ask\":"+(quoted?JNumber(quote.ask):"null")+",\"quoteTime\":"+(quoted?IntegerToString((long)quote.time):"null")+",\"assumedCostBps\":"+JNumber(AssumedRoundTripCostBps)+",\"volumeBasis\":\""+MAVolumeName(VolumeBasis)+"\",\"aggressorDelta\":null,\"cvd\":null,\"sessions\":[");
  for(int s=0;s<ArraySize(weeklySessions);s++) {
   if(s>0) FileWriteString(file,",");
   FileWriteString(file,"{\"weekday\":"+IntegerToString(weeklySessions[s].weekday)+",\"startSeconds\":"+IntegerToString(weeklySessions[s].start)+",\"stopSeconds\":"+IntegerToString(weeklySessions[s].stop)+"}");
@@ -546,7 +562,7 @@ int OnInit() {
  string labels[]={"EMA5","EMA8","EMA13","EMA21","EMA34","EMA55","EMA89","EMA144","Buy holding EXIT","Sell holding EXIT","P buy (volume basis in panel)","P sell (volume basis in panel)","TURN up","TURN down"};
  color colors[]={clrCyan,clrDeepSkyBlue,clrDodgerBlue,clrRoyalBlue,clrMediumPurple,clrViolet,clrOrange,clrOrangeRed,clrGold,clrGold,clrLimeGreen,clrTomato,clrAqua,clrDeepPink};
  for(int i=0;i<19;i++) {PlotIndexSetDouble(i,PLOT_EMPTY_VALUE,EMPTY_VALUE);if(i>=5) {PlotIndexSetString(i,PLOT_LABEL,labels[i-5]);PlotIndexSetInteger(i,PLOT_LINE_COLOR,colors[i-5]);PlotIndexSetInteger(i,PLOT_LINE_WIDTH,i>=13?2:1);if(i>=13) PlotIndexSetInteger(i,PLOT_ARROW,i<=14?159:i==16||i==18?234:233);}}
- IndicatorSetString(INDICATOR_SHORTNAME,"Multi-Analyzer Gold 1.1.0-preview.6 XM "+(VolumeBasis==MA_TICK_ACTIVITY?"tick":"real/off"));
+ IndicatorSetString(INDICATOR_SHORTNAME,"Multi-Analyzer Gold 1.1.0-preview.7 XM "+(VolumeBasis==MA_TICK_ACTIVITY?"tick":"real/off"));
  ApplyPalette();Controls();SetPlots();
  EventSetTimer(2);Refresh(true);return INIT_SUCCEEDED;
 }

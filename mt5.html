@@ -21,11 +21,11 @@
   <h1>XMのGoldを、MT5上で分析</h1>
   <p>Windows版MT5向けのカスタムインジケーターです。XMのGOLDチャートの確定足から計算します。コンパイル済みのex5を同梱しています。</p>
   <section aria-label="最新版のダウンロード">
-    <h2>1.1.0-preview.6 <small>検証版</small></h2>
-    <p>赤・緑のトレンド雲を独立切替。M5と表示足のSMC帯、短期圧力と突破後の再試し経過、停滞時のEXIT文字集約・重なり回避、青いEXIT点、SMC帯の元ID・撤回経過をAI保存に追加。</p>
-    <a class="download" href="downloads/MultiAnalyzerGold-1.1.0-preview.6.zip" download>最新版MT5版をダウンロード（ZIP）</a>
-    <p><small>Windows用 ex5・ソース・日本語手順 / 190,715 bytes</small></p>
-    <details><summary>検証範囲・SHA256</summary><p>今回の版はコンパイル・自動検証。既存Flow/P/EXITの数式は維持。新しい雲・集約表示のXM実画面確認と予測精度は未確認。Web版全機能の移植や予測精度を検証した版ではありません。</p><code class="digest">19604a81d7bea8ecfc38456947e55fc068d08414dbfc879d63b04db738f420eb</code></details>
+    <h2>1.1.0-preview.7 <small>検証版</small></h2>
+    <p>preview.6の赤いトレンド雲が黒くなる配色初期化を修正。赤・緑の雲、青いEXITと停滞時のラベル集約、短期SMC帯・圧力表示を継続。</p>
+    <a class="download" href="downloads/MultiAnalyzerGold-1.1.0-preview.7.zip" download>最新版MT5版をダウンロード（ZIP）</a>
+    <p><small>Windows用 ex5・ソース・日本語手順 / 189,618 bytes</small></p>
+    <details><summary>検証範囲・SHA256</summary><p>コンパイル・自動検証。既存Flow/P/EXITの数式は維持。全時間足・全配色・全銘柄と予測精度は未確認。Web版全機能の移植や予測精度を検証した版ではありません。</p><code class="digest">0d052d4e427f03d17bc6f982ba3ce813d681a12539d2170d5b1cbe93761c8e11</code></details>
   </section>
   <nav aria-label="このページの手順">
     <a href="#install">初めての導入</a><a href="#update">既存版から更新</a><a href="#controls">ボタンの使い方</a><a href="#ai-save">AI保存とチャットへの添付</a>
@@ -35,11 +35,11 @@
   <ol>
     <li>上のZIPをダウンロードして展開します。使用するのは <code>MultiAnalyzerGold.ex5</code> です。ソースからのコンパイルは必要ありません。</li>
     <li>XMのWindows版MT5を開き、メニューの<strong>「ファイル → データフォルダを開く」</strong>を選びます。</li>
-    <li><code>MQL5 → Indicators</code> と進み、<code>MultiAnalyzerGold → 1.1.0-preview.6</code> フォルダを作成します。その中へ <code>MultiAnalyzerGold.ex5</code> をコピーします。</li>
+    <li><code>MQL5 → Indicators</code> と進み、<code>MultiAnalyzerGold → 1.1.0-preview.7</code> フォルダを作成します。その中へ <code>MultiAnalyzerGold.ex5</code> をコピーします。</li>
     <li>MT5へ戻り、ナビゲータの「インディケータ」を右クリックして<strong>「更新」</strong>します。見えない場合は <code>Ctrl＋N</code> でナビゲータを表示します。</li>
-    <li>分析したい <strong>GOLD・GOLD#などのGoldチャート</strong>を開きます。ナビゲータの <code>MultiAnalyzerGold → 1.1.0-preview.6 → MultiAnalyzerGold</code> を、そのチャートへドラッグします。</li>
+    <li>分析したい <strong>GOLD・GOLD#などのGoldチャート</strong>を開きます。ナビゲータの <code>MultiAnalyzerGold → 1.1.0-preview.7 → MultiAnalyzerGold</code> を、そのチャートへドラッグします。</li>
     <li>入力値を確認して「OK」を押します。取得本数 <code>HistoryBars</code> は220〜1500本、初期値は1000本です。価格の同期が済むまで少し待ちます。</li>
-    <li><strong>「詳細 ON」</strong>でパネル先頭の版番号が <code>1.1.0-preview.6</code> か確認します。確認後は「詳細 OFF」で文字を隠せます。</li>
+    <li><strong>「詳細 ON」</strong>でパネル先頭の版番号が <code>1.1.0-preview.7</code> か確認します。確認後は「詳細 OFF」で文字を隠せます。</li>
   </ol>
   <p class="note">自動売買・DLL・外部URLの許可は不要です。自動発注はしません。スマートフォン版MT5にはカスタムインジケーターを直接追加できません。</p>
 
@@ -81,5 +81,5 @@
   <h2>データの違いと検証範囲</h2>
   <p>MT5版はXMの価格とサーバー時刻を使い、Web版は従来のBybit先物を使います。H4・日足の区切りや出来高を同じものとして扱いません。XMのティック数は価格更新の活動量で、取引所の売買別約定量やCVDではありません。ニュース・経済予定の自動取得、固定デモ、外部との常時連携は対象外です。</p>
   <p>Pは押し/戻り、EMA13再突破、出来高倍率、ADX、確定H1一致、費用仮定込みRRを確認する研究条件です。収益精度は未検証です。</p>
-  <p><a href="https://github.com/Yuzora-Yu/Multi-Analyzer/releases/tag/mt5-v1.1.0-preview.6">この版のリリース</a> · <a href="https://github.com/Yuzora-Yu/Multi-Analyzer/tree/main/mt5">ソース・変更履歴</a></p>
+  <p><a href="https://github.com/Yuzora-Yu/Multi-Analyzer/releases/tag/mt5-v1.1.0-preview.7">この版のリリース</a> · <a href="https://github.com/Yuzora-Yu/Multi-Analyzer/tree/main/mt5">ソース・変更履歴</a></p>
 </main></body></html>
