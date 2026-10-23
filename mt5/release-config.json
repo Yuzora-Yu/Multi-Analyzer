@@ -1,6 +1,6 @@
 {
-  "version": "1.1.0-preview.7",
-  "mqlVersion": "1.106",
+  "version": "1.1.0-preview.8",
+  "mqlVersion": "1.107",
   "stage": "preview",
   "sourceFiles": [
     "MultiAnalyzerGold.mq5",
@@ -12,6 +12,6 @@
     "README_JA.txt",
     "CHANGELOG.md"
   ],
-  "scope": "preview.6の赤いトレンド雲が黒くなる配色初期化を修正。赤・緑の雲、青いEXITと停滞時のラベル集約、短期SMC帯・圧力表示を継続。",
-  "runtimeVerification": "コンパイル・自動検証。既存Flow/P/EXITの数式は維持。全時間足・全配色・全銘柄と予測精度は未確認"
+  "scope": "解消済みSMC帯を元の価格幅・形成時刻から解消時刻まで点線で残し、解消帯ボタンで個別切替。各形成足の直近最大3件を初期表示。赤・緑の雲と青いEXITを継続。",
+  "runtimeVerification": "コンパイル・自動検証。解消帯は取得した確定履歴から再構築。既存Flow/P/EXIT・帯の撤回条件は維持。全時間足・全配色・全銘柄と予測精度は未確認"
 }

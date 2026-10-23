@@ -12,4 +12,10 @@ bool MAExitRange(const double adx,const double fast,const double slow,const doub
 bool MAExitGroupable(const int first,const int last,const int index,const double firstPrice,const double price,const double atr) {
  return index-first<=12&&index-last<=8&&atr>0&&MathAbs(firstPrice-price)<=atr;
 }
+// Presentation only: age is measured from retirement, never from formation.
+bool MARetiredEligible(const bool active,const double low,const double high,const datetime formed,const datetime retired,const datetime asof,const int seconds,const int maxAge) {
+ return !active&&MathIsValidNumber(low)&&MathIsValidNumber(high)&&low>0&&high>low&&
+  formed>0&&retired>formed&&retired<=asof&&seconds>0&&maxAge>=0&&
+  (double)(asof-retired)/(double)seconds<=maxAge;
+}
 #endif
