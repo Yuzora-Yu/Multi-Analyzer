@@ -1,7 +1,7 @@
 'use strict';
 const fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto');
 const hash=b=>crypto.createHash('sha256').update(b).digest('hex');
-const SOURCE_FILES=['MultiAnalyzerGold.mq5','MAZoneCore.mqh','MAFlowCore.mqh','MAHistoryCore.mqh','README_JA.txt','CHANGELOG.md'];
+const SOURCE_FILES=['MultiAnalyzerGold.mq5','MAZoneCore.mqh','MAFlowCore.mqh','MAHistoryCore.mqh','MAResponseCore.mqh','MAVisualCore.mqh','README_JA.txt','CHANGELOG.md'];
 const validVersion=v=>typeof v==='string'&&/^\d+\.\d+\.\d+(?:-preview\.\d+)?$/.test(v);
 const escape=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function validate(meta){

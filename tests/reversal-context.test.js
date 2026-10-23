@@ -48,6 +48,16 @@ test('active FVG preserves exact source bounds and a full fill remains consumed 
 test('wrong source geometry and missing OB origin cannot manufacture active zones',()=>{
  const f=fvgFixture();f.a.m15.smc.zones[0].low=108.8;assert.equal(describe(f).candidates.length,0);f.a.m15.smc.zones[0]={type:'OB',side:'bull',index:8,time:f.a.m15.candles[8].time,low:109,high:110,status:'active',originTime:NOW};assert.equal(describe(f).candidates.length,0);
 });
+test('selected M5 source zones supplement M15 candidates without changing their M15 price basis',()=>{
+ const f=fvgFixture(),t=structuredClone(f.a.m15),n=t.candles.length;
+ t.intervalMinutes=5;t.candles.forEach((b,i)=>b.time=f.now-(n-i)*300000);
+ Object.assign(t.candles[6],{open:104,high:105,low:103,close:104});Object.assign(t.candles[7],{open:104,high:107,low:103.5,close:106.5});Object.assign(t.candles[8],{open:107,high:108,low:106,close:107});
+ for(const b of t.candles.slice(9))Object.assign(b,{open:107,high:107.5,low:106.5,close:107});
+ // Use an exact aligned source grid and a source event with its own geometry.
+ t.candles.forEach((b,i)=>b.time=Math.floor(f.now/300000)*300000-(n-i)*300000);
+ t.smc.zones=[{type:'FVG',side:'bull',index:8,time:t.candles[8].time,low:105,high:106,status:'active'}];t.smc.events=[];t.values.close=107;f.a.exec=t;
+ const r=describe(f);assert.equal(r.price,111);assert(r.candidates.some(c=>c.frame==='5m'&&c.low===105&&c.high===106));assert(r.candidates.some(c=>c.frame==='15m'&&c.low===109&&c.high===110));
+});
 test('the same extreme on two frames is one reaction area with separate confirmation clocks',()=>{
  const f=fixture(),m=f.a.m15,eventTime=m.candles[8].time;const candles=Array.from({length:20},(_,i)=>({time:NOW-(20-i)*3600000,open:109,high:109.5,low:108.5,close:109,volume:10}));const i=candles.findIndex(b=>b.time===eventTime);assert(i>5);candles[1].high=110;Object.assign(candles[i],{open:109.5,high:112,low:108.5,close:109.5});f.a.h1={...m,intervalMinutes:60,candles,series:{atr14:candles.map(()=>1)},swings:{highs:[{index:1,confirmIndex:4,time:candles[1].time,price:110}],lows:[]},smc:{zones:[],events:[{type:'SWEEP',side:'bear',time:eventTime,price:110}]}};const r=describe(f);assert.equal(r.candidates.length,1);assert.equal(r.candidates[0].frame,'15m');assert.equal(r.candidates[0].related[0].frame,'1H');assert(r.candidates[0].related[0].formedAt>r.candidates[0].formedAt);assert.match(R.html(r),/独立した根拠数には数えません/);
 });

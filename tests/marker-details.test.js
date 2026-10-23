@@ -21,7 +21,7 @@ test('suppressed chart text remains recoverable from originals and historical P 
  const laidOut=E.viewportLabels(original,()=>100,320,()=>100);assert.equal(laidOut[0].text,'');
  const result=D.describe({...input(),markers:original});assert.ok(result.records.some(r=>r.label==='買 EXIT注意'));
  const p=result.records.find(r=>r.kind==='P_HISTORY');assert.match(p.meaning,/費用・RR・ブラックアウト/);assert.match(p.meaning,/通過や、注文・約定を証明しません/);assert.deepEqual(original,before);
- const candidate=D.meaning(marker('売り候補'));assert.equal(candidate.kind,'CURRENT_CANDIDATE');assert.match(candidate.text,/金色丸/);assert.match(candidate.text,/過去のPや黄EXIT丸とは別/);
+ const candidate=D.meaning(marker('売り候補'));assert.equal(candidate.kind,'CURRENT_CANDIDATE');assert.match(candidate.text,/金色丸/);assert.match(candidate.text,/過去のPや青いEXIT丸とは別/);
 });
 test('explanations do not guess meaning from marker color and preserve frame disagreement',()=>{
  assert.equal(D.meaning(marker('')).kind,'UNKNOWN');assert.equal(D.meaning(marker('unknown')).kind,'UNKNOWN');

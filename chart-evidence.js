@@ -10,7 +10,7 @@
       if(p&&Math.abs(p.ribbon)===1&&Math.abs(f.ribbon)===1&&p.ribbon!==f.ribbon)add(f.ribbon,f.ribbon>0?'#43d49d':'#ff6b78',f.ribbon>0?'arrowUp':'arrowDown',f.ribbon>0?'リボン ↑':'リボン ↓');
       if(f.switched)add(f.direction,f.direction>0?'#43d49d':'#ff6b78',f.direction>0?'arrowUp':'arrowDown',`方向転換 ${f.direction>0?'買':'売'} ${f.rank||'B'}`);
       if(f.pullbackConfirmed)add(f.direction,'#bf9dff','circle','P 押し目条件');
-      if(f.exitLong||f.exitShort)add(f.exitLong?-1:1,'#ffd44a','circle',f.exitLong?'買 EXIT注意':'売 EXIT注意');
+      if(f.exitLong||f.exitShort)add(f.exitLong?-1:1,'#9bbfeb','circle',f.exitLong?'買 EXIT注意':'売 EXIT注意');
     }
     return out;
   }
@@ -71,6 +71,19 @@
     return {headline:`${minutes}分：${direction} / リボン ${ribbon}`,
       detail:`新規P条件は15分足で確認${at?` / 最後の方向転換 ${at} JST`:''}`};
   }
+  function groupExitLabels(markers,exec){
+    if(!exec?.candles?.length||!exec.flow?.history?.length)return markers;
+    const out=markers.map(m=>({...m})),bars=exec.candles,byTime=new Map(bars.map((b,i)=>[b.time/1000,i])),groups=[];
+    const range=i=>{const r=exec.flow.history[i],atr=exec.series?.atr14?.[i],e13=exec.flow.lines?.[13]?.[i],e21=exec.flow.lines?.[21]?.[i],adx=exec.series?.dmi?.adx?.[i];return atr>0&&[e13,e21,adx].every(Number.isFinite)&&(adx<20||Math.abs(e13-e21)<atr*.15);};
+    for(const {m,index} of markers.map((m,index)=>({m,index})).sort((a,b)=>a.m.time-b.m.time)){
+      if(!['買 EXIT注意','売 EXIT注意'].includes(m.text))continue;
+      const i=byTime.get(m.time);if(i==null)continue;const atr=exec.series?.atr14?.[i];
+      const g=range(i)?groups.slice().reverse().find(g=>g.text===m.text&&range(g.first)&&i-g.first<=12&&i-g.last<=8&&Math.abs(bars[g.first].close-bars[i].close)<=g.atr):null;
+      if(g){out[g.marker].text='';g.marker=index;g.last=i;g.count++;out[index].text=m.text+' ×'+g.count;}
+      else groups.push({text:m.text,first:i,last:i,marker:index,count:1,atr});
+    }
+    return out;
+  }
   function viewportLabels(markers,locate,width,measure){
     const out=markers.map(m=>({...m,text:''}));
     if(!Number.isFinite(width)||width<=0)return out;
@@ -88,5 +101,5 @@
     }
     return out;
   }
-  return {markers,structureMarkers,hourlyZones,spaceLabels,viewportLabels,currentEventsText,context,timingSummary};
+  return {markers,structureMarkers,hourlyZones,spaceLabels,groupExitLabels,viewportLabels,currentEventsText,context,timingSummary};
 });

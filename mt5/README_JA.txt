@@ -1,4 +1,4 @@
-Multi-Analyzer Gold MT5 — 1.1.0-preview.5（詳細切替・白背景配色版）
+Multi-Analyzer Gold MT5 — 1.1.0-preview.6（詳細切替・白背景配色版）
 
 Windows版MT5用。装着したXMのGold銘柄の確定足を直接読み、リボン・TURN・
 P・買い/売り保有の黄EXIT・SMC反転帯・BBを表示します。自動発注はしません。
@@ -103,3 +103,15 @@ https://www.mql5.com/en/docs/constants/structures/mqlrates
 https://www.mql5.com/en/docs/series/copyticks
 https://www.metatrader5.com/en/terminal/help/trading_advanced/price_data
 https://www.metatrader5.com/en/metaeditor/help/beginning/integration_ide
+
+preview.6 追加・変更
+・「トレンド雲」でEMA5〜144の間をリボン方向の淡い緑/赤で塗る。線・帯と独立切替。
+・EXITの点は青系。停滞中は同じ種類の近接ラベルを最大12本内で集約し、文字を衝突回避。
+  個々の点・元のEXIT判定は全件保持。集約のツールチップに元の確定時刻を表示。
+・SMC表示へM5と表示足を追加。異なる形成足の離れた有効帯を最大2帯残す。
+・短期圧力と保持方向を分離。直近の確認済み高安の終値突破→後続足の再試しを観察。
+  幅は突破前ATR×0.15で固定し、12本で期限終了。奪回された同じ観察は復活させない。
+・AI保存にSMC帯ID・元の幅・形成/撤回時刻、短期圧力・経過を追加。
+  いずれも今回の確定足からの再構築で、当時の保存・売買の証拠ではない。
+・描画用の未取得区間・進行中足には雲を補間しない。チャート本体のプロパティは変えない。
+・今回の新表示は実XM画面では未確認。既存P/EXIT数式と固定demo-v1は変更しない。

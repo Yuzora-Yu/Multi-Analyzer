@@ -11,6 +11,8 @@ struct MAZone {
  bool active,inside;
  int visits;
  string frame;
+ datetime retiredAt;
+ int retiredReason; // 1 source-frame close, 2 full FVG fill
 };
 void MAAppend(MAZone &zones[],const int kind,const int side,const int index,
               const double low,const double high,const datetime formed,const int seconds,const string frame) {
@@ -20,6 +22,7 @@ void MAAppend(MAZone &zones[],const int kind,const int side,const int index,
  zones[n].low=low; zones[n].high=high; zones[n].formed=formed;
  zones[n].seconds=seconds; zones[n].frame=frame;
  zones[n].active=true; zones[n].inside=false; zones[n].visits=0;
+ zones[n].retiredAt=0;zones[n].retiredReason=0;
 }
 bool MAPivot(const MqlRates &c[],const int p,const bool high) {
  if(p<3 || p+3>=ArraySize(c)) return false;
@@ -59,7 +62,7 @@ void MAAnalyze(const MqlRates &c[],const int seconds,const string frame,MAZone &
    if(!zones[z].active) continue;
    bool broken=zones[z].side>0?c[i].close<zones[z].low:c[i].close>zones[z].high;
    bool filled=zones[z].kind==1 && (zones[z].side>0?c[i].low<=zones[z].low:c[i].high>=zones[z].high);
-   if(broken || filled) {zones[z].active=false; continue;}
+   if(broken || filled) {zones[z].active=false;zones[z].retiredAt=c[i].time+seconds;zones[z].retiredReason=broken?1:2; continue;}
    bool touch=c[i].low<=zones[z].high && c[i].high>=zones[z].low;
    if(touch && !zones[z].inside) zones[z].visits++;
    zones[z].inside=touch;

@@ -1,29 +1,33 @@
 {
-  "version": "1.1.0-preview.5",
-  "mqlVersion": "1.104",
+  "version": "1.1.0-preview.6",
+  "mqlVersion": "1.105",
   "stage": "preview",
   "sourceFiles": [
     "MultiAnalyzerGold.mq5",
     "MAZoneCore.mqh",
     "MAFlowCore.mqh",
     "MAHistoryCore.mqh",
+    "MAResponseCore.mqh",
+    "MAVisualCore.mqh",
     "README_JA.txt",
     "CHANGELOG.md"
   ],
-  "scope": "詳細表示のON/OFFと白背景に対応した配色。XM確定足のリボン・TURN・P・保有EXIT、SMC反転帯、BB、POC近似、6時間足のAI用ローカル保存。",
-  "runtimeVerification": "基盤検証は前版のXM実チャートと6時間足の保存結果、同一入力10600本のMQL/JS照合。今回の変更は表示のみ。全期間のデータ完全性・収益精度は未確認",
-  "file": "MultiAnalyzerGold-1.1.0-preview.5.zip",
-  "bytes": 152228,
-  "sha256": "39458e7398eacd32f5d3c744f74f024a8b5326a13bd5a41c94fec6907de565df",
+  "scope": "赤・緑のトレンド雲を独立切替。M5と表示足のSMC帯、短期圧力と突破後の再試し経過、停滞時のEXIT文字集約・重なり回避、青いEXIT点、SMC帯の元ID・撤回経過をAI保存に追加。",
+  "runtimeVerification": "今回の版はコンパイル・自動検証。既存Flow/P/EXITの数式は維持。新しい雲・集約表示のXM実画面確認と予測精度は未確認",
+  "file": "MultiAnalyzerGold-1.1.0-preview.6.zip",
+  "bytes": 190715,
+  "sha256": "19604a81d7bea8ecfc38456947e55fc068d08414dbfc879d63b04db738f420eb",
   "sources": {
-    "MultiAnalyzerGold.mq5": "2ba4fc0bdb13fba22602f7c7d07ff9d6f9315858c9278fc00075e9874274f971",
-    "MAZoneCore.mqh": "042dd528cd3e7cd048b7877bbd6f9c71791d623e2870d0e8236756e8d69356c7",
+    "MultiAnalyzerGold.mq5": "8a9b03e2fec76c715b905f7e81c9a50a4de425ba6709092924a12026e04a439b",
+    "MAZoneCore.mqh": "878b328cc1e0f8fe1f39b8e5c72b8a17af93f13d7a50213ebc004b9089d1f464",
     "MAFlowCore.mqh": "306ada4dc5297e406f9f443e2bc2153e06b7f321e5ffecb063fda8a3205ed2b5",
     "MAHistoryCore.mqh": "46bff12e6dde4c851d9d6ec8479f318731f40962a86cb9a204ee487b777a02f0",
-    "README_JA.txt": "70ec1cd711a432762552a392205332eb0eeee4abc114c5f65fea07bf829b4e2f",
-    "CHANGELOG.md": "013216f3c02f69d8703aecfd9928d52b8c168fd9e98e29e94c7ce46148f8d3bf"
+    "MAResponseCore.mqh": "7d4d35274c485caaf5e2d65230bdd58896732c5626c59a32da3761f66e622d29",
+    "MAVisualCore.mqh": "d0ed2754852f9e326aac42b692269630afeea05c24f653d06a7c22f7cd970934",
+    "README_JA.txt": "d56c218073cb87e60c1e7feaee0f59477313bafc7d59f87aad28a0a8ef086e5c",
+    "CHANGELOG.md": "9bd49c81a2e7f002b98b353522fda53d31ad714d351f88aaa64ad26834d7b0a4"
   },
-  "compiledSha256": "0b2d1108cf8cd6c1e223023422458ab6d089d0f17a5ef5611c12637df14f2a2a",
+  "compiledSha256": "84fbc82c15ce9d222da790ab58e53155b706087f568670affa709c9acf38c997",
   "compiler": {
     "errors": 0,
     "warnings": 0

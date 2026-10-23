@@ -1,10 +1,10 @@
 #property copyright "Multi-Analyzer"
 #property link "https://yuzora-yu.github.io/Multi-Analyzer/"
-#property version "1.104"
-#property description "XM Gold 1.1.0-preview.5. Native lower-timeframe history reconciliation. No trading."
+#property version "1.105"
+#property description "XM Gold 1.1.0-preview.6. Ribbon cloud, closed response, readable EXIT. No trading."
 #property indicator_chart_window
-#property indicator_buffers 19
-#property indicator_plots 19
+#property indicator_buffers 33
+#property indicator_plots 26
 #property indicator_label1 "EMA20"
 #property indicator_type1 DRAW_LINE
 #property indicator_color1 clrDodgerBlue
@@ -22,11 +22,14 @@
 #property indicator_color5 clrSlateGray
 #include "MAFlowCore.mqh"
 #include "MAHistoryCore.mqh"
+#include "MAResponseCore.mqh"
+#include "MAVisualCore.mqh"
 
 input int HistoryBars=1000; // request 220..1500; price/SMC need60, EMA144 needs144, P still needs220
 input bool InitialBands=true;
 input bool InitialBB=true;
 input bool InitialRibbon=true;
+input bool InitialCloud=true; // EMA5..144 fill, colored by the SAME ribbon as the Web chart
 input bool InitialSignals=true;
 input bool InitialDetails=false; // top-left data panel; independently remembered per chart
 input MAVolumeMode VolumeBasis=MA_TICK_ACTIVITY; // tick counts are NOT exchange trade volume
@@ -37,10 +40,16 @@ input bool ShowFrameDetails=false;
 input string InstanceName="default";
 double e20[],e50[],bm[],bu[],bl[];
 double r5[],r8[],r13[],r21[],r34[],r55[],r89[],r144[],exitBuy[],exitSell[],pBuy[],pSell[],turnBuy[],turnSell[];
+double cloud0a[],cloud0b[],cloud1a[],cloud1b[],cloud2a[],cloud2b[],cloud3a[],cloud3b[],cloud4a[],cloud4b[],cloud5a[],cloud5b[],cloud6a[],cloud6b[];
 MqlRates chartRates[],m15Rates[],hourRates[];
 MAFlowRow chartFlow[],m15Flow[],hourFlow[];
 string prefix,key;
 bool showBands=true,showBB=true,showRibbon=true,showSignals=true,showDetails=false,chartAvailable=false;
+bool showCloud=true;
+struct MALabelBox {int left,right,top,bottom;};
+MALabelBox labelBoxes[];
+struct MAExitGroup {int side,first,last,count;double firstPrice,atr;string times;};
+int exitLabels=0,exitGroups=0;
 string panelText="";
 datetime lastM15=0,lastH1=0,lastH4=0,lastExec=0,lastMinute=0;
 MAZone candidates[];
@@ -91,11 +100,11 @@ bool LightChart() {
  long bg=ChartGetInteger(0,CHART_COLOR_BACKGROUND);
  return (bg&255)+((bg>>8)&255)+((bg>>16)&255)>384;
 }
-color ExitColor() {return LightChart()?C'138,87,0':clrGold;}
+color ExitColor() {return LightChart()?C'58,78,118':C'155,190,235';}
 color BuyColor() {return LightChart()?C'0,103,92':clrAqua;}
 color SellColor() {return LightChart()?C'155,56,29':clrOrange;}
-int ControlColumns() {return MathMax(1,MathMin(6,(int)(ChartGetInteger(0,CHART_WIDTH_IN_PIXELS)-20)/100));}
-int PanelTop() {return 28+((6+ControlColumns()-1)/ControlColumns())*32;}
+int ControlColumns() {return MathMax(1,MathMin(7,(int)(ChartGetInteger(0,CHART_WIDTH_IN_PIXELS)-20)/100));}
+int PanelTop() {return 28+((7+ControlColumns()-1)/ControlColumns())*32;}
 void ApplyPalette() {
  color light[]={C'19,85,166',C'166,79,0',C'91,107,126',C'91,107,126',C'91,107,126',
   C'0,108,128',C'0,106,161',C'19,85,166',C'46,69,157',C'102,58,151',C'141,46,134',C'164,80,0',C'174,49,28',
@@ -104,6 +113,11 @@ void ApplyPalette() {
   clrCyan,clrDeepSkyBlue,clrDodgerBlue,clrRoyalBlue,clrMediumPurple,clrViolet,clrOrange,clrOrangeRed,
   clrGold,clrGold,clrLimeGreen,clrTomato,clrAqua,clrDeepPink};
  for(int i=0;i<19;i++) PlotIndexSetInteger(i,PLOT_LINE_COLOR,LightChart()?light[i]:dark[i]);
+ PlotIndexSetInteger(13,PLOT_LINE_COLOR,ExitColor());PlotIndexSetInteger(14,PLOT_LINE_COLOR,ExitColor());
+ for(int i=19;i<26;i++) {
+  PlotIndexSetInteger(i,PLOT_LINE_COLOR,0,LightChart()?C'209,237,224':C'24,67,53');
+  PlotIndexSetInteger(i,PLOT_LINE_COLOR,1,LightChart()?C'248,220,223':C'80,34,46');
+ }
 }
 void Button(const string name,const string text,const int x,const bool on) {
  string id=prefix+name;
@@ -120,6 +134,7 @@ void Button(const string name,const string text,const int x,const bool on) {
 void Controls() {
  Button("toggle","反転帯",12,showBands);Button("bb","BB",112,showBB);Button("ribbon","リボン",212,showRibbon);
  Button("signals","P / EXIT",312,showSignals);Button("details","詳細",412,showDetails);Button("export","AI保存",512,true);
+ Button("cloud","トレンド雲",612,showCloud);
 }
 void Panel(const string text) {
  panelText=text;ObjectsDeleteAll(0,prefix+"panel");if(!showDetails) return;
@@ -185,22 +200,56 @@ bool FrameRates(ENUM_TIMEFRAMES tf,MqlRates &rates[],const int count,const int m
  return true;
 }
 string Arrow(const int direction) {return direction>0?"UP":direction<0?"DOWN":"WAIT";}
-void SignalText(const string kind,const datetime time,const double price,const string text,const color col) {
+bool SignalText(const string kind,const datetime time,const double price,const string text,const color col,const string extra="") {
+ int x,y;if(!ChartTimePriceToXY(0,0,time,price,x,y)) return false;
+ int width=(int)ChartGetInteger(0,CHART_WIDTH_IN_PIXELS)-82,height=(int)ChartGetInteger(0,CHART_HEIGHT_IN_PIXELS)-26;
+ if(x<0||x>width||y<0||y>height) return false;
+ int w=StringLen(text)*8+8,h=16,dx[]={0,36,-36,72,-72},dy[]={0,18,-18,36,-36,54,-54,72,-72};
+ bool placed=false;int px=x,py=y;
+ for(int a=0;a<ArraySize(dy)&&!placed;a++) for(int b=0;b<ArraySize(dx)&&!placed;b++) {
+  int left=x+dx[b],bottom=y+dy[a];if(left<4||left+w>width||bottom-h<18||bottom>height) continue;
+  bool overlaps=false;
+  for(int j=0;j<ArraySize(labelBoxes);j++) if(left<labelBoxes[j].right+5&&left+w>labelBoxes[j].left-5&&bottom-h<labelBoxes[j].bottom+3&&bottom>labelBoxes[j].top-3) {overlaps=true;break;}
+  if(!overlaps) {int n=ArraySize(labelBoxes);ArrayResize(labelBoxes,n+1);labelBoxes[n].left=left;labelBoxes[n].right=left+w;labelBoxes[n].top=bottom-h;labelBoxes[n].bottom=bottom;px=left;py=bottom;placed=true;}
+ }
+ if(!placed) return false; // Every original event dot and JSON row still remains.
+ int window=0;datetime labelTime;double labelPrice;
+ if(!ChartXYToTimePrice(0,px,py,window,labelTime,labelPrice)||window!=0) return false;
  string name=prefix+"mark."+kind+IntegerToString((long)time);
- ObjectCreate(0,name,OBJ_TEXT,0,time,price);ObjectSetString(0,name,OBJPROP_TEXT,text);
+ ObjectCreate(0,name,OBJ_TEXT,0,labelTime,labelPrice);ObjectSetString(0,name,OBJPROP_TEXT,text);
+ ObjectSetInteger(0,name,OBJPROP_ANCHOR,ANCHOR_LEFT_LOWER);
  ObjectSetString(0,name,OBJPROP_FONT,"Meiryo");ObjectSetInteger(0,name,OBJPROP_FONTSIZE,8);
  ObjectSetInteger(0,name,OBJPROP_COLOR,col);ObjectSetInteger(0,name,OBJPROP_SELECTABLE,false);
- ObjectSetString(0,name,OBJPROP_TOOLTIP,text+" | confirmed "+TimeToString(time+PeriodSeconds())+" broker | "+MAVolumeName(VolumeBasis)+" | EXIT is NOT a reversal entry");
+ ObjectSetString(0,name,OBJPROP_TOOLTIP,text+" | confirmed "+TimeToString(time+PeriodSeconds())+" broker | "+extra+" | "+MAVolumeName(VolumeBasis)+" | EXIT is NOT a reversal entry");
+ if(px!=x||py!=y) {
+  string lead=name+".leader";ObjectCreate(0,lead,OBJ_TREND,0,time,price,labelTime,labelPrice);
+  ObjectSetInteger(0,lead,OBJPROP_COLOR,LightChart()?C'148,163,184':clrSlateGray);ObjectSetInteger(0,lead,OBJPROP_RAY_RIGHT,false);ObjectSetInteger(0,lead,OBJPROP_RAY_LEFT,false);ObjectSetInteger(0,lead,OBJPROP_SELECTABLE,false);
+ }
+ return true;
 }
 void PaintSignals() {
- ObjectsDeleteAll(0,prefix+"mark.");if(!showSignals||!chartAvailable) return;
+ ObjectsDeleteAll(0,prefix+"mark.");ArrayResize(labelBoxes,0);exitLabels=0;exitGroups=0;if(!showSignals||!chartAvailable) return;
  int n=ArraySize(chartFlow);
+ MAExitGroup groups[];
  for(int i=MathMax(143,n-160);i<n;i++) {
   MAFlowRow r=chartFlow[i];MqlRates b=chartRates[i];double pad=r.atr*.45;
-  if(r.exitLong) SignalText("xb",b.time,b.high+pad,"買EXIT",ExitColor());
-  if(r.exitShort) SignalText("xs",b.time,b.low-pad,"売EXIT",ExitColor());
+  if(r.switched) SignalText("turn",b.time,r.direction>0?b.low-r.atr*.65:b.high+r.atr*.65,r.direction>0?"TURN 上":"TURN 下",r.direction>0?BuyColor():SellColor());
   MAPlan p=MAMakePlan(b,r,PeriodSeconds(),i+1,AssumedRoundTripCostBps,MinimumNetRR,ManualBlackout&&i==n-1);
   if(p.pCandidate) SignalText("p",b.time,r.direction>0?b.low-pad:b.high+pad,"P "+(VolumeBasis==MA_TICK_ACTIVITY?"tick ":"")+Arrow(r.direction),r.direction>0?(LightChart()?C'0,103,60':clrLimeGreen):(LightChart()?C'170,42,42':clrTomato));
+  if(r.exitLong||r.exitShort) {
+   int side=r.exitLong?1:-1,g=-1;
+   if(MAExitRange(r.adx,r.e13,r.e21,r.atr)) for(int k=ArraySize(groups)-1;k>=0;k--) {
+    if(groups[k].side==side&&MAExitRange(chartFlow[groups[k].first].adx,chartFlow[groups[k].first].e13,chartFlow[groups[k].first].e21,groups[k].atr)&&MAExitGroupable(groups[k].first,groups[k].last,i,groups[k].firstPrice,b.close,groups[k].atr)) {g=k;break;}
+   }
+   if(g<0) {g=ArraySize(groups);ArrayResize(groups,g+1);groups[g].side=side;groups[g].first=i;groups[g].count=0;groups[g].firstPrice=b.close;groups[g].atr=r.atr;groups[g].times="";}
+   groups[g].last=i;groups[g].count++;groups[g].times+=TimeToString(b.time+PeriodSeconds(),TIME_DATE|TIME_MINUTES)+" ";
+  }
+ }
+ for(int k=ArraySize(groups)-1;k>=0;k--) {
+  MAExitGroup g=groups[k];MqlRates b=chartRates[g.last];double pad=chartFlow[g.last].atr*.45;
+  string text=(g.side>0?"買EXIT":"売EXIT")+(g.count>1?" ×"+IntegerToString(g.count):"");
+  if(SignalText(g.side>0?"xb":"xs",b.time,g.side>0?b.high+pad:b.low-pad,text,ExitColor(),"元の確定時刻 "+g.times+" / 近接ラベルの表示集約のみ。各点・判定・保存は全件維持")) exitLabels++;
+  if(g.count>1) exitGroups++;
  }
 }
 void PaintProfile() {
@@ -209,14 +258,14 @@ void PaintProfile() {
  double prices[]={p.poc,p.vah,p.val};string labels[]={"POC","VAH","VAL"};
  for(int i=0;i<3;i++) {
   string name=prefix+"profile"+labels[i];ObjectCreate(0,name,OBJ_HLINE,0,0,prices[i]);
-  ObjectSetInteger(0,name,OBJPROP_COLOR,i==0?ExitColor():(LightChart()?C'91,107,126':clrSlateGray));ObjectSetInteger(0,name,OBJPROP_STYLE,STYLE_DOT);ObjectSetInteger(0,name,OBJPROP_SELECTABLE,false);
+  ObjectSetInteger(0,name,OBJPROP_COLOR,i==0?(LightChart()?C'138,87,0':clrGold):(LightChart()?C'91,107,126':clrSlateGray));ObjectSetInteger(0,name,OBJPROP_STYLE,STYLE_DOT);ObjectSetInteger(0,name,OBJPROP_SELECTABLE,false);
   ObjectSetString(0,name,OBJPROP_TOOLTIP,labels[i]+" "+DoubleToString(prices[i],_Digits)+" | last96 candles range-distribution APPROXIMATION | "+MAVolumeName(VolumeBasis)+" | not actual price-level executions");
  }
 }
 bool PaintZone(const MAZone &z,const int index) {
  string id=prefix+"zone"+IntegerToString(index);
  datetime end=TimeCurrent()+PeriodSeconds((ENUM_TIMEFRAMES)_Period)*5;
- color col=LightChart()?(z.side>0?C'217,239,234':C'250,225,212'):(z.side>0?clrDarkSlateGray:clrSaddleBrown);
+ color col=LightChart()?(z.side>0?C'221,236,249':C'250,225,212'):(z.side>0?clrDarkSlateGray:clrSaddleBrown);
  ResetLastError();
  if(!ObjectCreate(0,id,OBJ_RECTANGLE,0,z.formed,z.low,end,z.high)) {zoneDrawError="帯オブジェクト作成失敗 "+IntegerToString(GetLastError());return false;}
  double bottom=ChartGetDouble(0,CHART_PRICE_MIN),top=ChartGetDouble(0,CHART_PRICE_MAX);
@@ -267,6 +316,13 @@ int RenderCandidates() {
    if(d<distance) {distance=d; active=i;}
   }
   int count=0; if(active>=0) {if(PaintZone(candidates[active],painted)) painted++;count++;}
+  int second=-1;double secondDistance=DBL_MAX;
+  for(int j=0;j<ArraySize(picked)&&active>=0;j++) {
+   int i=picked[j];if(candidates[i].side!=side||candidates[i].kind==2||candidates[i].frame==candidates[active].frame) continue;
+   if(candidates[i].low<=candidates[active].high&&candidates[i].high>=candidates[active].low) continue;
+   double d=MathMax(candidates[i].low-price,MathMax(price-candidates[i].high,0));if(d<secondDistance) {secondDistance=d;second=i;}
+  }
+  if(second>=0) {if(PaintZone(candidates[second],painted)) painted++;count++;}
   // Pick recent distinct sweeps; no probability ranking.
   datetime before=LONG_MAX; int beforeIndex=INT_MAX;
   while(count<3) {
@@ -288,17 +344,31 @@ int RenderCandidates() {
  }
  return painted;
 }
+void AppendFrameZones(const MqlRates &c[],const int seconds,const string frame,const int maxAge,const double atr,const double reference) {
+ MAZone zs[];MAAnalyze(c,seconds,frame,zs);int n=ArraySize(c);
+ for(int z=0;z<ArraySize(zs);z++) if(zs[z].active&&n-1-zs[z].index<=maxAge) {
+  if(atr>0&&MathMax(zs[z].low-reference,MathMax(reference-zs[z].high,0))>atr*8) continue;
+  int size=ArraySize(candidates);ArrayResize(candidates,size+1);candidates[size]=zs[z];
+ }
+}
+string ResponseLine(const MqlRates &c[],const MAFlowRow &rows[],const int seconds,const string frame) {
+ MAResponseRow rs[];MAResponse(c,rows,seconds,rs);int n=ArraySize(rs);if(n==0) return frame+" 短期圧力・経過は保留";
+ MAResponseRow r=rs[n-1];string line=frame+" 短期圧力 "+Arrow(r.pressure)+" / 保持 "+Arrow(r.held);
+ if(r.pressure!=0&&r.held!=0&&r.pressure!=r.held) line+="（不一致）";
+ if(r.side!=0) line+=" / 元水準 "+DoubleToString(r.reference,_Digits)+" "+MAResponsePhase(r);
+ return line+" [同足の確定・観察用]";
+}
 void Refresh(const bool force=false) {
  MqlTick tick;
  if(!ReadSessions()) {
   ObjectsDeleteAll(0,prefix+"zone");retryHistory=true;
-  Panel("MT5 1.1.0-preview.5 | "+_Symbol+" | 業者セッションを取得できず新規判定を保留\n接続・休場とは区別。セッション不明のまま営業中と推定しません。");return;
+  Panel("MT5 1.1.0-preview.6 | "+_Symbol+" | 業者セッションを取得できず新規判定を保留\n接続・休場とは区別。セッション不明のまま営業中と推定しません。");return;
  }
  bool live=TerminalInfoInteger(TERMINAL_CONNECTED) && SymbolInfoTick(_Symbol,tick) && TimeTradeServer()>=tick.time && TimeTradeServer()-tick.time<120;
  if(!live || !SessionOpen(TimeCurrent())) {
   ObjectsDeleteAll(0,prefix+"zone");lastM15=0;
   retryHistory=true;
-  Panel("MT5 1.1.0-preview.5 | "+_Symbol+" | 休場・未接続・価格更新待ち\n新規判定停止。過去サインは確定履歴。EXITは反転エントリーではありません。"); return;
+  Panel("MT5 1.1.0-preview.6 | "+_Symbol+" | 休場・未接続・価格更新待ち\n新規判定停止。過去サインは確定履歴。EXITは反転エントリーではありません。"); return;
  }
  datetime m=iTime(_Symbol,PERIOD_M15,1),h=iTime(_Symbol,PERIOD_H1,1),q=iTime(_Symbol,PERIOD_H4,1);
  datetime x=iTime(_Symbol,(ENUM_TIMEFRAMES)_Period,1),minute=iTime(_Symbol,PERIOD_M1,1);
@@ -324,7 +394,10 @@ void Refresh(const bool force=false) {
   status+=FrameName(tf)+" 確定 "+TimeToString(c[n-1].time+PeriodSeconds(tf),TIME_DATE|TIME_MINUTES)+"  "+DoubleToString(c[n-1].close,_Digits)+"\n";
  }
  // A held frame never erases valid, independently calculated zones from another frame.
- int painted=RenderCandidates();
+ MqlRates micro[];MAFlowRow microRows[];string response="";
+ if(FrameRates(PERIOD_M5,micro,HistoryBars)) {
+  AppendFrameZones(micro,300,"M5",96,nearATR,reference);MAFlow(micro,VolumeBasis,microRows);response=ResponseLine(micro,microRows,300,"M5");
+ } else {holds+="M5 "+quality+"\n";retryHistory=true;}
  ENUM_TIMEFRAMES extra[]={PERIOD_M1,PERIOD_M5,PERIOD_D1};
  for(int k=0;k<3;k++) {
   MqlRates r[];
@@ -334,7 +407,10 @@ void Refresh(const bool force=false) {
  if(ArraySize(hourFlow)>0) MAAlign(m15Flow,900,hourFlow);
  if(FrameRates((ENUM_TIMEFRAMES)_Period,chartRates,HistoryBars)) {
   chartAvailable=MAFlow(chartRates,VolumeBasis,chartFlow);MAAlign(chartFlow,PeriodSeconds(),hourFlow);
+  if(_Period!=PERIOD_M5&&_Period!=PERIOD_M15&&_Period!=PERIOD_H1&&_Period!=PERIOD_H4) AppendFrameZones(chartRates,PeriodSeconds(),FrameName((ENUM_TIMEFRAMES)_Period),_Period==PERIOD_M1?480:12,nearATR,reference);
+  if(_Period!=PERIOD_M5) response+="\n"+ResponseLine(chartRates,chartFlow,PeriodSeconds(),FrameName((ENUM_TIMEFRAMES)_Period));
  } else {holds+=FrameName((ENUM_TIMEFRAMES)_Period)+" 表示足: "+quality+"\n";retryHistory=true;}
+ int painted=RenderCandidates();
  string current="表示足保留: "+quality,entry="M15 P: 履歴・品質の確認待ち",volume="出来高未確認";
  if(chartAvailable) {
   int i=ArraySize(chartFlow)-1;MAFlowRow r=chartFlow[i];
@@ -351,12 +427,12 @@ void Refresh(const bool force=false) {
   if(p.pCandidate) entry+=" / SL "+DoubleToString(p.stop,_Digits)+" / TP2 "+DoubleToString(p.tp2,_Digits);
  }
  string quote="観測 "+TimeToString(tick.time,TIME_SECONDS)+" Bid "+DoubleToString(tick.bid,_Digits)+" / Ask "+DoubleToString(tick.ask,_Digits)+" / spread "+DoubleToString((tick.ask-tick.bid)/_Point,1)+"pt";
- string bandState=!showBands?"反転帯 OFF":"反転帯 "+IntegerToString(painted)+"件 / 価格範囲内 "+IntegerToString(visibleBands)+"件（形成元 M15/H1/H4）";
+ string bandState=!showBands?"反転帯 OFF":"反転帯 "+IntegerToString(painted)+"件 / 価格範囲内 "+IntegerToString(visibleBands)+"件（形成元 M5/M15/H1/H4・表示足）";
  if(showBands && painted==0) bandState+=holds!=""?" / 取得・品質の保留あり":" / 有効な近接候補なし";
  if(showBands && nearATR<=0) bandState+=" / M15距離選別は保留";
  if(zoneDrawError!="") holds+=zoneDrawError+"\n";
  PaintSignals();PaintProfile();
- Panel("MT5 1.1.0-preview.5 | "+_Symbol+" | broker時刻 / XM独立版\n"+current+"\n"+entry+"\n"+volume+"\n"+quote+" / P費用 "+DoubleToString(AssumedRoundTripCostBps,1)+"bps仮定\n"+bandState+"\n"+holds+historyNotes+"ニュース自動判定なし / "+(ManualBlackout?"手動P停止中":"Pは研究条件・注文なし")+(ShowFrameDetails?"\n"+status:""));
+ Panel("MT5 1.1.0-preview.6 | "+_Symbol+" | broker時刻 / XM独立版\n"+current+"\n"+response+"\n"+entry+"\n"+volume+"\n"+quote+" / P費用 "+DoubleToString(AssumedRoundTripCostBps,1)+"bps仮定\n"+bandState+"\nEXIT表示 "+IntegerToString(exitLabels)+"組 / 停滞中の集約 "+IntegerToString(exitGroups)+"組（点・保存は全件）\n"+holds+historyNotes+"ニュース自動判定なし / "+(ManualBlackout?"手動P停止中":"Pは研究条件・注文なし")+(ShowFrameDetails?"\n"+status:""));
  ChartRedraw();
 }
 void SetPlots() {
@@ -364,17 +440,43 @@ void SetPlots() {
  for(int i=5;i<13;i++) PlotIndexSetInteger(i,PLOT_DRAW_TYPE,showRibbon?DRAW_LINE:DRAW_NONE);
  for(int i=13;i<19;i++) PlotIndexSetInteger(i,PLOT_DRAW_TYPE,showSignals?DRAW_ARROW:DRAW_NONE);
 }
+void FillCloud() {
+ int n=ArraySize(e20);
+ for(int i=0;i<n;i++) {
+  int side=showCloud&&r5[i]!=EMPTY_VALUE&&r144[i]!=EMPTY_VALUE?(r5[i]>r144[i]?1:r5[i]<r144[i]?-1:0):0;
+  MACloudPair(r5[i],r8[i],side,cloud0a[i],cloud0b[i]);MACloudPair(r8[i],r13[i],side,cloud1a[i],cloud1b[i]);
+  MACloudPair(r13[i],r21[i],side,cloud2a[i],cloud2b[i]);MACloudPair(r21[i],r34[i],side,cloud3a[i],cloud3b[i]);
+  MACloudPair(r34[i],r55[i],side,cloud4a[i],cloud4b[i]);MACloudPair(r55[i],r89[i],side,cloud5a[i],cloud5b[i]);
+  MACloudPair(r89[i],r144[i],side,cloud6a[i],cloud6b[i]);
+ }
+}
 // Writes only this symbol's market data and derived calculations to local MQL5/Files.
 // No account, position, login, external request or mail access.
 string JNumber(const double v) {return v==EMPTY_VALUE||!MathIsValidNumber(v)?"null":DoubleToString(v,12);}
 string JBool(const bool b) {return b?"true":"false";}
+string ResponseJson(const MAResponseRow &r) {
+ return "{\"version\":\"closed-response-v1\",\"pressure\":"+IntegerToString(r.pressure)+",\"heldDirection\":"+IntegerToString(r.held)+",\"ribbon\":"+IntegerToString(r.ribbon)+",\"side\":"+IntegerToString(r.side)+",\"phase\":"+IntegerToString(r.phase)+",\"reference\":"+(r.side!=0?JNumber(r.reference):"null")+",\"fixedPad\":"+(r.side!=0?JNumber(r.pad):"null")+",\"brokenServerTime\":"+IntegerToString((long)r.brokenAt)+",\"changedServerTime\":"+IntegerToString((long)r.changedAt)+",\"expiresServerTime\":"+IntegerToString((long)r.expiresAt)+",\"closedServerTime\":"+IntegerToString((long)r.closedAt)+",\"observationOnly\":true}";
+}
+void ExportFrameContext(const int file,const MqlRates &c[],const MAFlowRow &rows[],const bool ready,const ENUM_TIMEFRAMES tf) {
+ MAResponseRow rs[];if(ready) MAResponse(c,rows,PeriodSeconds(tf),rs);int n=ArraySize(rs);
+ FileWriteString(file,",\"response\":"+(n>0?ResponseJson(rs[n-1]):"null")+",\"responseEvents\":[");
+ int written=0;
+ for(int i=0;i<n;i++) if(rs[i].side!=0&&(i==0||rs[i].changedAt!=rs[i-1].changedAt)) {if(written++>0) FileWriteString(file,",");FileWriteString(file,ResponseJson(rs[i]));}
+ FileWriteString(file,"],\"zones\":[");MAZone zs[];if(ready) MAAnalyze(c,PeriodSeconds(tf),FrameName(tf),zs);
+ for(int i=0;i<ArraySize(zs);i++) {
+  MAZone z=zs[i];if(i>0) FileWriteString(file,",");
+  string id=z.frame+":"+MAKind(z.kind)+":"+IntegerToString(z.side)+":"+IntegerToString((long)z.formed)+":"+DoubleToString(z.low,_Digits)+":"+DoubleToString(z.high,_Digits);
+  FileWriteString(file,"{\"id\":\""+id+"\",\"kind\":\""+MAKind(z.kind)+"\",\"side\":"+IntegerToString(z.side)+",\"frame\":\""+z.frame+"\",\"seconds\":"+IntegerToString(z.seconds)+",\"low\":"+JNumber(z.low)+",\"high\":"+JNumber(z.high)+",\"formedServerTime\":"+IntegerToString((long)z.formed)+",\"active\":"+JBool(z.active)+",\"visits\":"+IntegerToString(z.visits)+",\"retiredServerTime\":"+IntegerToString((long)z.retiredAt)+",\"retiredReason\":"+IntegerToString(z.retiredReason)+",\"withdrawalClose\":"+JNumber(z.side>0?z.low:z.high)+"}");
+ }
+ FileWriteString(file,"],\"contextBasis\":\"RECONSTRUCTED_FROM_THIS_EXPORT_CLOSED_BARS_NOT_A_CONTEMPORANEOUS_SIGNAL_LEDGER\"");
+}
 void ExportAnalysis() {
  string folder="MultiAnalyzerGold";FolderCreate(folder);
  string name=folder+"/XM-Gold-"+IntegerToString((long)TimeLocal())+"-"+IntegerToString((long)GetMicrosecondCount())+".json";
  int file=FileOpen(name,FILE_WRITE|FILE_TXT|FILE_ANSI,0,CP_UTF8);if(file==INVALID_HANDLE) {Print("Gold export could not open local file");return;}
  string symbol=_Symbol;StringReplace(symbol,"\\","\\\\");StringReplace(symbol,"\"","\\\"");
  MqlTick quote;ZeroMemory(quote);bool quoted=SymbolInfoTick(_Symbol,quote);
- FileWriteString(file,"{\"version\":\"1.1.0-preview.5\",\"symbol\":\""+symbol+"\",\"clock\":\"BROKER_WALL_CLOCK_NOT_UTC\",\"exportedServerTime\":"+IntegerToString((long)TimeTradeServer())+",\"connected\":"+JBool((bool)TerminalInfoInteger(TERMINAL_CONNECTED))+",\"bid\":"+(quoted?JNumber(quote.bid):"null")+",\"ask\":"+(quoted?JNumber(quote.ask):"null")+",\"quoteTime\":"+(quoted?IntegerToString((long)quote.time):"null")+",\"assumedCostBps\":"+JNumber(AssumedRoundTripCostBps)+",\"volumeBasis\":\""+MAVolumeName(VolumeBasis)+"\",\"aggressorDelta\":null,\"cvd\":null,\"sessions\":[");
+ FileWriteString(file,"{\"version\":\"1.1.0-preview.6\",\"symbol\":\""+symbol+"\",\"clock\":\"BROKER_WALL_CLOCK_NOT_UTC\",\"exportedServerTime\":"+IntegerToString((long)TimeTradeServer())+",\"connected\":"+JBool((bool)TerminalInfoInteger(TERMINAL_CONNECTED))+",\"bid\":"+(quoted?JNumber(quote.bid):"null")+",\"ask\":"+(quoted?JNumber(quote.ask):"null")+",\"quoteTime\":"+(quoted?IntegerToString((long)quote.time):"null")+",\"assumedCostBps\":"+JNumber(AssumedRoundTripCostBps)+",\"volumeBasis\":\""+MAVolumeName(VolumeBasis)+"\",\"aggressorDelta\":null,\"cvd\":null,\"sessions\":[");
  for(int s=0;s<ArraySize(weeklySessions);s++) {
   if(s>0) FileWriteString(file,",");
   FileWriteString(file,"{\"weekday\":"+IntegerToString(weeklySessions[s].weekday)+",\"startSeconds\":"+IntegerToString(weeklySessions[s].start)+",\"stopSeconds\":"+IntegerToString(weeklySessions[s].stop)+"}");
@@ -395,7 +497,7 @@ void ExportAnalysis() {
    if(derived) r=rows[index];MAPlan p;ZeroMemory(p);if(derived) p=MAMakePlan(raw[i],r,PeriodSeconds(frames[f]),index+1,AssumedRoundTripCostBps,MinimumNetRR,ManualBlackout&&i==ArraySize(raw)-1);
    FileWriteString(file,"{\"time\":"+IntegerToString((long)raw[i].time)+",\"open\":"+JNumber(raw[i].open)+",\"high\":"+JNumber(raw[i].high)+",\"low\":"+JNumber(raw[i].low)+",\"close\":"+JNumber(raw[i].close)+",\"volume\":"+JNumber(MAVolume(raw[i],VolumeBasis))+",\"tickVolume\":"+IntegerToString(raw[i].tick_volume)+",\"realVolume\":"+IntegerToString(raw[i].real_volume)+",\"spreadPoints\":"+IntegerToString(raw[i].spread)+",\"derivedAvailable\":"+JBool(derived)+",\"flowReady\":"+(derived?JBool(r.ready):"null")+",\"ema13\":"+JNumber(r.e13)+",\"ema21\":"+JNumber(r.e21)+",\"atr\":"+(derived?JNumber(r.atr):"null")+",\"adx\":"+(derived?JNumber(r.adx):"null")+",\"direction\":"+(derived&&r.ready?IntegerToString(r.direction):"null")+",\"ribbon\":"+(derived&&r.ready?IntegerToString(r.ribbon):"null")+",\"exitLong\":"+(derived&&r.ready?JBool(r.exitLong):"null")+",\"exitShort\":"+(derived&&r.ready?JBool(r.exitShort):"null")+",\"pullbackConfirmed\":"+(derived&&r.ready?JBool(r.pullbackConfirmed):"null")+",\"pCandidate\":"+(derived&&r.ready?JBool(p.pCandidate):"null")+",\"plan\":"+(derived&&r.ready?"{\"stop\":"+JNumber(p.stop)+",\"tp2\":"+JNumber(p.tp2)+",\"netRR\":"+JNumber(p.netRR)+"}":"null")+"}");
   }
-  FileWriteString(file,"]}");
+  FileWriteString(file,"]");ExportFrameContext(file,c,rows,ready,frames[f]);FileWriteString(file,"}");
  }
  FileWriteString(file,"]}\n");FileFlush(file);FileClose(file);
  Print("Gold local analysis export: MQL5/Files/",name);
@@ -405,6 +507,7 @@ void FillPlots(const int total,const datetime &time[]) {
  ArrayInitialize(e20,EMPTY_VALUE);ArrayInitialize(e50,EMPTY_VALUE);ArrayInitialize(bm,EMPTY_VALUE);ArrayInitialize(bu,EMPTY_VALUE);ArrayInitialize(bl,EMPTY_VALUE);
  ArrayInitialize(r5,EMPTY_VALUE);ArrayInitialize(r8,EMPTY_VALUE);ArrayInitialize(r13,EMPTY_VALUE);ArrayInitialize(r21,EMPTY_VALUE);ArrayInitialize(r34,EMPTY_VALUE);ArrayInitialize(r55,EMPTY_VALUE);ArrayInitialize(r89,EMPTY_VALUE);ArrayInitialize(r144,EMPTY_VALUE);
  ArrayInitialize(exitBuy,EMPTY_VALUE);ArrayInitialize(exitSell,EMPTY_VALUE);ArrayInitialize(pBuy,EMPTY_VALUE);ArrayInitialize(pSell,EMPTY_VALUE);ArrayInitialize(turnBuy,EMPTY_VALUE);ArrayInitialize(turnSell,EMPTY_VALUE);
+ FillCloud(); // all ribbon buffers were cleared, so gaps/forming bars remain zero/zero
  if(!chartAvailable) return;
  int j=0,n=ArraySize(chartFlow);
  for(int i=0;i<total;i++) {
@@ -417,6 +520,7 @@ void FillPlots(const int total,const datetime &time[]) {
   if(p.pCandidate) {if(r.direction>0) pBuy[i]=b.low-r.atr*.2;else pSell[i]=b.high+r.atr*.2;}
   if(r.switched) {if(r.direction>0) turnBuy[i]=b.low-r.atr*.65;else turnSell[i]=b.high+r.atr*.65;}
  }
+ FillCloud();
 }
 int OnInit() {
  if(!MACoreSelfTest()||!MAFlowSelfTest()||!MAHistorySelfTest()) {Print("Multi-Analyzer core self-test failed");return INIT_FAILED;}
@@ -428,16 +532,21 @@ int OnInit() {
  showBands=GlobalVariableCheck(key+".z")?GlobalVariableGet(key+".z")>0:InitialBands;
  showBB=GlobalVariableCheck(key+".b")?GlobalVariableGet(key+".b")>0:InitialBB;
  showRibbon=GlobalVariableCheck(key+".r")?GlobalVariableGet(key+".r")>0:InitialRibbon;
+ showCloud=GlobalVariableCheck(key+".c")?GlobalVariableGet(key+".c")>0:InitialCloud;
  showSignals=GlobalVariableCheck(key+".s")?GlobalVariableGet(key+".s")>0:InitialSignals;
  showDetails=GlobalVariableCheck(key+".d")?GlobalVariableGet(key+".d")>0:InitialDetails;
  SetIndexBuffer(0,e20,INDICATOR_DATA);SetIndexBuffer(1,e50,INDICATOR_DATA);
  SetIndexBuffer(2,bm,INDICATOR_DATA);SetIndexBuffer(3,bu,INDICATOR_DATA);SetIndexBuffer(4,bl,INDICATOR_DATA);
  SetIndexBuffer(5,r5,INDICATOR_DATA);SetIndexBuffer(6,r8,INDICATOR_DATA);SetIndexBuffer(7,r13,INDICATOR_DATA);SetIndexBuffer(8,r21,INDICATOR_DATA);SetIndexBuffer(9,r34,INDICATOR_DATA);SetIndexBuffer(10,r55,INDICATOR_DATA);SetIndexBuffer(11,r89,INDICATOR_DATA);SetIndexBuffer(12,r144,INDICATOR_DATA);
  SetIndexBuffer(13,exitBuy,INDICATOR_DATA);SetIndexBuffer(14,exitSell,INDICATOR_DATA);SetIndexBuffer(15,pBuy,INDICATOR_DATA);SetIndexBuffer(16,pSell,INDICATOR_DATA);SetIndexBuffer(17,turnBuy,INDICATOR_DATA);SetIndexBuffer(18,turnSell,INDICATOR_DATA);
+ SetIndexBuffer(19,cloud0a,INDICATOR_DATA);SetIndexBuffer(20,cloud0b,INDICATOR_DATA);SetIndexBuffer(21,cloud1a,INDICATOR_DATA);SetIndexBuffer(22,cloud1b,INDICATOR_DATA);
+ SetIndexBuffer(23,cloud2a,INDICATOR_DATA);SetIndexBuffer(24,cloud2b,INDICATOR_DATA);SetIndexBuffer(25,cloud3a,INDICATOR_DATA);SetIndexBuffer(26,cloud3b,INDICATOR_DATA);
+ SetIndexBuffer(27,cloud4a,INDICATOR_DATA);SetIndexBuffer(28,cloud4b,INDICATOR_DATA);SetIndexBuffer(29,cloud5a,INDICATOR_DATA);SetIndexBuffer(30,cloud5b,INDICATOR_DATA);SetIndexBuffer(31,cloud6a,INDICATOR_DATA);SetIndexBuffer(32,cloud6b,INDICATOR_DATA);
+ for(int i=19;i<26;i++) {PlotIndexSetInteger(i,PLOT_DRAW_TYPE,DRAW_FILLING);PlotIndexSetDouble(i,PLOT_EMPTY_VALUE,EMPTY_VALUE);PlotIndexSetInteger(i,PLOT_SHOW_DATA,false);PlotIndexSetString(i,PLOT_LABEL,"EMA ribbon cloud");}
  string labels[]={"EMA5","EMA8","EMA13","EMA21","EMA34","EMA55","EMA89","EMA144","Buy holding EXIT","Sell holding EXIT","P buy (volume basis in panel)","P sell (volume basis in panel)","TURN up","TURN down"};
  color colors[]={clrCyan,clrDeepSkyBlue,clrDodgerBlue,clrRoyalBlue,clrMediumPurple,clrViolet,clrOrange,clrOrangeRed,clrGold,clrGold,clrLimeGreen,clrTomato,clrAqua,clrDeepPink};
- for(int i=0;i<19;i++) {PlotIndexSetDouble(i,PLOT_EMPTY_VALUE,EMPTY_VALUE);if(i>=5) {PlotIndexSetString(i,PLOT_LABEL,labels[i-5]);PlotIndexSetInteger(i,PLOT_LINE_COLOR,colors[i-5]);PlotIndexSetInteger(i,PLOT_LINE_WIDTH,i>=13?2:1);if(i>=13) PlotIndexSetInteger(i,PLOT_ARROW,i==13||i==16||i==18?234:233);}}
- IndicatorSetString(INDICATOR_SHORTNAME,"Multi-Analyzer Gold 1.1.0-preview.5 XM "+(VolumeBasis==MA_TICK_ACTIVITY?"tick":"real/off"));
+ for(int i=0;i<19;i++) {PlotIndexSetDouble(i,PLOT_EMPTY_VALUE,EMPTY_VALUE);if(i>=5) {PlotIndexSetString(i,PLOT_LABEL,labels[i-5]);PlotIndexSetInteger(i,PLOT_LINE_COLOR,colors[i-5]);PlotIndexSetInteger(i,PLOT_LINE_WIDTH,i>=13?2:1);if(i>=13) PlotIndexSetInteger(i,PLOT_ARROW,i<=14?159:i==16||i==18?234:233);}}
+ IndicatorSetString(INDICATOR_SHORTNAME,"Multi-Analyzer Gold 1.1.0-preview.6 XM "+(VolumeBasis==MA_TICK_ACTIVITY?"tick":"real/off"));
  ApplyPalette();Controls();SetPlots();
  EventSetTimer(2);Refresh(true);return INIT_SUCCEEDED;
 }
@@ -451,6 +560,7 @@ void OnChartEvent(const int id,const long &lparam,const double &dparam,const str
  if(sparam==prefix+"toggle") {showBands=!showBands;GlobalVariableSet(key+".z",showBands?1:0);Button("toggle","反転帯",12,showBands);Refresh(true);}
  if(sparam==prefix+"bb") {showBB=!showBB;GlobalVariableSet(key+".b",showBB?1:0);Button("bb","BB",112,showBB);SetPlots();ChartRedraw();}
  if(sparam==prefix+"ribbon") {showRibbon=!showRibbon;GlobalVariableSet(key+".r",showRibbon?1:0);Button("ribbon","リボン",212,showRibbon);SetPlots();ChartRedraw();}
+ if(sparam==prefix+"cloud") {showCloud=!showCloud;GlobalVariableSet(key+".c",showCloud?1:0);Button("cloud","トレンド雲",612,showCloud);FillCloud();ChartRedraw();}
  if(sparam==prefix+"signals") {showSignals=!showSignals;GlobalVariableSet(key+".s",showSignals?1:0);Button("signals","P / EXIT",312,showSignals);SetPlots();PaintSignals();Panel(panelText);ChartRedraw();}
  if(sparam==prefix+"details") {showDetails=!showDetails;GlobalVariableSet(key+".d",showDetails?1:0);Button("details","詳細",412,showDetails);Panel(panelText);ChartRedraw();}
  if(sparam==prefix+"export") {ExportAnalysis();ObjectSetInteger(0,prefix+"export",OBJPROP_STATE,false);}

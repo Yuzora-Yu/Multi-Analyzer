@@ -21,11 +21,11 @@
   <h1>XMのGoldを、MT5上で分析</h1>
   <p>Windows版MT5向けのカスタムインジケーターです。XMのGOLDチャートの確定足から計算します。コンパイル済みのex5を同梱しています。</p>
   <section aria-label="最新版のダウンロード">
-    <h2>1.1.0-preview.5 <small>検証版</small></h2>
-    <p>詳細表示のON/OFFと白背景に対応した配色。XM確定足のリボン・TURN・P・保有EXIT、SMC反転帯、BB、POC近似、6時間足のAI用ローカル保存。</p>
-    <a class="download" href="downloads/MultiAnalyzerGold-1.1.0-preview.5.zip" download>最新版MT5版をダウンロード（ZIP）</a>
-    <p><small>Windows用 ex5・ソース・日本語手順 / 152,228 bytes</small></p>
-    <details><summary>検証範囲・SHA256</summary><p>基盤検証は前版のXM実チャートと6時間足の保存結果、同一入力10600本のMQL/JS照合。今回の変更は表示のみ。全期間のデータ完全性・収益精度は未確認。Web版全機能の移植や予測精度を検証した版ではありません。</p><code class="digest">39458e7398eacd32f5d3c744f74f024a8b5326a13bd5a41c94fec6907de565df</code></details>
+    <h2>1.1.0-preview.6 <small>検証版</small></h2>
+    <p>赤・緑のトレンド雲を独立切替。M5と表示足のSMC帯、短期圧力と突破後の再試し経過、停滞時のEXIT文字集約・重なり回避、青いEXIT点、SMC帯の元ID・撤回経過をAI保存に追加。</p>
+    <a class="download" href="downloads/MultiAnalyzerGold-1.1.0-preview.6.zip" download>最新版MT5版をダウンロード（ZIP）</a>
+    <p><small>Windows用 ex5・ソース・日本語手順 / 190,715 bytes</small></p>
+    <details><summary>検証範囲・SHA256</summary><p>今回の版はコンパイル・自動検証。既存Flow/P/EXITの数式は維持。新しい雲・集約表示のXM実画面確認と予測精度は未確認。Web版全機能の移植や予測精度を検証した版ではありません。</p><code class="digest">19604a81d7bea8ecfc38456947e55fc068d08414dbfc879d63b04db738f420eb</code></details>
   </section>
   <nav aria-label="このページの手順">
     <a href="#install">初めての導入</a><a href="#update">既存版から更新</a><a href="#controls">ボタンの使い方</a><a href="#ai-save">AI保存とチャットへの添付</a>
@@ -35,11 +35,11 @@
   <ol>
     <li>上のZIPをダウンロードして展開します。使用するのは <code>MultiAnalyzerGold.ex5</code> です。ソースからのコンパイルは必要ありません。</li>
     <li>XMのWindows版MT5を開き、メニューの<strong>「ファイル → データフォルダを開く」</strong>を選びます。</li>
-    <li><code>MQL5 → Indicators</code> と進み、<code>MultiAnalyzerGold → 1.1.0-preview.5</code> フォルダを作成します。その中へ <code>MultiAnalyzerGold.ex5</code> をコピーします。</li>
+    <li><code>MQL5 → Indicators</code> と進み、<code>MultiAnalyzerGold → 1.1.0-preview.6</code> フォルダを作成します。その中へ <code>MultiAnalyzerGold.ex5</code> をコピーします。</li>
     <li>MT5へ戻り、ナビゲータの「インディケータ」を右クリックして<strong>「更新」</strong>します。見えない場合は <code>Ctrl＋N</code> でナビゲータを表示します。</li>
-    <li>分析したい <strong>GOLD・GOLD#などのGoldチャート</strong>を開きます。ナビゲータの <code>MultiAnalyzerGold → 1.1.0-preview.5 → MultiAnalyzerGold</code> を、そのチャートへドラッグします。</li>
+    <li>分析したい <strong>GOLD・GOLD#などのGoldチャート</strong>を開きます。ナビゲータの <code>MultiAnalyzerGold → 1.1.0-preview.6 → MultiAnalyzerGold</code> を、そのチャートへドラッグします。</li>
     <li>入力値を確認して「OK」を押します。取得本数 <code>HistoryBars</code> は220〜1500本、初期値は1000本です。価格の同期が済むまで少し待ちます。</li>
-    <li><strong>「詳細 ON」</strong>でパネル先頭の版番号が <code>1.1.0-preview.5</code> か確認します。確認後は「詳細 OFF」で文字を隠せます。</li>
+    <li><strong>「詳細 ON」</strong>でパネル先頭の版番号が <code>1.1.0-preview.6</code> か確認します。確認後は「詳細 OFF」で文字を隠せます。</li>
   </ol>
   <p class="note">自動売買・DLL・外部URLの許可は不要です。自動発注はしません。スマートフォン版MT5にはカスタムインジケーターを直接追加できません。</p>
 
@@ -59,14 +59,18 @@
       <tr><th scope="row">反転帯</th><td>SMC反転候補帯とPOC/VAH/VAL近似を表示・非表示にします。帯は反転する場所の候補で、反転成立や入場の合図ではありません。</td></tr>
       <tr><th scope="row">BB</th><td>このインジのボリンジャーバンドを切り替えます。別途装着したBBには影響しません。</td></tr>
       <tr><th scope="row">リボン</th><td>EMAリボンを切り替えます。</td></tr>
-      <tr><th scope="row">P / EXIT</th><td>P条件と保有EXITなどのサインを切り替えます。EXITはEMA13を跨いだ後の2本確定による保有警告で、反転エントリーとは別です。</td></tr>
+      <tr><th scope="row">トレンド雲</th><td>EMA5〜144の間を、リボンが上なら淡い緑、下なら淡い赤で塗ります。白背景に合わせた配色で、リボン線や反転帯とは独立して切り替えられます。現在の雲の色は売買成立を示しません。</td></tr>
+      <tr><th scope="row">P / EXIT</th><td>P条件・EXIT・TURNを切り替えます。EXITは青い点と名称で表示し、停滞中の近接した同種ラベルは「売EXIT ×3」などに集約します。各点と元の判定は残し、ツールチップに各確定時刻を表示します。文字は重なりを避けて配置し、ずらした文字は細い線で元位置へ結びます。EXITはEMA13を跨いだ後の2本確定による保有警告で、反転エントリーとは別です。</td></tr>
       <tr><th scope="row">詳細</th><td>左上の数値・判定・履歴状態などをまとめて切り替えます。初期値はOFFで、時間足を変えても状態を保持します。</td></tr>
       <tr><th scope="row">AI保存</th><td>その時点で取得可能な確定足と計算結果を、PC内のJSONファイルへ保存します。AIへの送信ボタンではありません。</td></tr>
     </tbody>
   </table>
 
   <h2 id="ai-save">AI保存とチャットへの添付</h2>
-  <p>MT5で「AI保存」を押すと、M1・M5・M15・H1・H4・日足の確定OHLC、ティック数・出来高・スプレッド、EMA・ATR・ADX・保持方向・EXIT・P条件と参考SL/TPなどをJSONへ保存します。各時間足の保存本数は <code>HistoryBars</code> の設定に従います。進行中の足は確定判定に使いません。</p>
+  <p>MT5で「AI保存」を押すと、M1・M5・M15・H1・H4・日足の確定OHLC、ティック数・出来高・スプレッド、EMA・ATR・ADX・保持方向・EXIT・P条件と参考SL/TPなどをJSONへ保存します。加えて、SMC帯の元ID・幅・形成時刻・撤回経過と、短期圧力・突破後の再試し経過を保存します。これらは今回の確定足から再構築した観察で、当時の表示・保存・約定の証拠ではありません。各時間足の保存本数は <code>HistoryBars</code> の設定に従います。進行中の足は確定判定に使いません。保存操作自体はチャートにマークを追加しません。</p>
+  <h2>支持・抵抗と短期圧力</h2>
+  <p>「詳細 ON」では保持方向と、終値・EMA13/21の短期圧力を分けて確認できます。確認済み高安の終値突破を起点に、後続の同じ時間足で押し支え・戻り失敗・奪回による撤回を観察します。幅は突破前ATRの0.15倍で固定し、期限は12本です。新しい観察用の定義で、P・EXITや固定デモの条件には採用していません。</p>
+  <p>帯にはM5と表示中の時間足も加えます。1分・5分の帯と上位足の帯は、形成した時間足・確定時刻・撤回条件を分けて表示します。形成元の足が未取得・保留なら、その足の帯を作りません。</p>
   <ol>
     <li>インジの<strong>「AI保存」</strong>を押します。</li>
     <li>MT5の<strong>「ファイル → データフォルダを開く」</strong>から <code>MQL5 → Files → MultiAnalyzerGold</code> を開きます。</li>
@@ -77,5 +81,5 @@
   <h2>データの違いと検証範囲</h2>
   <p>MT5版はXMの価格とサーバー時刻を使い、Web版は従来のBybit先物を使います。H4・日足の区切りや出来高を同じものとして扱いません。XMのティック数は価格更新の活動量で、取引所の売買別約定量やCVDではありません。ニュース・経済予定の自動取得、固定デモ、外部との常時連携は対象外です。</p>
   <p>Pは押し/戻り、EMA13再突破、出来高倍率、ADX、確定H1一致、費用仮定込みRRを確認する研究条件です。収益精度は未検証です。</p>
-  <p><a href="https://github.com/Yuzora-Yu/Multi-Analyzer/releases/tag/mt5-v1.1.0-preview.5">この版のリリース</a> · <a href="https://github.com/Yuzora-Yu/Multi-Analyzer/tree/main/mt5">ソース・変更履歴</a></p>
+  <p><a href="https://github.com/Yuzora-Yu/Multi-Analyzer/releases/tag/mt5-v1.1.0-preview.6">この版のリリース</a> · <a href="https://github.com/Yuzora-Yu/Multi-Analyzer/tree/main/mt5">ソース・変更履歴</a></p>
 </main></body></html>

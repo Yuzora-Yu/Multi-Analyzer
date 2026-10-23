@@ -1,7 +1,7 @@
 /* Current, read-only SMC reaction hypotheses. Never an entry or a frozen-engine input. */
 (function(root,factory){const api=factory(typeof module==='object'&&module.exports?require('./market-feed'):root.MultiAnalyzerFeed,typeof module==='object'&&module.exports?require('./trend-context'):root.MultiAnalyzerTrendContext);if(typeof module==='object'&&module.exports)module.exports=api;else root.MultiAnalyzerReversal=api;})(globalThis,function(Feed,Trend){
   'use strict';
-  const VERSION='smc-reaction-context-v1',STEP=900000;
+  const VERSION='smc-reaction-context-v2',STEP=900000;
   const FRAMES=[['15m','m15',15,32],['1H','h1',60,24],['4H','h4',240,12]];
   const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const price=v=>Number.isFinite(v)?v.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}):'未取得';
@@ -51,8 +51,9 @@
     if(health?.blocked||!Number.isFinite(a?.generatedAt)||a.generatedAt>now||now-a.generatedAt>20*60000)return stop('確定足の鮮度・判定IDの整合を確認できないため保留です。');
     const m15=frame(a.m15,15,a.generatedAt),atr=m15?.values?.atr,bar=m15?.candles.at(-1);
     if(!m15||!(atr>0)||!bar)return stop('欠損・未確定足があるため反転候補を推定しません。');
-    const candidates=[],retired=[];
-    for(const [name,key,minutes,lookback] of FRAMES){
+    const candidates=[],retired=[],micro=a.exec?.intervalMinutes;
+    const frames=[...([1,5].includes(micro)?[[micro+'m','exec',micro,micro===1?480:96]]:[]),...FRAMES];
+    for(const [name,key,minutes,lookback] of frames){
       const tf=frame(a[key],minutes,a.generatedAt);if(!tf)continue;
       const step=minutes*60000;
       function add(c,index){
@@ -99,9 +100,11 @@
       for(const c of own.filter(c=>c.kind==='SWEEP').sort((x,y)=>y.formedAt-x.formedAt)){
         if(sweeps.some(z=>c.low<=z.high&&c.high>=z.low))overlapping.push(c);else sweeps.push(c);
       }
-      // One nearest active zone, then the most recently observed distinct sweeps.
+      // Preserve a second, distinct source zone before filling space with sweeps.
       // This is display coverage, not a probability score or a trading priority.
-      return [...own.filter(c=>c.kind!=='SWEEP').sort((x,y)=>x.distance-y.distance).slice(0,1),...sweeps].slice(0,3);
+      const zones=own.filter(c=>c.kind!=='SWEEP').sort((x,y)=>x.distance-y.distance),nearest=zones[0];
+      const other=zones.find(c=>nearest&&c.minutes!==nearest.minutes&&(c.high<nearest.low||c.low>nearest.high));
+      return [...(nearest?[nearest]:[]),...(other?[other]:[]),...sweeps].slice(0,3);
     });
     const references=[];
     for(const [name,key,n] of FRAMES){const tf=frame(a[key],n,a.generatedAt);if(!tf)continue;
@@ -109,7 +112,7 @@
     }
     return {...out,available:true,reason:null,price:bar.close,priceClosedAt:bar.time+STEP,candidates:selected,overlapping,retired:retired.sort((x,y)=>y.formedAt-x.formedAt).slice(0,6),references:references.filter((r,i,all)=>all.findIndex(x=>x.price===r.price)===i).sort((x,y)=>Math.abs(x.price-bar.close)-Math.abs(y.price-bar.close)).slice(0,6),
       note:'価格パターンからの反転仮説です。実際の機関注文・反転確率・入場成立を示しません。根拠の重複を独立した賛成票に数えません。元のP/EXIT・通知・固定デモは変更しません。',
-      historyNote:'現在値近辺の有効帯と、最近の別々の掃いを各方向最大3帯表示。重なる古い掃いは履歴へ分離し、確率順には並べません。形成足ごとに15分32本・1H24本・4H12本まで。保存履歴の外や形成前の反応は未評価。'};
+      historyNote:'表示中の1分・5分足があれば、その確定SMC帯も含め各方向最大3帯表示。異なる形成足の離れた有効帯を最大2帯残し、重なる古い掃いは履歴へ分離。確率順には並べません。1分480本・5分96本・15分32本・1H24本・4H12本まで。保存履歴の外や形成前の反応は未評価。'};
   }
   const title=c=>c.kind==='SWEEP'?'掃い・復帰の反転候補':`有効${c.kind}の反応候補`;
   function lines(c){

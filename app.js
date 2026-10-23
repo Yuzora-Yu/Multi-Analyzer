@@ -182,6 +182,7 @@
     if($('marketBrief'))$('marketBrief').textContent='GOLD休場・新しい背景付き候補の提示を停止しています。';
     state.reversalContext=null;
     if($('reversalContext'))$('reversalContext').textContent='GOLD休場・新しい反転候補の表示を停止しています。';
+    if($('priceResponse'))$('priceResponse').textContent='GOLD休場・短期圧力の更新を停止しています。';
     state.redrawFlow?.();
     return true;
   }
@@ -221,7 +222,7 @@
       $(`${prefix}Rsi`).textContent='—';$(`${prefix}Adx`).textContent='—';
     }
     state.reversalContext=null;
-    for (const id of ['marketBrief','reversalContext','marketMap','trendContext','flowSummary','smcContext','smcDetails']) $(id).textContent='データ取得後に判定します。';
+    for (const id of ['marketBrief','reversalContext','priceResponse','marketMap','trendContext','flowSummary','smcContext','smcDetails']) $(id).textContent='データ取得後に判定します。';
     $('checkpointStatus').textContent='';$('checkpointStatus').hidden=true;
     $('snapshotHealth').hidden=false;$('snapshotHealth').textContent='共通判定の確認待ち';
     $('currentSnapshotLink').href='?asset='+state.instrumentId+'&tf=15m';
@@ -610,7 +611,8 @@
     if(!state.chart||!state.candleSeries||!state.flowCanvas)return;
     const scale=state.chart.timeScale(),ctx=state.flowCanvas.getContext('2d');
     ctx.font='12px JetBrains Mono';
-    const markers=window.MultiAnalyzerEvidence.viewportLabels(state.chartMarkers||[],time=>scale.timeToCoordinate(time),scale.width(),text=>ctx.measureText(text).width);
+    const display=window.MultiAnalyzerEvidence.groupExitLabels(state.chartMarkers||[],state.analysis?.exec);
+    const markers=window.MultiAnalyzerEvidence.viewportLabels(display,time=>scale.timeToCoordinate(time),scale.width(),text=>ctx.measureText(text).width);
     const key=JSON.stringify(markers);
     if(key===state.markerLayoutKey)return;
     state.markerLayoutKey=key;
@@ -773,9 +775,11 @@
 
   function renderReversalContext(a) {
     const box=$('reversalContext'),R=window.MultiAnalyzerReversal;if(!box||!R)return;
-    state.reversalContext=R.describe(window.MultiAnalyzerZoneView?.analysis(a)||a,{asset:state.instrumentId,now:Date.now(),
+    state.reversalContext=R.describe(a,{asset:state.instrumentId,now:Date.now(),
       mode:state.offlineCsv?'csv':INITIAL_PARAMS.has('snapshot')?'archive':'live',health:snapshotHealth(),snapshotId:state.snapshot?.id||null});
     box.innerHTML=R.html(state.reversalContext,{formatPrice:mappedPrice,expanded:box.querySelector('details')?.open===true});
+    const response=$('priceResponse'),P=window.MultiAnalyzerResponse;
+    if(response&&P)response.innerHTML=P.html(P.describe(a,{asset:state.instrumentId,now:Date.now(),mode:state.offlineCsv?'csv':INITIAL_PARAMS.has('snapshot')?'archive':'live',health:snapshotHealth()}),{formatPrice:mappedPrice,expanded:response.querySelector('details')?.open===true});
   }
 
   function renderTrendContext(a) {
@@ -920,7 +924,7 @@
     const closeAt = closedBar ? closedBar.time + (state.snapshot ? 15 : currentTf().minutes) * 60000 : null;
     const currentSMC=window.MultiAnalyzerEvidence.currentEventsText?.(a);
     $('actionContext').textContent = stale ? '構造表示を保留（更新停止）' : window.MultiAnalyzerReview.context(a, basis) + (currentSMC ? ` / 最新SMC：${currentSMC}` : '') + (closeAt ? ` / 確定 ${new Date(closeAt).toLocaleTimeString('ja-JP', {timeZone:'Asia/Tokyo', hour:'2-digit', minute:'2-digit'})} JST` : '');
-    if(f)$('flowSummary').innerHTML=`<strong>${f.direction>0?'↑ 上向き保持':f.direction<0?'↓ 下向き保持':'— 未確定'}</strong><span>高安構造 ${f.structure>0?'↑':f.structure<0?'↓':'→'} / EMA5対144 ${f.ribbon>0?'↑':f.ribbon<0?'↓':'→'} / 転換票 ${f.votes}/${f.requiredVotes}</span><span>H1一致 ${f.hourlyAligned?'あり':'なし'} ｜ 出来高 ${fmt(f.volumeRatio,2)}倍 ｜ ${f.rank||'—'}${f.badge?' +'+f.badge:''}</span><span>${f.pullbackConfirmed?'P：押し目・奪還・出来高・H1一致':f.absorption?'吸収候補：出来高に対して値幅が小さい（推定）':'P条件待ち'} / ADX ${fmt(a.exec.values.adx,1)} / リボン幅 ${fmt(f.widthATR,2)} ATR</span><small>矢印＝確定足のリボン転換／保持方向の転換。H1 OB＝現在有効な推定帯（過去の成立証拠ではありません）。黄EXIT注意＝EMA13を反対側で2本確定。反転エントリーではありません。S/A/B・V/VRは独自条件の分類で、勝率順位ではありません。POC/VAは直近96本のOHLCV近似。</small>`;
+    if(f)$('flowSummary').innerHTML=`<strong>${f.direction>0?'↑ 上向き保持':f.direction<0?'↓ 下向き保持':'— 未確定'}</strong><span>高安構造 ${f.structure>0?'↑':f.structure<0?'↓':'→'} / EMA5対144 ${f.ribbon>0?'↑':f.ribbon<0?'↓':'→'} / 転換票 ${f.votes}/${f.requiredVotes}</span><span>H1一致 ${f.hourlyAligned?'あり':'なし'} ｜ 出来高 ${fmt(f.volumeRatio,2)}倍 ｜ ${f.rank||'—'}${f.badge?' +'+f.badge:''}</span><span>${f.pullbackConfirmed?'P：押し目・奪還・出来高・H1一致':f.absorption?'吸収候補：出来高に対して値幅が小さい（推定）':'P条件待ち'} / ADX ${fmt(a.exec.values.adx,1)} / リボン幅 ${fmt(f.widthATR,2)} ATR</span><small>矢印＝確定足のリボン転換／保持方向の転換。H1 OB＝現在有効な推定帯（過去の成立証拠ではありません）。青いEXIT注意＝EMA13を反対側で2本確定。反転エントリーではありません。S/A/B・V/VRは独自条件の分類で、勝率順位ではありません。POC/VAは直近96本のOHLCV近似。</small>`;
     const context=window.MultiAnalyzerEvidence.context(a);
     $('smcContext').innerHTML=Object.entries({環境:context.environment,位置:context.location,確認:context.confirmation,撤退注意:context.exit}).map(([label,value])=>`<p><strong>${label}</strong><span>${esc(value)}</span></p>`).join('');
     const m = a.exec.smc;

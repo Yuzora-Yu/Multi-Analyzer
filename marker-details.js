@@ -5,8 +5,8 @@
   function stamp(t){return validTime(t)?new Date(t).toLocaleString('ja-JP',{timeZone:'Asia/Tokyo',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false})+' JST':'不明';}
   function meaning(marker){
     const text=String(marker.text||''),where=marker.position==='aboveBar'?'ローソクの上側':marker.position==='belowBar'?'ローソクの下側':'位置不明';
-    if(text==='買 EXIT注意')return {kind:'EXIT_LONG',text:`${where}の黄丸：買い側のEXIT注意。EMA13を下抜け、下側で2本確定した時の表示です。実際の買い保有の有無とは別で、売り入口の成立ではありません。`};
-    if(text==='売 EXIT注意')return {kind:'EXIT_SHORT',text:`${where}の黄丸：売り側のEXIT注意。EMA13を上抜け、上側で2本確定した時の表示です。実際の売り保有の有無とは別で、買い入口の成立ではありません。`};
+    if(text==='買 EXIT注意')return {kind:'EXIT_LONG',text:`${where}の青丸：買い側のEXIT注意。EMA13を下抜け、下側で2本確定した時の表示です。実際の買い保有の有無とは別で、売り入口の成立ではありません。`};
+    if(text==='売 EXIT注意')return {kind:'EXIT_SHORT',text:`${where}の青丸：売り側のEXIT注意。EMA13を上抜け、上側で2本確定した時の表示です。実際の売り保有の有無とは別で、買い入口の成立ではありません。`};
     if(text.startsWith('P '))return {kind:'P_HISTORY',text:'過去のP条件表示：押し・戻り、EMA13再突破、出来高、確定H1一致などの条件です。当時の費用・RR・ブラックアウト等を含む全見送り条件の通過や、注文・約定を証明しません。'};
     if(text.startsWith('リボン'))return {kind:'RIBBON',text:'EMA5とEMA144の上下関係が変わった足です。緑はEMA5が上、赤は下。すべての移動平均線や上位足が同方向という意味ではありません。'};
     if(text.startsWith('方向転換'))return {kind:'TURN',text:'高安構造・リボン・ADX・幅・転換票などで、エンジンの保持方向が変わった足です。実際の保有や新規入口とは別です。S/A/Bは勝率順位ではありません。'};
@@ -15,7 +15,7 @@
     if(text==='CHoCH')return {kind:'CHOCH',text:`${structureSide}：それまでの構造方向に対し、反対側の確認済み高値・安値を終値で突破した変化です。反転完成や新規入口の保証ではありません。`};
     if(text==='SWEEP')return {kind:'SWEEP',text:`${structureSide}：確認済みの高値・安値の外へヒゲが出た後、終値が内側へ戻ったイベントです。流動性や注文の実測、反転入口の成立を意味しません。`};
     if(text==='OB BREAK')return {kind:'OB_BREAK',text:'推定OBの反対端を終値で越えた構造イベントです。反対方向の新規入口成立とは別です。'};
-    if(text==='買い候補'||text==='売り候補')return {kind:'CURRENT_CANDIDATE',text:'この表示中の最新確定判定で、新規候補の条件が成立した時の金色丸です。過去のPや黄EXIT丸とは別で、実注文・約定・保有を示しません。'};
+    if(text==='買い候補'||text==='売り候補')return {kind:'CURRENT_CANDIDATE',text:'この表示中の最新確定判定で、新規候補の条件が成立した時の金色丸です。過去のPや青いEXIT丸とは別で、実注文・約定・保有を示しません。'};
     return {kind:'UNKNOWN',text:'元の説明を特定できません。色や位置から売買条件を推定しません。'};
   }
   function describe({markers=[],candles=[],intervalMinutes,analysisAt,profile,asset,symbol,market,mode='live',state='不明',actionable=false,blocked=false}={}){

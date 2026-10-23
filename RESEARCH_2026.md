@@ -814,3 +814,10 @@ Versioned ZIPs, source and compiled-file hashes, Japanese instructions and a dow
 The [DOL October 22 weekly claims PDF](https://www.dol.gov/ui/data.pdf), released at08:30 EDT, was verified at22:07 JST. Seasonally adjusted initial claims for the week endingOctober17 were194,000, down6,000 from the revised200,000; the earlier199,000 estimate was revised. Insured unemployment for the different week endingOctober10 was1,728,000, up25,000 from the revised1,703,000. Consensus, concurrent yields/dollar and price attribution remain unavailable.
 
 An additional partial review retains the original schedule, earlier knowledge clocks and October23 07:00JST expiry. Boundary tests prevent the result from appearing before its observation time, preserve original zone plans, withhold incomplete first-hour anchors and exclude archive/CSV views. Canonical P/EXIT, notification conditions, fixed accounts and MT5 work in progress are unchanged. This is source maintenance, not a new trading rule or evidence of predictive improvement.
+
+
+## 2026-10-23: closed-response presentation and native cloud
+
+User-requested presentation changes add selected short-frame SMC zones, separate current EMA13/21 pressure from held direction, and describe confirmed swing close breaks and later retests. Observation-only v1 fixes a pre-break ATR×0.15 tolerance and a twelve-bar expiry; no trading condition or frozen demo dependency changes. Failed observations are withdrawn rather than expanded. MT5 AI exports add zone identity, lifecycle and reconstructed context with an explicit reconstruction basis.
+
+The native indicator adds the Web ribbon cloud, with an independent toggle and background-aware pale colors. Range EXIT text can be grouped and placed apart while all original events and export rows remain. Blue EXIT dots differ from red/green trend context. Compilation and automated checks cover source parity and causal input handling; new MT5 chart rendering and predictive accuracy remain unverified. No screen operation, new collector or data-upload path is introduced.

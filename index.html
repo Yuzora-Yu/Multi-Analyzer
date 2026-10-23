@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=4.3.4-mt5-release1">
+  <link rel="stylesheet" href="styles.css?v=4.3.4-response1">
   <script defer src="https://unpkg.com/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js"></script>
   <script defer src="market-feed.js?v=4.3.3-session"></script>
   <script defer src="price-basis.js?v=1"></script>
@@ -24,16 +24,17 @@
   <script defer src="zone-geometry.js?v=1"></script>
   <script defer src="zone-checkpoint.js?v=2-evidence"></script>
   <script defer src="trend-context.js?v=2-h4-session"></script>
-  <script defer src="reversal-context.js?v=1"></script>
+  <script defer src="price-response.js?v=1"></script>
+  <script defer src="reversal-context.js?v=2-micro"></script>
   <script defer src="reversal-chart.js?v=1"></script>
   <script defer src="market-knowledge.js?v=9-claims-result-20261022"></script>
   <script defer src="market-brief.js?v=4-calendar-reviews"></script>
   <script defer src="snapshot-health.js?v=3-session-copy"></script>
-  <script defer src="review-pack.js?v=4.3.4-reversal1"></script>
-  <script defer src="chart-evidence.js?v=4.3.4-structure-markers1"></script>
-  <script defer src="marker-details.js?v=2-profile"></script>
+  <script defer src="review-pack.js?v=4.3.4-response1"></script>
+  <script defer src="chart-evidence.js?v=4.3.4-exit-layout1"></script>
+  <script defer src="marker-details.js?v=3-exit-blue"></script>
   <script defer src="demo-panel.js?v=4-pending-window"></script>
-  <script defer src="app.js?v=4.3.4-reversal1"></script>
+  <script defer src="app.js?v=4.3.4-response1"></script>
 </head>
 <body>
   <div class="app-shell">
@@ -64,7 +65,7 @@
       <button id="reviewOpen" class="primary-button" type="button">時間足比較・AI保存</button>
       <button id="chartBands" class="ghost-button" type="button" aria-pressed="true" aria-label="ボリンジャーバンド表示" title="BB（20期間・±2σ）を表示・非表示">BB</button>
       <button id="chartReversal" class="ghost-button" type="button" aria-pressed="true" aria-label="SMC・反転候補帯の表示" title="SMCの帯と反転候補帯をまとめて表示・非表示">反転帯</button>
-      <a class="ghost-button" data-mt5-download href="downloads/MultiAnalyzerGold-1.1.0-preview.5.zip" download title="Windows用MT5・検証版 1.1.0-preview.5">MT5版 ↓</a>
+      <a class="ghost-button" data-mt5-download href="downloads/MultiAnalyzerGold-1.1.0-preview.6.zip" download title="Windows用MT5・検証版 1.1.0-preview.6">MT5版 ↓</a>
       <a class="mt5-guide-link" href="mt5.html">導入・更新手順</a>
       <span>15分＝共通判定 ／ 1分・5分＝タイミング ／ 1H・4H・日足＝環境</span>
     </nav>
@@ -160,6 +161,7 @@
                   <div class="smc-context market-map" id="checkpointStatus" aria-live="polite" hidden></div>
                   <div class="smc-context market-map market-brief" id="marketBrief" aria-live="polite"></div>
                   <div class="smc-context market-map reversal-context" id="reversalContext" aria-live="polite"></div>
+                  <div class="smc-context market-map price-response" id="priceResponse" aria-live="polite"></div>
                   <div class="smc-context market-map" id="marketMap" aria-live="polite"></div>
                   <div class="smc-context market-map" id="trendContext" aria-live="polite"></div>
                 </article>
