@@ -1,5 +1,11 @@
 # GOLD review workflow
 
+## P-only mail and paused collector chat (2026-10-23 user instruction)
+
+Email notifications are limited to canonical confirmed M15 pullback-v1 P events. Do not email zone approach/in-zone or EXIT events. Keep chart EXIT calculations, dots and saved history. Use the operational p-only-mail wrapper; do not rewrite frozen demo dependencies or strategy conditions. No live test email is authorized by this change.
+
+The three existing schedules targeting collector chat 01a07f5f-abd0-7190-b40d-7e5f591d7222 are PAUSED at the user's request (19-24-5, automation, automation-2). Do not restart or duplicate them. This stops that chat's scheduled work, not the existing cloud Gold monitoring or P email. Historical demo records remain retained; the other audit schedule is not implicitly stopped.
+
 ## Restore temporary UI settings (2026-10-23 user instruction)
 
 Before changing MT5 chart/window properties for implementation or verification, record the current relevant settings. Restore temporary changes before finishing, including the active chart/timeframe, background/colors, zoom/scale, grid/foreground, panes and window size if changed. Keep user-requested product changes, such as new display controls and the white-background indicator palette. Do not replace the user's chart styling with a default test template or leave cleanup for the user. Indicator code must not change chart-wide properties to force its own theme.

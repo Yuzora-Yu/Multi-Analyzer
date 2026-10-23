@@ -12,6 +12,7 @@ const PUBLIC_PAGE = 'https://yuzora-yu.github.io/Multi-Analyzer/';
 const { eventFor, alertPolicy } = require('./alert-event.js');
 
 async function run() {
+  const {pMailEvent}=await import('./cloudflare/p-only-mail.mjs');
   fs.mkdirSync(DIR, { recursive: true });
   const stateFile = path.join(DIR, 'alerts.json');
   let saved = { delivered: {}, pending: {}, baselines: {}, disabled: {} };
@@ -38,10 +39,12 @@ async function run() {
         status.assets[asset]={state:a.state,position:a.positionDecision?.action||null,bar,snapshotId:snapshot.id,alertSchedule:alertPolicy(asset,Date.now(),bar)};
         const event=eventFor(a,asset,position,{now:Date.now(),symbol:snapshot.symbol,snapshot:snapshot.id,version:snapshot.version,note:'Bybit共通判定。USDT参考市場で、XMのUSD価格とは異なります。'});
         // Baseline on first run: don't broadcast existing historical setups.
-        if (!saved.baselines[asset]) { saved.baselines[asset] = true; if (event) for (const ch of channels) saved.delivered[`${ch}:${event.key}`] = Date.now(); }
-        if (event) for (const ch of channels) {
-          const id = `${ch}:${event.key}`; validKeys.add(id);
-          if (!saved.delivered[id] && !saved.disabled[ch] && !saved.pending[id]) saved.pending[id] = { ...event, channel: ch, due: Date.now(), asset, bar };
+        const events=Object.fromEntries(channels.map(ch=>[ch,ch==='Email'?pMailEvent(a,snapshot,Date.now()):event]));
+        if (!saved.baselines[asset]) { saved.baselines[asset] = true; for (const ch of channels) if(events[ch]) saved.delivered[`${ch}:${events[ch].key}`] = Date.now(); }
+        for (const ch of channels) {
+          const selected=events[ch];if(!selected)continue;
+          const id = `${ch}:${selected.key}`; validKeys.add(id);
+          if (!saved.delivered[id] && !saved.disabled[ch] && !saved.pending[id]) saved.pending[id] = { ...selected, channel: ch, due: Date.now(), asset, bar };
         }
       } catch { status.assets[asset] = { state: 'DATA_ERROR' }; status.error = '市場データ取得失敗・該当銘柄の通知停止'; }
     }

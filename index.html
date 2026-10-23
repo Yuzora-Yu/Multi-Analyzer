@@ -65,7 +65,7 @@
       <button id="reviewOpen" class="primary-button" type="button">時間足比較・AI保存</button>
       <button id="chartBands" class="ghost-button" type="button" aria-pressed="true" aria-label="ボリンジャーバンド表示" title="BB（20期間・±2σ）を表示・非表示">BB</button>
       <button id="chartReversal" class="ghost-button" type="button" aria-pressed="true" aria-label="SMC・反転候補帯の表示" title="SMCの帯と反転候補帯をまとめて表示・非表示">反転帯</button>
-      <a class="ghost-button" data-mt5-download href="downloads/MultiAnalyzerGold-1.1.0-preview.8.zip" download title="Windows用MT5・検証版 1.1.0-preview.8">MT5版 ↓</a>
+      <a class="ghost-button" data-mt5-download href="downloads/MultiAnalyzerGold-1.1.0-preview.9.zip" download title="Windows用MT5・検証版 1.1.0-preview.9">MT5版 ↓</a>
       <a class="mt5-guide-link" href="mt5.html">導入・更新手順</a>
       <span>15分＝共通判定 ／ 1分・5分＝タイミング ／ 1H・4H・日足＝環境</span>
     </nav>
@@ -199,7 +199,7 @@
                   </div>
                   <div class="smc-context" id="smcContext" aria-live="polite"></div>
                   <div class="flow-summary" id="flowSummary" aria-live="polite"></div>
-                  <p class="dialog-note">GOLD通知はSMC×MA・BBの候補帯への接近・再訪を案内します。接触だけでは入場条件成立になりません。既存P条件・収益検証とは別です。<a href="https://github.com/Yuzora-Yu/Multi-Analyzer/blob/main/RESEARCH_V43.md" target="_blank" rel="noopener">条件と検証結果</a></p>
+                  <p class="dialog-note">GOLDのメール通知は15分確定足のP条件成立に限定します。帯への接近・再訪やEXITはメール通知しません。候補帯とEXITは画面で確認できます。Pの収益上の優位性は未確認です。<a href="https://github.com/Yuzora-Yu/Multi-Analyzer/blob/main/RESEARCH_V43.md" target="_blank" rel="noopener">条件と検証結果</a></p>
                   <a id="currentSnapshotLink" href="?tf=15m">現在の共通判定を開く</a>
                 </article>
               </section>
@@ -251,7 +251,7 @@
 
               <section class="insight-page detail-page" data-insight-page="detail">
                 <article class="detail-section"><h2>SMC マップ</h2><p class="dialog-note">BOS / CHoCH / Sweepは確定時刻に表示。帯は推定領域です。</p><div id="smcDetails">分析待ち</div></article>
-                <article class="detail-section"><h2>通知・常時監視</h2><p id="monitorStatus">監視状態を確認中</p><p class="dialog-note">Discord / メールはサーバー設定後に動作。ブラウザを閉じてもサーバーが稼働していれば15秒間隔で監視します。</p><a href="SETUP.md" target="_blank" rel="noopener">接続と通知の設定手順 ↗</a></article>
+                <article class="detail-section"><h2>通知・常時監視</h2><p id="monitorStatus">監視状態を確認中</p><p class="dialog-note">クラウドは1分間隔で監視し、メールは15分確定足のP成立時だけ通知します。ブラウザを閉じても監視は継続します。Goldの土日・休場停止を適用します。</p><a href="SETUP.md" target="_blank" rel="noopener">接続と通知の設定手順 ↗</a></article>
                 <article class="detail-section timeframe-panel">
                   <div class="section-heading"><div><span class="eyebrow">MULTI TIMEFRAME</span><h2>方向マトリクス</h2></div></div>
                   <div class="tf-matrix">

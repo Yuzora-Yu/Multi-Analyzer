@@ -1,6 +1,6 @@
 {
-  "version": "1.1.0-preview.8",
-  "mqlVersion": "1.107",
+  "version": "1.1.0-preview.9",
+  "mqlVersion": "1.108",
   "stage": "preview",
   "sourceFiles": [
     "MultiAnalyzerGold.mq5",
@@ -12,22 +12,22 @@
     "README_JA.txt",
     "CHANGELOG.md"
   ],
-  "scope": "解消済みSMC帯を元の価格幅・形成時刻から解消時刻まで点線で残し、解消帯ボタンで個別切替。各形成足の直近最大3件を初期表示。赤・緑の雲と青いEXITを継続。",
-  "runtimeVerification": "コンパイル・自動検証。解消帯は取得した確定履歴から再構築。既存Flow/P/EXIT・帯の撤回条件は維持。全時間足・全配色・全銘柄と予測精度は未確認",
-  "file": "MultiAnalyzerGold-1.1.0-preview.8.zip",
-  "bytes": 202100,
-  "sha256": "36b2f75e85be80cea1012de00b8c6728be61464f0396193b7bc21c33dff57cec",
+  "scope": "表示足以上の帯を初期表示し、下位足も・帯文字を独立切替。有効帯の説明は上下各最大2件を重なり回避で配置。解消帯は元の幅・解消時刻まで点線とツールチップを保持。P・EXITの全判定と点・AI保存は維持。",
+  "runtimeVerification": "コンパイル・時間足選別・狭幅/広幅の文字衝突検査・旧計算エンジン同一性を検証。解消帯の履歴は取得範囲から再構築。新版のXM実画面・全配色・予測精度は未確認",
+  "file": "MultiAnalyzerGold-1.1.0-preview.9.zip",
+  "bytes": 213380,
+  "sha256": "133f02b9d80d1e9f982918001ac850764a59f9137aebfc70ef8810670980a81b",
   "sources": {
-    "MultiAnalyzerGold.mq5": "d9f69ada3ac9c1cc4f12526a3a8a5e5cf6bda752b2d28ae0e6e49cd82b745153",
+    "MultiAnalyzerGold.mq5": "74c555f5bb68c5aaeb20c847a8f77a153999e17b30b78c26d141a397692d7b5e",
     "MAZoneCore.mqh": "878b328cc1e0f8fe1f39b8e5c72b8a17af93f13d7a50213ebc004b9089d1f464",
     "MAFlowCore.mqh": "306ada4dc5297e406f9f443e2bc2153e06b7f321e5ffecb063fda8a3205ed2b5",
     "MAHistoryCore.mqh": "46bff12e6dde4c851d9d6ec8479f318731f40962a86cb9a204ee487b777a02f0",
     "MAResponseCore.mqh": "7d4d35274c485caaf5e2d65230bdd58896732c5626c59a32da3761f66e622d29",
-    "MAVisualCore.mqh": "cbb0b7b3647e2655868ba1227342bdcb6cdc4e6b6b17cffaed43f10d730c0f0c",
-    "README_JA.txt": "c66b6a532f555c0c5667d422ea45f6b862c76de4615093f27b1d26e5e2b6ed90",
-    "CHANGELOG.md": "ed08d9c4b1c727d76f88f93d3ad59f38a74a74eaaeedafcedf47e3d9a288e35e"
+    "MAVisualCore.mqh": "67485cbc924e5f654892bb6defde651d46f3cab1ba353677677d230b0c7483e0",
+    "README_JA.txt": "c203aedc874a1522edab8d7e2a7ac6b226dda648caf97e837bc33f1a3b4f38ba",
+    "CHANGELOG.md": "1bccee66eab654fa6b5f4a6b698be72af50cda9310dfbc649e148d76bac03881"
   },
-  "compiledSha256": "bf902df60bcfc3f4947bef2ed9d8006bd2f67359759e8c4ce2049d89a01826f2",
+  "compiledSha256": "e5d77171dd8170c532a4aa992a55be6565e6f265a07e5a6c36d8ffbb098b7c28",
   "compiler": {
     "errors": 0,
     "warnings": 0

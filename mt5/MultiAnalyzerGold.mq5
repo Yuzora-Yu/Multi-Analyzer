@@ -1,7 +1,7 @@
 #property copyright "Multi-Analyzer"
 #property link "https://yuzora-yu.github.io/Multi-Analyzer/"
-#property version "1.107"
-#property description "XM Gold 1.1.0-preview.8. Retired zones end at their original retirement time. No trading."
+#property version "1.108"
+#property description "XM Gold 1.1.0-preview.9. Timeframe-aware bands and compact labels. No trading."
 #property indicator_chart_window
 #property indicator_buffers 33
 #property indicator_plots 26
@@ -43,6 +43,8 @@ input int HistoryBars=1000; // request 220..1500; price/SMC need60, EMA144 needs
 input bool InitialBands=true;
 input bool InitialRetiredZones=true; // historical outlines, independently toggleable
 input int RetiredZonesPerFrame=3; // 0..10 most recently retired zones per source timeframe
+input bool InitialAllZoneFrames=false; // false: display timeframe and higher only
+input bool InitialZoneLabels=true; // active callouts only; retired details remain in tooltips
 input bool InitialBB=true;
 input bool InitialRibbon=true;
 input bool InitialCloud=true; // EMA5..144 fill, colored by the SAME ribbon as the Web chart
@@ -63,7 +65,8 @@ string prefix,key;
 bool showBands=true,showBB=true,showRibbon=true,showSignals=true,showDetails=false,chartAvailable=false;
 bool showCloud=true;
 bool showRetired=true;
-struct MALabelBox {int left,right,top,bottom;};
+bool showAllZoneFrames=false,showZoneLabels=true;
+int zoneLabelBuy=0,zoneLabelSell=0;
 MALabelBox labelBoxes[];
 struct MAExitGroup {int side,first,last,count;double firstPrice,atr;string times;};
 int exitLabels=0,exitGroups=0;
@@ -122,8 +125,8 @@ bool LightChart() {
 color ExitColor() {return LightChart()?C'58,78,118':C'155,190,235';}
 color BuyColor() {return LightChart()?C'0,103,92':clrAqua;}
 color SellColor() {return LightChart()?C'155,56,29':clrOrange;}
-int ControlColumns() {return MathMax(1,MathMin(8,(int)(ChartGetInteger(0,CHART_WIDTH_IN_PIXELS)-20)/100));}
-int PanelTop() {return 28+((8+ControlColumns()-1)/ControlColumns())*32;}
+int ControlColumns() {return MathMax(1,MathMin(10,(int)(ChartGetInteger(0,CHART_WIDTH_IN_PIXELS)-20)/100));}
+int PanelTop() {return 28+((10+ControlColumns()-1)/ControlColumns())*32;}
 void ApplyPalette() {
  color light[]={C'19,85,166',C'166,79,0',C'91,107,126',C'91,107,126',C'91,107,126',
   C'0,108,128',C'0,106,161',C'19,85,166',C'46,69,157',C'102,58,151',C'141,46,134',C'164,80,0',C'174,49,28',
@@ -157,6 +160,9 @@ void Controls() {
  Button("signals","P / EXIT",312,showSignals);Button("details","詳細",412,showDetails);Button("export","AI保存",512,true);
  Button("cloud","トレンド雲",612,showCloud);
  Button("retired","解消帯",712,showRetired);
+ Button("frameScope","下位足も",812,showAllZoneFrames);Button("bandText","帯文字",912,showZoneLabels);
+ ObjectSetString(0,prefix+"frameScope",OBJPROP_TOOLTIP,"OFF: 表示足以上の帯 / ON: 下位足も表示。判定・AI保存は不変。");
+ ObjectSetString(0,prefix+"bandText",OBJPROP_TOOLTIP,"有効帯の説明文字だけを切替。解消帯は点線とツールチップを保持。");
 }
 void Panel(const string text) {
  panelText=text;ObjectsDeleteAll(0,prefix+"panel");if(!showDetails) return;
@@ -229,10 +235,8 @@ bool SignalText(const string kind,const datetime time,const double price,const s
  int w=StringLen(text)*8+8,h=16,dx[]={0,36,-36,72,-72},dy[]={0,18,-18,36,-36,54,-54,72,-72};
  bool placed=false;int px=x,py=y;
  for(int a=0;a<ArraySize(dy)&&!placed;a++) for(int b=0;b<ArraySize(dx)&&!placed;b++) {
-  int left=x+dx[b],bottom=y+dy[a];if(left<4||left+w>width||bottom-h<18||bottom>height) continue;
-  bool overlaps=false;
-  for(int j=0;j<ArraySize(labelBoxes);j++) if(left<labelBoxes[j].right+5&&left+w>labelBoxes[j].left-5&&bottom-h<labelBoxes[j].bottom+3&&bottom>labelBoxes[j].top-3) {overlaps=true;break;}
-  if(!overlaps) {int n=ArraySize(labelBoxes);ArrayResize(labelBoxes,n+1);labelBoxes[n].left=left;labelBoxes[n].right=left+w;labelBoxes[n].top=bottom-h;labelBoxes[n].bottom=bottom;px=left;py=bottom;placed=true;}
+  int left=x+dx[b],bottom=y+dy[a];
+  if(MALabelFits(left,bottom-h,w,h,width,height,showDetails?height:PanelTop()+20,labelBoxes)) {int n=ArraySize(labelBoxes);ArrayResize(labelBoxes,n+1);labelBoxes[n].left=left;labelBoxes[n].right=left+w;labelBoxes[n].top=bottom-h;labelBoxes[n].bottom=bottom;px=left;py=bottom;placed=true;}
  }
  if(!placed) return false; // Every original event dot and JSON row still remains.
  int window=0;datetime labelTime;double labelPrice;
@@ -250,7 +254,7 @@ bool SignalText(const string kind,const datetime time,const double price,const s
  return true;
 }
 void PaintSignals() {
- ObjectsDeleteAll(0,prefix+"mark.");ArrayResize(labelBoxes,0);exitLabels=0;exitGroups=0;if(!showSignals||!chartAvailable) return;
+ ObjectsDeleteAll(0,prefix+"mark.");exitLabels=0;exitGroups=0;if(!showSignals||!chartAvailable) return;
  int n=ArraySize(chartFlow);
  MAExitGroup groups[];
  for(int i=MathMax(143,n-160);i<n;i++) {
@@ -284,6 +288,37 @@ void PaintProfile() {
   ObjectSetString(0,name,OBJPROP_TOOLTIP,labels[i]+" "+DoubleToString(prices[i],_Digits)+" | last96 candles range-distribution APPROXIMATION | "+MAVolumeName(VolumeBasis)+" | not actual price-level executions");
  }
 }
+void BeginLabelLayout() {
+ ArrayResize(labelBoxes,0);zoneLabelBuy=0;zoneLabelSell=0;
+ int x,y;MqlTick tick;
+ if(SymbolInfoTick(_Symbol,tick)&&ChartTimePriceToXY(0,0,TimeCurrent(),tick.bid,x,y)) {
+  ArrayResize(labelBoxes,1);labelBoxes[0].left=0;labelBoxes[0].right=(int)ChartGetInteger(0,CHART_WIDTH_IN_PIXELS);
+  labelBoxes[0].top=y-10;labelBoxes[0].bottom=y+10;
+ }
+}
+void ZoneCallout(const MAZone &z,const string id,const string info) {
+ if(!showZoneLabels||showDetails||(z.side>0?zoneLabelBuy:zoneLabelSell)>=2) return;
+ int width=(int)ChartGetInteger(0,CHART_WIDTH_IN_PIXELS)-82,height=(int)ChartGetInteger(0,CHART_HEIGHT_IN_PIXELS,0)-20;
+ int x,y;if(!ChartTimePriceToXY(0,0,z.formed,(z.low+z.high)*.5,x,y)||x>width||y<0||y>height) return;
+ string label=(z.side>0?"買":"売")+IntegerToString((z.side>0?zoneLabelBuy:zoneLabelSell)+1)+" "+z.frame+" "+MAKind(z.kind)+" "+DoubleToString(z.low,_Digits)+"–"+DoubleToString(z.high,_Digits);
+ int w=StringLen(label)*8+12,h=18,left=width-w-8,top=0;bool placed=false;
+ for(int i=0;i<31&&!placed;i++) {
+  int offset=i==0?0:((i+1)/2)*22*(i%2==1?1:-1),candidate=y-h/2+offset;
+  if(MALabelFits(left,candidate,w,h,width,height,PanelTop()+20,labelBoxes)) {top=candidate;placed=true;}
+ }
+ if(!placed) return;
+ int n=ArraySize(labelBoxes);ArrayResize(labelBoxes,n+1);labelBoxes[n].left=left;labelBoxes[n].right=left+w;labelBoxes[n].top=top;labelBoxes[n].bottom=top+h;
+ ObjectCreate(0,id+"text",OBJ_LABEL,0,0,0);ObjectSetInteger(0,id+"text",OBJPROP_CORNER,CORNER_LEFT_UPPER);
+ ObjectSetInteger(0,id+"text",OBJPROP_ANCHOR,ANCHOR_LEFT_UPPER);ObjectSetInteger(0,id+"text",OBJPROP_XDISTANCE,left);ObjectSetInteger(0,id+"text",OBJPROP_YDISTANCE,top);
+ ObjectSetInteger(0,id+"text",OBJPROP_COLOR,z.side>0?BuyColor():SellColor());ObjectSetInteger(0,id+"text",OBJPROP_FONTSIZE,8);
+ ObjectSetInteger(0,id+"text",OBJPROP_SELECTABLE,false);ObjectSetString(0,id+"text",OBJPROP_FONT,"Meiryo");ObjectSetString(0,id+"text",OBJPROP_TEXT,label);ObjectSetString(0,id+"text",OBJPROP_TOOLTIP,info);
+ int window=0;datetime t1,t2;double p1,p2;
+ if(ChartXYToTimePrice(0,width-4,y,window,t1,p1)&&window==0&&ChartXYToTimePrice(0,left+w,top+h/2,window,t2,p2)&&window==0&&t1>=z.formed) {
+  ObjectCreate(0,id+"leader",OBJ_TREND,0,t1,(z.low+z.high)*.5,t2,p2);
+  ObjectSetInteger(0,id+"leader",OBJPROP_COLOR,LightChart()?C'148,163,184':clrSlateGray);ObjectSetInteger(0,id+"leader",OBJPROP_RAY_RIGHT,false);ObjectSetInteger(0,id+"leader",OBJPROP_RAY_LEFT,false);ObjectSetInteger(0,id+"leader",OBJPROP_SELECTABLE,false);
+ }
+ if(z.side>0) zoneLabelBuy++;else zoneLabelSell++;
+}
 bool PaintZone(const MAZone &z,const int index) {
  string id=prefix+"zone"+IntegerToString(index);
  datetime end=TimeCurrent()+PeriodSeconds((ENUM_TIMEFRAMES)_Period)*5;
@@ -294,17 +329,11 @@ bool PaintZone(const MAZone &z,const int index) {
  if(z.high>=bottom&&z.low<=top) visibleBands++;
  ObjectSetInteger(0,id,OBJPROP_COLOR,col); ObjectSetInteger(0,id,OBJPROP_FILL,true);
  ObjectSetInteger(0,id,OBJPROP_BACK,true); ObjectSetInteger(0,id,OBJPROP_SELECTABLE,false);
- ObjectCreate(0,id+"text",OBJ_TEXT,0,end,z.side>0?z.low:z.high);
- ObjectSetInteger(0,id+"text",OBJPROP_ANCHOR,ANCHOR_RIGHT_LOWER);
- ObjectSetInteger(0,id+"text",OBJPROP_COLOR,z.side>0?BuyColor():SellColor());
- ObjectSetInteger(0,id+"text",OBJPROP_FONTSIZE,8);
- ObjectSetInteger(0,id+"text",OBJPROP_SELECTABLE,false); ObjectSetString(0,id+"text",OBJPROP_FONT,"Meiryo");
  string label=z.frame+" "+(z.side>0?"買反転 ":"売反転 ")+MAKind(z.kind)+" "+DoubleToString(z.low,_Digits)+"–"+DoubleToString(z.high,_Digits);
- ObjectSetString(0,id+"text",OBJPROP_TEXT,label);
  string info=label+" | 形成 "+TimeToString(z.formed)+" (broker) | 再訪 "+IntegerToString(z.visits)+
   " | "+z.frame+"終値が "+DoubleToString(z.side>0?z.low:z.high,_Digits)+(z.side>0?"未満":"超")+"で撤回。反転成立・入場ではありません。";
  if(z.kind==1) info+=" FVGは全充足でも失効。";
- ObjectSetString(0,id,OBJPROP_TOOLTIP,info); ObjectSetString(0,id+"text",OBJPROP_TOOLTIP,info);
+ ObjectSetString(0,id,OBJPROP_TOOLTIP,info);ZoneCallout(z,id,info);
  return true;
 }
 void AppendRetiredZones(const MAZone &zones[],const datetime asof,const int maxAge) {
@@ -330,12 +359,7 @@ bool PaintRetiredZone(const MAZone &z,const int index) {
   " | 形成 "+TimeToString(z.formed)+" / 解消 "+TimeToString(z.retiredAt)+" (broker) | "+reason+
   " | 現在の有効帯ではありません。取得した確定履歴からの再構築です。";
  ObjectSetString(0,id,OBJPROP_TOOLTIP,info);
- ObjectCreate(0,id+"text",OBJ_TEXT,0,z.retiredAt,z.side>0?z.low:z.high);
- ObjectSetInteger(0,id+"text",OBJPROP_ANCHOR,z.side>0?ANCHOR_RIGHT_UPPER:ANCHOR_RIGHT_LOWER);
- ObjectSetInteger(0,id+"text",OBJPROP_COLOR,LightChart()?C'88,98,112':C'173,184,198');
- ObjectSetInteger(0,id+"text",OBJPROP_FONTSIZE,8);ObjectSetInteger(0,id+"text",OBJPROP_SELECTABLE,false);
- ObjectSetString(0,id+"text",OBJPROP_FONT,"Meiryo");ObjectSetString(0,id+"text",OBJPROP_TEXT,label);
- ObjectSetString(0,id+"text",OBJPROP_TOOLTIP,info);return true;
+ return true; // Historical rectangles and their exact tooltips remain; no permanent text pile.
 }
 void RenderRetiredZones() {
  ObjectsDeleteAll(0,prefix+"retired.");retiredPainted=0;
@@ -351,6 +375,7 @@ void RenderRetiredZones() {
    int best=-1;
    for(int i=0;i<ArraySize(retiredCandidates);i++) {
     MAZone z=retiredCandidates[i];if(z.frame!=frames[f]||z.retiredAt>before||(z.retiredAt==before&&i>=beforeIndex)) continue;
+    if(!MAZoneFrameVisible(z.seconds,PeriodSeconds(),showAllZoneFrames)) continue;
     if(best<0||z.retiredAt>retiredCandidates[best].retiredAt||(z.retiredAt==retiredCandidates[best].retiredAt&&i>best)) best=i;
    }
    if(best<0) break;
@@ -361,6 +386,7 @@ void RenderRetiredZones() {
 }
 int RenderCandidates() {
  ObjectsDeleteAll(0,prefix+"zone");
+ BeginLabelLayout();
  visibleBands=0;zoneDrawError="";
  RenderRetiredZones();
  if(!showBands) return 0;
@@ -369,6 +395,7 @@ int RenderCandidates() {
  double price=tick.bid;
  // Preserve native ranges. Same extreme across frames is one observation.
  for(int i=0;i<ArraySize(candidates);i++) {
+  if(!MAZoneFrameVisible(candidates[i].seconds,PeriodSeconds(),showAllZoneFrames)) continue;
   bool duplicate=false;
   for(int j=0;j<ArraySize(picked);j++) {
    int k=picked[j]; if(candidates[i].kind!=2 || candidates[k].kind!=2 || candidates[i].side!=candidates[k].side) continue;
@@ -427,6 +454,15 @@ void AppendFrameZones(const MqlRates &c[],const int seconds,const string frame,c
   int size=ArraySize(candidates);ArrayResize(candidates,size+1);candidates[size]=zs[z];
  }
 }
+void BandCaption(const int painted) {
+ if(!showBands||showDetails) return;
+ string id=prefix+"zone.caption";ObjectCreate(0,id,OBJ_LABEL,0,0,0);
+ ObjectSetInteger(0,id,OBJPROP_XDISTANCE,12);ObjectSetInteger(0,id,OBJPROP_YDISTANCE,PanelTop());
+ ObjectSetInteger(0,id,OBJPROP_COLOR,LightChart()?C'71,85,105':clrSilver);ObjectSetInteger(0,id,OBJPROP_FONTSIZE,8);
+ ObjectSetInteger(0,id,OBJPROP_SELECTABLE,false);ObjectSetString(0,id,OBJPROP_FONT,"Meiryo");
+ ObjectSetString(0,id,OBJPROP_TEXT,(showAllZoneFrames?"全足":FrameName((ENUM_TIMEFRAMES)_Period)+"以上")+" 有効"+IntegerToString(painted)+"帯 / 解消"+IntegerToString(retiredPainted)+"帯");
+ ObjectSetString(0,id,OBJPROP_TOOLTIP,"0帯は現在の範囲・履歴内に表示対象がない状態です。下位足もONで範囲を切替。詳細ONで取得・品質の保留を確認。");
+}
 string ResponseLine(const MqlRates &c[],const MAFlowRow &rows[],const int seconds,const string frame) {
  MAResponseRow rs[];MAResponse(c,rows,seconds,rs);int n=ArraySize(rs);if(n==0) return frame+" 短期圧力・経過は保留";
  MAResponseRow r=rs[n-1];string line=frame+" 短期圧力 "+Arrow(r.pressure)+" / 保持 "+Arrow(r.held);
@@ -438,13 +474,13 @@ void Refresh(const bool force=false) {
  MqlTick tick;
  if(!ReadSessions()) {
   ObjectsDeleteAll(0,prefix+"zone");ObjectsDeleteAll(0,prefix+"retired.");retiredPainted=0;retryHistory=true;
-  Panel("MT5 1.1.0-preview.8 | "+_Symbol+" | 業者セッションを取得できず新規判定を保留\n接続・休場とは区別。セッション不明のまま営業中と推定しません。");return;
+  Panel("MT5 1.1.0-preview.9 | "+_Symbol+" | 業者セッションを取得できず新規判定を保留\n接続・休場とは区別。セッション不明のまま営業中と推定しません。");return;
  }
  bool live=TerminalInfoInteger(TERMINAL_CONNECTED) && SymbolInfoTick(_Symbol,tick) && TimeTradeServer()>=tick.time && TimeTradeServer()-tick.time<120;
  if(!live || !SessionOpen(TimeCurrent())) {
   ObjectsDeleteAll(0,prefix+"zone");ObjectsDeleteAll(0,prefix+"retired.");retiredPainted=0;lastM15=0;
   retryHistory=true;
-  Panel("MT5 1.1.0-preview.8 | "+_Symbol+" | 休場・未接続・価格更新待ち\n新規判定停止。過去サインは確定履歴。EXITは反転エントリーではありません。"); return;
+  Panel("MT5 1.1.0-preview.9 | "+_Symbol+" | 休場・未接続・価格更新待ち\n新規判定停止。過去サインは確定履歴。EXITは反転エントリーではありません。"); return;
  }
  datetime m=iTime(_Symbol,PERIOD_M15,1),h=iTime(_Symbol,PERIOD_H1,1),q=iTime(_Symbol,PERIOD_H4,1);
  datetime x=iTime(_Symbol,(ENUM_TIMEFRAMES)_Period,1),minute=iTime(_Symbol,PERIOD_M1,1);
@@ -481,6 +517,15 @@ void Refresh(const bool force=false) {
   if(CopyRates(_Symbol,extra[k],1,1,r)==1) status+=FrameName(extra[k])+" 確定 "+TimeToString(r[0].time+PeriodSeconds(extra[k]),TIME_DATE|TIME_MINUTES)+"  "+DoubleToString(r[0].close,_Digits)+"\n";
   else status+=FrameName(extra[k])+" 履歴待ち\n";
  }
+ // Additional higher-frame pools are presentation only, never P/EXIT inputs.
+ if(PeriodSeconds()>=3600) {
+  ENUM_TIMEFRAMES higher[]={PERIOD_D1,PERIOD_W1};
+  for(int k=0;k<2;k++) if(PeriodSeconds(higher[k])>PeriodSeconds()) {
+   MqlRates r[];
+   if(FrameRates(higher[k],r,HistoryBars)) AppendFrameZones(r,PeriodSeconds(higher[k]),FrameName(higher[k]),12,nearATR,reference);
+   else {holds+=FrameName(higher[k])+" 帯表示: "+quality+"\n";retryHistory=true;}
+  }
+ }
  if(ArraySize(hourFlow)>0) MAAlign(m15Flow,900,hourFlow);
  if(FrameRates((ENUM_TIMEFRAMES)_Period,chartRates,HistoryBars)) {
   chartAvailable=MAFlow(chartRates,VolumeBasis,chartFlow);MAAlign(chartFlow,PeriodSeconds(),hourFlow);
@@ -509,8 +554,8 @@ void Refresh(const bool force=false) {
  if(showBands && nearATR<=0) bandState+=" / M15距離選別は保留";
  bandState+="\n解消帯 "+(!showBands||!showRetired?"OFF":IntegerToString(retiredPainted)+"件 / 各足直近最大"+IntegerToString(RetiredZonesPerFrame)+"件・点線は解消時刻まで");
  if(zoneDrawError!="") holds+=zoneDrawError+"\n";
- PaintSignals();PaintProfile();
- Panel("MT5 1.1.0-preview.8 | "+_Symbol+" | broker時刻 / XM独立版\n"+current+"\n"+response+"\n"+entry+"\n"+volume+"\n"+quote+" / P費用 "+DoubleToString(AssumedRoundTripCostBps,1)+"bps仮定\n"+bandState+"\nEXIT表示 "+IntegerToString(exitLabels)+"組 / 停滞中の集約 "+IntegerToString(exitGroups)+"組（点・保存は全件）\n"+holds+historyNotes+"ニュース自動判定なし / "+(ManualBlackout?"手動P停止中":"Pは研究条件・注文なし")+(ShowFrameDetails?"\n"+status:""));
+ BandCaption(painted);PaintSignals();PaintProfile();
+ Panel("MT5 1.1.0-preview.9 | "+_Symbol+" | broker時刻 / XM独立版\n"+current+"\n"+response+"\n"+entry+"\n"+volume+"\n"+quote+" / P費用 "+DoubleToString(AssumedRoundTripCostBps,1)+"bps仮定\n"+bandState+"\nEXIT表示 "+IntegerToString(exitLabels)+"組 / 停滞中の集約 "+IntegerToString(exitGroups)+"組（点・保存は全件）\n"+holds+historyNotes+"ニュース自動判定なし / "+(ManualBlackout?"手動P停止中":"Pは研究条件・注文なし")+(ShowFrameDetails?"\n"+status:""));
  ChartRedraw();
 }
 void SetPlots() {
@@ -554,7 +599,7 @@ void ExportAnalysis() {
  int file=FileOpen(name,FILE_WRITE|FILE_TXT|FILE_ANSI,0,CP_UTF8);if(file==INVALID_HANDLE) {Print("Gold export could not open local file");return;}
  string symbol=_Symbol;StringReplace(symbol,"\\","\\\\");StringReplace(symbol,"\"","\\\"");
  MqlTick quote;ZeroMemory(quote);bool quoted=SymbolInfoTick(_Symbol,quote);
- FileWriteString(file,"{\"version\":\"1.1.0-preview.8\",\"symbol\":\""+symbol+"\",\"clock\":\"BROKER_WALL_CLOCK_NOT_UTC\",\"exportedServerTime\":"+IntegerToString((long)TimeTradeServer())+",\"connected\":"+JBool((bool)TerminalInfoInteger(TERMINAL_CONNECTED))+",\"bid\":"+(quoted?JNumber(quote.bid):"null")+",\"ask\":"+(quoted?JNumber(quote.ask):"null")+",\"quoteTime\":"+(quoted?IntegerToString((long)quote.time):"null")+",\"assumedCostBps\":"+JNumber(AssumedRoundTripCostBps)+",\"volumeBasis\":\""+MAVolumeName(VolumeBasis)+"\",\"aggressorDelta\":null,\"cvd\":null,\"sessions\":[");
+ FileWriteString(file,"{\"version\":\"1.1.0-preview.9\",\"symbol\":\""+symbol+"\",\"clock\":\"BROKER_WALL_CLOCK_NOT_UTC\",\"exportedServerTime\":"+IntegerToString((long)TimeTradeServer())+",\"connected\":"+JBool((bool)TerminalInfoInteger(TERMINAL_CONNECTED))+",\"bid\":"+(quoted?JNumber(quote.bid):"null")+",\"ask\":"+(quoted?JNumber(quote.ask):"null")+",\"quoteTime\":"+(quoted?IntegerToString((long)quote.time):"null")+",\"assumedCostBps\":"+JNumber(AssumedRoundTripCostBps)+",\"volumeBasis\":\""+MAVolumeName(VolumeBasis)+"\",\"aggressorDelta\":null,\"cvd\":null,\"sessions\":[");
  for(int s=0;s<ArraySize(weeklySessions);s++) {
   if(s>0) FileWriteString(file,",");
   FileWriteString(file,"{\"weekday\":"+IntegerToString(weeklySessions[s].weekday)+",\"startSeconds\":"+IntegerToString(weeklySessions[s].start)+",\"stopSeconds\":"+IntegerToString(weeklySessions[s].stop)+"}");
@@ -614,6 +659,8 @@ int OnInit() {
  showRetired=GlobalVariableCheck(key+".h")?GlobalVariableGet(key+".h")>0:InitialRetiredZones;
  showSignals=GlobalVariableCheck(key+".s")?GlobalVariableGet(key+".s")>0:InitialSignals;
  showDetails=GlobalVariableCheck(key+".d")?GlobalVariableGet(key+".d")>0:InitialDetails;
+ showAllZoneFrames=GlobalVariableCheck(key+".af")?GlobalVariableGet(key+".af")>0:InitialAllZoneFrames;
+ showZoneLabels=GlobalVariableCheck(key+".zt")?GlobalVariableGet(key+".zt")>0:InitialZoneLabels;
  SetIndexBuffer(0,e20,INDICATOR_DATA);SetIndexBuffer(1,e50,INDICATOR_DATA);
  SetIndexBuffer(2,bm,INDICATOR_DATA);SetIndexBuffer(3,bu,INDICATOR_DATA);SetIndexBuffer(4,bl,INDICATOR_DATA);
  SetIndexBuffer(5,r5,INDICATOR_DATA);SetIndexBuffer(6,r8,INDICATOR_DATA);SetIndexBuffer(7,r13,INDICATOR_DATA);SetIndexBuffer(8,r21,INDICATOR_DATA);SetIndexBuffer(9,r34,INDICATOR_DATA);SetIndexBuffer(10,r55,INDICATOR_DATA);SetIndexBuffer(11,r89,INDICATOR_DATA);SetIndexBuffer(12,r144,INDICATOR_DATA);
@@ -625,7 +672,7 @@ int OnInit() {
  string labels[]={"EMA5","EMA8","EMA13","EMA21","EMA34","EMA55","EMA89","EMA144","Buy holding EXIT","Sell holding EXIT","P buy (volume basis in panel)","P sell (volume basis in panel)","TURN up","TURN down"};
  color colors[]={clrCyan,clrDeepSkyBlue,clrDodgerBlue,clrRoyalBlue,clrMediumPurple,clrViolet,clrOrange,clrOrangeRed,clrGold,clrGold,clrLimeGreen,clrTomato,clrAqua,clrDeepPink};
  for(int i=0;i<19;i++) {PlotIndexSetDouble(i,PLOT_EMPTY_VALUE,EMPTY_VALUE);if(i>=5) {PlotIndexSetString(i,PLOT_LABEL,labels[i-5]);PlotIndexSetInteger(i,PLOT_LINE_COLOR,colors[i-5]);PlotIndexSetInteger(i,PLOT_LINE_WIDTH,i>=13?2:1);if(i>=13) PlotIndexSetInteger(i,PLOT_ARROW,i<=14?159:i==16||i==18?234:233);}}
- IndicatorSetString(INDICATOR_SHORTNAME,"Multi-Analyzer Gold 1.1.0-preview.8 XM "+(VolumeBasis==MA_TICK_ACTIVITY?"tick":"real/off"));
+ IndicatorSetString(INDICATOR_SHORTNAME,"Multi-Analyzer Gold 1.1.0-preview.9 XM "+(VolumeBasis==MA_TICK_ACTIVITY?"tick":"real/off"));
  ApplyPalette();Controls();SetPlots();
  EventSetTimer(2);Refresh(true);return INIT_SUCCEEDED;
 }
@@ -634,15 +681,17 @@ int OnCalculate(const int rates_total,const int prev_calculated,const datetime &
 }
 void OnTimer() {Refresh();}
 void OnChartEvent(const int id,const long &lparam,const double &dparam,const string &sparam) {
- if(id==CHARTEVENT_CHART_CHANGE) {ApplyPalette();Controls();PaintSignals();PaintProfile();RenderCandidates();Panel(panelText);ChartRedraw();return;}
+ if(id==CHARTEVENT_CHART_CHANGE) {ApplyPalette();Controls();int painted=RenderCandidates();BandCaption(painted);PaintSignals();PaintProfile();Panel(panelText);ChartRedraw();return;}
  if(id!=CHARTEVENT_OBJECT_CLICK) return;
  if(sparam==prefix+"toggle") {showBands=!showBands;GlobalVariableSet(key+".z",showBands?1:0);Button("toggle","反転帯",12,showBands);Refresh(true);}
  if(sparam==prefix+"bb") {showBB=!showBB;GlobalVariableSet(key+".b",showBB?1:0);Button("bb","BB",112,showBB);SetPlots();ChartRedraw();}
  if(sparam==prefix+"ribbon") {showRibbon=!showRibbon;GlobalVariableSet(key+".r",showRibbon?1:0);Button("ribbon","リボン",212,showRibbon);SetPlots();ChartRedraw();}
  if(sparam==prefix+"cloud") {showCloud=!showCloud;GlobalVariableSet(key+".c",showCloud?1:0);Button("cloud","トレンド雲",612,showCloud);FillCloud();ChartRedraw();}
  if(sparam==prefix+"retired") {showRetired=!showRetired;GlobalVariableSet(key+".h",showRetired?1:0);Button("retired","解消帯",712,showRetired);Refresh(true);}
- if(sparam==prefix+"signals") {showSignals=!showSignals;GlobalVariableSet(key+".s",showSignals?1:0);Button("signals","P / EXIT",312,showSignals);SetPlots();PaintSignals();Panel(panelText);ChartRedraw();}
- if(sparam==prefix+"details") {showDetails=!showDetails;GlobalVariableSet(key+".d",showDetails?1:0);Button("details","詳細",412,showDetails);Panel(panelText);ChartRedraw();}
+ if(sparam==prefix+"frameScope") {showAllZoneFrames=!showAllZoneFrames;GlobalVariableSet(key+".af",showAllZoneFrames?1:0);Controls();Refresh(true);}
+ if(sparam==prefix+"bandText") {showZoneLabels=!showZoneLabels;GlobalVariableSet(key+".zt",showZoneLabels?1:0);Controls();Refresh(true);}
+ if(sparam==prefix+"signals") {showSignals=!showSignals;GlobalVariableSet(key+".s",showSignals?1:0);Button("signals","P / EXIT",312,showSignals);SetPlots();Refresh(true);}
+ if(sparam==prefix+"details") {showDetails=!showDetails;GlobalVariableSet(key+".d",showDetails?1:0);Button("details","詳細",412,showDetails);Refresh(true);}
  if(sparam==prefix+"export") {ExportAnalysis();ObjectSetInteger(0,prefix+"export",OBJPROP_STATE,false);}
 }
 void OnDeinit(const int reason) {
