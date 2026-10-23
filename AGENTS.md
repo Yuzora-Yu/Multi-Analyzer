@@ -1,5 +1,9 @@
 # GOLD review workflow
 
+## Restore temporary UI settings (2026-10-23 user instruction)
+
+Before changing MT5 chart/window properties for implementation or verification, record the current relevant settings. Restore temporary changes before finishing, including the active chart/timeframe, background/colors, zoom/scale, grid/foreground, panes and window size if changed. Keep user-requested product changes, such as new display controls and the white-background indicator palette. Do not replace the user's chart styling with a default test template or leave cleanup for the user. Indicator code must not change chart-wide properties to force its own theme.
+
 ## Active scope (2026-10-16 explicit user instruction)
 
 This chat and the collector chat 「デモ検証」 are Gold-only. Stop BTC acquisition, current research/demo evaluation and every BTC notification. The public application offers only Gold. Keep historical BTC sources, frozen registrations and results; record the user-requested stop without inventing liquidation or completing the unfinished validation period. Preserve Gold strategy hashes and behavior. Deploy `cloudflare/gold-only.mjs`, the operational scope wrapper, without rewriting the frozen `cloudflare/monitor.mjs`; the BTC partition's alarm is cancelled and its execution routes are blocked. Gold monitoring, fixed demo-v1, notifications and market-closure rules continue. Existing automation schedules/models remain unchanged. Discord readthrough continues; other symbols in historical posts provide method context only and do not authorize restarting their live research.

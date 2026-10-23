@@ -12,3 +12,6 @@ test('indicator and local audit code have no account, order, mail or external tr
   assert(!/\b(?:OrderSend|OrderSendAsync|AccountInfo\w*|PositionGet\w*|HistoryDeal\w*|SendMail|SendNotification|WebRequest)\s*\(/.test(text),name);
  }
 });
+test('indicator rendering never overwrites the user chart properties',()=>{
+ assert(!/\b(?:ChartSetInteger|ChartSetDouble|ChartSetString|ChartApplyTemplate|ChartSetSymbolPeriod|ChartNavigate)\s*\(/.test(source));
+});

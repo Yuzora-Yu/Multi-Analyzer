@@ -1,6 +1,6 @@
 {
-  "version": "1.1.0-preview.3",
-  "mqlVersion": "1.102",
+  "version": "1.1.0-preview.5",
+  "mqlVersion": "1.104",
   "stage": "preview",
   "sourceFiles": [
     "MultiAnalyzerGold.mq5",
@@ -10,20 +10,20 @@
     "README_JA.txt",
     "CHANGELOG.md"
   ],
-  "scope": "XM確定足のリボン・TURN・P・買い/売り保有EXIT、SMC反転帯、BB、POC近似、6時間足のAI用ローカル保存。出来高条件はXMティック数を区別する独立版。",
-  "runtimeVerification": "XM実チャートでM15/H1の帯・リボン・黄EXIT、ローカル保存で6時間足の計算状態を確認。Flow数式は10600本をMQL実行とJSで照合。全期間のデータ完全性・収益精度は未確認",
-  "file": "MultiAnalyzerGold-1.1.0-preview.3.zip",
-  "bytes": 145662,
-  "sha256": "f9a394f1563da0ef50417a25637eb4768e83479aefb4aa0e5bb78a741c7e0261",
+  "scope": "詳細表示のON/OFFと白背景に対応した配色。XM確定足のリボン・TURN・P・保有EXIT、SMC反転帯、BB、POC近似、6時間足のAI用ローカル保存。",
+  "runtimeVerification": "基盤検証は前版のXM実チャートと6時間足の保存結果、同一入力10600本のMQL/JS照合。今回の変更は表示のみ。全期間のデータ完全性・収益精度は未確認",
+  "file": "MultiAnalyzerGold-1.1.0-preview.5.zip",
+  "bytes": 152228,
+  "sha256": "39458e7398eacd32f5d3c744f74f024a8b5326a13bd5a41c94fec6907de565df",
   "sources": {
-    "MultiAnalyzerGold.mq5": "06022594b1dee556af3b6b2f0001058d1fda125fd9553b1c7573d576f9d21a76",
+    "MultiAnalyzerGold.mq5": "2ba4fc0bdb13fba22602f7c7d07ff9d6f9315858c9278fc00075e9874274f971",
     "MAZoneCore.mqh": "042dd528cd3e7cd048b7877bbd6f9c71791d623e2870d0e8236756e8d69356c7",
     "MAFlowCore.mqh": "306ada4dc5297e406f9f443e2bc2153e06b7f321e5ffecb063fda8a3205ed2b5",
     "MAHistoryCore.mqh": "46bff12e6dde4c851d9d6ec8479f318731f40962a86cb9a204ee487b777a02f0",
-    "README_JA.txt": "3964f54ffdff4fd4cee4331624c84d638ec0210af44c4037af7016ac29056963",
-    "CHANGELOG.md": "5faba9d955f849c3a709bbbade582e90fec9115fecde3bac519d41480571450e"
+    "README_JA.txt": "70ec1cd711a432762552a392205332eb0eeee4abc114c5f65fea07bf829b4e2f",
+    "CHANGELOG.md": "013216f3c02f69d8703aecfd9928d52b8c168fd9e98e29e94c7ce46148f8d3bf"
   },
-  "compiledSha256": "1f8fb9f2014246077ff935f1a3b21b1cbba049a9db0ab7867a35ed6a50398668",
+  "compiledSha256": "0b2d1108cf8cd6c1e223023422458ab6d089d0f17a5ef5611c12637df14f2a2a",
   "compiler": {
     "errors": 0,
     "warnings": 0

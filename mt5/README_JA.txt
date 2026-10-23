@@ -1,4 +1,4 @@
-Multi-Analyzer Gold MT5 — 1.1.0-preview.3（履歴・描画修正版）
+Multi-Analyzer Gold MT5 — 1.1.0-preview.5（詳細切替・白背景配色版）
 
 Windows版MT5用。装着したXMのGold銘柄の確定足を直接読み、リボン・TURN・
 P・買い/売り保有の黄EXIT・SMC反転帯・BBを表示します。自動発注はしません。
@@ -36,7 +36,12 @@ MA_REAL_VOLUMEは業者配信のreal_volumeだけを使用。0・未配信なら
 POC/VAH/VALは直近96本の高安内へ活動量を一様按分した近似で、実約定分布ではありません。
 
 表示切替とAI保存
-「反転帯」「BB」「リボン」「P / EXIT」をワンタッチで切り替えられます。
+「反転帯」「BB」「リボン」「P / EXIT」「詳細」をワンタッチで切り替えられます。
+「詳細」は左上の数値・履歴状態などの文字をまとめて切り替えます。初期値はOFFで、
+チャートごとに状態を保持します。InitialDetailsで初回の表示を指定できます。
+狭いチャートではボタンが折り返され、詳細パネルもその下へ移動します。
+白背景では濃い文字とEXIT、淡い緑・橙の帯を使用。背景変更時は配色が追従します。
+インジはチャート本体の背景・ローソク色・縮尺・グリッドなどを上書きしません。
 「反転帯」はSMC帯とPOC/VAH/VAL近似を切り替えます。
 「AI保存」はM1/M5/M15/H1/H4/D1の確定OHLC・元のtick/real volume・spread points・
 派生計算をUTF-8 JSONへ保存。保存先は MQL5/Files/MultiAnalyzerGold/ 内です。
