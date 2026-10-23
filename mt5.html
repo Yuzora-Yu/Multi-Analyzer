@@ -1,1 +1,81 @@
-<!doctype html><html lang="ja"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>MT5版 — Multi-Analyzer</title><style>body{margin:0;background:#0b1018;color:#edf0f4;font:16px/1.8 system-ui,sans-serif}main{max-width:760px;margin:auto;padding:32px 20px}a{color:#eec46b}h1{font-size:28px}section{background:#141d29;border:1px solid #344052;border-radius:14px;padding:22px;margin:20px 0}.download{display:inline-block;background:#eec46b;color:#151515;padding:12px 20px;border-radius:9px;font-weight:bold;text-decoration:none}code{overflow-wrap:anywhere;font-size:12px}small{color:#b8c1cc}</style><main><a href="./">← アナライザー</a><h1>XMのGoldを、MT5上で分析</h1><p>Windows版MT5向けカスタムインジケーター。装着したGold銘柄の確定足から計算します。</p><section><h2>1.1.0-preview.5 <small>検証版</small></h2><p>詳細表示のON/OFFと白背景に対応した配色。XM確定足のリボン・TURN・P・保有EXIT、SMC反転帯、BB、POC近似、6時間足のAI用ローカル保存。</p><p><strong>基盤検証は前版のXM実チャートと6時間足の保存結果、同一入力10600本のMQL/JS照合。今回の変更は表示のみ。全期間のデータ完全性・収益精度は未確認</strong>。Web版全機能の移植や予測精度を検証した版ではありません。</p><a class="download" href="downloads/MultiAnalyzerGold-1.1.0-preview.5.zip" download>MT5版をダウンロード（ZIP）</a><p><small>ソース・ex5・日本語手順を同梱 / 152,228 bytes</small></p><p><small>SHA256</small><br><code>39458e7398eacd32f5d3c744f74f024a8b5326a13bd5a41c94fec6907de565df</code></p></section><h2>サインの使い分け</h2><p>黄EXITはEMA13を跨いだ後の2本確定による保有警告です。反転エントリーとは別です。Pは押し/戻り、EMA13再突破、出来高倍率、ADX、確定H1一致、費用仮定込みRRを確認します。</p><p>「反転帯」「BB」「リボン」「P / EXIT」「詳細」は個別に切替。左上の数値パネルは初期OFF。白背景では濃い文字と淡い帯を使い、チャート本体の配色は変更しません。「AI保存」で6時間足のXM確定足と計算結果をMQL5/Filesへ保存でき、チャットへ添付して照合できます。自動で外部送信しません。</p><h2>導入と更新</h2><ol><li>ZIPを展開し、MT5の「ファイル → データフォルダを開く」へ進みます。</li><li><code>MQL5/Indicators/MultiAnalyzerGold/</code> に <code>MultiAnalyzerGold.ex5</code> を入れます。</li><li>ナビゲータを更新して、GOLD・GOLD#などのGoldチャートへ適用します。</li><li>更新時はインジを外し、新しいex5へ差し替えて再適用します。自動更新はしません。</li></ol><p>スマートフォン版MT5には直接追加できません。自動売買・DLL・外部URLの許可は不要です。</p><h2>データの違い</h2><p>MT5版はXMの価格とサーバー時刻を使います。Web版は従来のBybit先物です。H4・日足の区切りや出来高は同一と扱いません。リボン・TURN・P・買い/売り保有EXITをXMの確定足から計算します。出来高条件はティック数を活動量として区別します。取引所の売買別約定量やCVDは取得していません。固定デモ・ニュース・常時の外部連携は対象外です。</p><p><a href="https://github.com/Yuzora-Yu/Multi-Analyzer/releases/tag/mt5-v1.1.0-preview.5">この版のリリース</a> · <a href="https://github.com/Yuzora-Yu/Multi-Analyzer/tree/main/mt5">ソース・変更履歴</a></p></main></html>
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>MT5版のダウンロード・導入手順 — Multi-Analyzer</title>
+  <style>
+    body{margin:0;background:#0b1018;color:#edf0f4;font:16px/1.85 system-ui,sans-serif}
+    main{max-width:800px;margin:auto;padding:30px 20px 64px}a{color:#eec46b}
+    h1{font-size:28px;line-height:1.5}h2{font-size:22px;margin-top:36px}
+    section{background:#141d29;border:1px solid #344052;border-radius:14px;padding:22px;margin:22px 0}
+    section h2{margin-top:0}.download{display:inline-block;background:#eec46b;color:#151515;padding:12px 20px;border-radius:9px;font-weight:bold;text-decoration:none}
+    code{overflow-wrap:anywhere;background:#1b293b;padding:2px 5px;border-radius:4px;font-size:.88em}
+    .digest{font-size:12px}small,.muted{color:#b8c1cc}li{margin:10px 0}nav{display:flex;flex-wrap:wrap;gap:10px 22px}
+    table{width:100%;border-collapse:collapse}th,td{text-align:left;vertical-align:top;padding:12px 8px;border-bottom:1px solid #344052}th{white-space:nowrap}
+    .note{border-left:3px solid #eec46b;padding-left:14px}@media(max-width:520px){main{padding:20px 14px 48px}section{padding:17px}h1{font-size:24px}th{white-space:normal;min-width:65px}}
+  </style>
+</head>
+<body><main>
+  <a href="./">← アナライザーへ戻る</a>
+  <h1>XMのGoldを、MT5上で分析</h1>
+  <p>Windows版MT5向けのカスタムインジケーターです。XMのGOLDチャートの確定足から計算します。コンパイル済みのex5を同梱しています。</p>
+  <section aria-label="最新版のダウンロード">
+    <h2>1.1.0-preview.5 <small>検証版</small></h2>
+    <p>詳細表示のON/OFFと白背景に対応した配色。XM確定足のリボン・TURN・P・保有EXIT、SMC反転帯、BB、POC近似、6時間足のAI用ローカル保存。</p>
+    <a class="download" href="downloads/MultiAnalyzerGold-1.1.0-preview.5.zip" download>最新版MT5版をダウンロード（ZIP）</a>
+    <p><small>Windows用 ex5・ソース・日本語手順 / 152,228 bytes</small></p>
+    <details><summary>検証範囲・SHA256</summary><p>基盤検証は前版のXM実チャートと6時間足の保存結果、同一入力10600本のMQL/JS照合。今回の変更は表示のみ。全期間のデータ完全性・収益精度は未確認。Web版全機能の移植や予測精度を検証した版ではありません。</p><code class="digest">39458e7398eacd32f5d3c744f74f024a8b5326a13bd5a41c94fec6907de565df</code></details>
+  </section>
+  <nav aria-label="このページの手順">
+    <a href="#install">初めての導入</a><a href="#update">既存版から更新</a><a href="#controls">ボタンの使い方</a><a href="#ai-save">AI保存とチャットへの添付</a>
+  </nav>
+
+  <h2 id="install">初めての導入</h2>
+  <ol>
+    <li>上のZIPをダウンロードして展開します。使用するのは <code>MultiAnalyzerGold.ex5</code> です。ソースからのコンパイルは必要ありません。</li>
+    <li>XMのWindows版MT5を開き、メニューの<strong>「ファイル → データフォルダを開く」</strong>を選びます。</li>
+    <li><code>MQL5 → Indicators</code> と進み、<code>MultiAnalyzerGold → 1.1.0-preview.5</code> フォルダを作成します。その中へ <code>MultiAnalyzerGold.ex5</code> をコピーします。</li>
+    <li>MT5へ戻り、ナビゲータの「インディケータ」を右クリックして<strong>「更新」</strong>します。見えない場合は <code>Ctrl＋N</code> でナビゲータを表示します。</li>
+    <li>分析したい <strong>GOLD・GOLD#などのGoldチャート</strong>を開きます。ナビゲータの <code>MultiAnalyzerGold → 1.1.0-preview.5 → MultiAnalyzerGold</code> を、そのチャートへドラッグします。</li>
+    <li>入力値を確認して「OK」を押します。取得本数 <code>HistoryBars</code> は220〜1500本、初期値は1000本です。価格の同期が済むまで少し待ちます。</li>
+    <li><strong>「詳細 ON」</strong>でパネル先頭の版番号が <code>1.1.0-preview.5</code> か確認します。確認後は「詳細 OFF」で文字を隠せます。</li>
+  </ol>
+  <p class="note">自動売買・DLL・外部URLの許可は不要です。自動発注はしません。スマートフォン版MT5にはカスタムインジケーターを直接追加できません。</p>
+
+  <h2 id="update">既存版から更新する</h2>
+  <ol>
+    <li>現在の入力値を控えます。特に <code>HistoryBars</code>、出来高の基準、費用・RRの設定を引き継ぎます。チャートの背景・ローソク色・縮尺を変更する必要はありません。</li>
+    <li>最新版ZIPを展開し、上の手順で版番号ごとのフォルダへ新しいex5を置き、ナビゲータを更新します。旧ファイルは保存したままで構いません。</li>
+    <li>更新するチャートで <code>Ctrl＋I</code> を押し、<strong>MultiAnalyzerGoldだけ</strong>を選んで旧版の装着を解除します。他のボリンジャーバンドやJST時刻表示などはそのままにします。</li>
+    <li>最新版フォルダのインジを同じチャートへ適用し、控えた入力値を設定します。新旧を重ねて装着しないでください。</li>
+    <li>「詳細 ON」で版番号を確認します。複数チャートで使う場合は、更新したいチャートごとに装着を更新します。ZIPをコピーしただけでは既存の装着版は切り替わりません。</li>
+  </ol>
+  <p>インジはチャート本体の背景色・ローソク色・縮尺・グリッドを上書きしません。白背景では濃い文字と淡い帯、暗い背景では暗背景用の配色に追従します。旧ZIP・タグ・変更履歴はGitHubに保持します。</p>
+
+  <h2 id="controls">ボタンの使い方</h2>
+  <table>
+    <tbody>
+      <tr><th scope="row">反転帯</th><td>SMC反転候補帯とPOC/VAH/VAL近似を表示・非表示にします。帯は反転する場所の候補で、反転成立や入場の合図ではありません。</td></tr>
+      <tr><th scope="row">BB</th><td>このインジのボリンジャーバンドを切り替えます。別途装着したBBには影響しません。</td></tr>
+      <tr><th scope="row">リボン</th><td>EMAリボンを切り替えます。</td></tr>
+      <tr><th scope="row">P / EXIT</th><td>P条件と保有EXITなどのサインを切り替えます。EXITはEMA13を跨いだ後の2本確定による保有警告で、反転エントリーとは別です。</td></tr>
+      <tr><th scope="row">詳細</th><td>左上の数値・判定・履歴状態などをまとめて切り替えます。初期値はOFFで、時間足を変えても状態を保持します。</td></tr>
+      <tr><th scope="row">AI保存</th><td>その時点で取得可能な確定足と計算結果を、PC内のJSONファイルへ保存します。AIへの送信ボタンではありません。</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="ai-save">AI保存とチャットへの添付</h2>
+  <p>MT5で「AI保存」を押すと、M1・M5・M15・H1・H4・日足の確定OHLC、ティック数・出来高・スプレッド、EMA・ATR・ADX・保持方向・EXIT・P条件と参考SL/TPなどをJSONへ保存します。各時間足の保存本数は <code>HistoryBars</code> の設定に従います。進行中の足は確定判定に使いません。</p>
+  <ol>
+    <li>インジの<strong>「AI保存」</strong>を押します。</li>
+    <li>MT5の<strong>「ファイル → データフォルダを開く」</strong>から <code>MQL5 → Files → MultiAnalyzerGold</code> を開きます。</li>
+    <li>最新の <code>XM-Gold-….json</code> をこのチャットへ添付し、「このXMデータで見通しを更新して」などと依頼します。保存ファイル名はAI保存ボタンのツールチップとエキスパート欄にも出ます。</li>
+  </ol>
+  <p>自動で外部へ送信したり、チャットへ常時接続したりはしません。口座番号・残高・保有・注文・ログイン情報は保存対象外です。未取得・保留の計算はその状態を記録し、足りない値を作って埋めません。保存後に動いた価格は、そのファイルには入りません。</p>
+
+  <h2>データの違いと検証範囲</h2>
+  <p>MT5版はXMの価格とサーバー時刻を使い、Web版は従来のBybit先物を使います。H4・日足の区切りや出来高を同じものとして扱いません。XMのティック数は価格更新の活動量で、取引所の売買別約定量やCVDではありません。ニュース・経済予定の自動取得、固定デモ、外部との常時連携は対象外です。</p>
+  <p>Pは押し/戻り、EMA13再突破、出来高倍率、ADX、確定H1一致、費用仮定込みRRを確認する研究条件です。収益精度は未検証です。</p>
+  <p><a href="https://github.com/Yuzora-Yu/Multi-Analyzer/releases/tag/mt5-v1.1.0-preview.5">この版のリリース</a> · <a href="https://github.com/Yuzora-Yu/Multi-Analyzer/tree/main/mt5">ソース・変更履歴</a></p>
+</main></body></html>
