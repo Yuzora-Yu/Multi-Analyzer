@@ -1,6 +1,6 @@
 {
-  "version": "1.1.0-preview.9",
-  "mqlVersion": "1.108",
+  "version": "1.1.0-preview.10",
+  "mqlVersion": "1.109",
   "stage": "preview",
   "sourceFiles": [
     "MultiAnalyzerGold.mq5",
@@ -9,9 +9,10 @@
     "MAHistoryCore.mqh",
     "MAResponseCore.mqh",
     "MAVisualCore.mqh",
+    "MAInstrumentCore.mqh",
     "README_JA.txt",
     "CHANGELOG.md"
   ],
-  "scope": "表示足以上の帯を初期表示し、下位足も・帯文字を独立切替。有効帯の説明は上下各最大2件を重なり回避で配置。解消帯は元の幅・解消時刻まで点線とツールチップを保持。P・EXITの全判定と点・AI保存は維持。",
-  "runtimeVerification": "コンパイル・時間足選別・狭幅/広幅の文字衝突検査・旧計算エンジン同一性を検証。解消帯の履歴は取得範囲から再構築。新版のXM実画面・全配色・予測精度は未確認"
+  "scope": "MT5の装着先銘柄に対応。GOLD・BTC/USD・ドル円・他のFXやCFDで、銘柄別の足・価格桁・取引時間を使用。帯・解消履歴・トレンド雲・P/EXITを保持し、AI保存は銘柄名付きファイルへ。",
+  "runtimeVerification": "既存MetaEditorでコンパイル、銘柄名・価格精度・費用・取引時間と既存判定の回帰テストを実施。各銘柄の実チャート装着・配信履歴・予測精度は未確認"
 }

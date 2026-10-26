@@ -1,6 +1,6 @@
 {
-  "version": "1.1.0-preview.9",
-  "mqlVersion": "1.108",
+  "version": "1.1.0-preview.10",
+  "mqlVersion": "1.109",
   "stage": "preview",
   "sourceFiles": [
     "MultiAnalyzerGold.mq5",
@@ -9,25 +9,27 @@
     "MAHistoryCore.mqh",
     "MAResponseCore.mqh",
     "MAVisualCore.mqh",
+    "MAInstrumentCore.mqh",
     "README_JA.txt",
     "CHANGELOG.md"
   ],
-  "scope": "表示足以上の帯を初期表示し、下位足も・帯文字を独立切替。有効帯の説明は上下各最大2件を重なり回避で配置。解消帯は元の幅・解消時刻まで点線とツールチップを保持。P・EXITの全判定と点・AI保存は維持。",
-  "runtimeVerification": "コンパイル・時間足選別・狭幅/広幅の文字衝突検査・旧計算エンジン同一性を検証。解消帯の履歴は取得範囲から再構築。新版のXM実画面・全配色・予測精度は未確認",
-  "file": "MultiAnalyzerGold-1.1.0-preview.9.zip",
-  "bytes": 213380,
-  "sha256": "133f02b9d80d1e9f982918001ac850764a59f9137aebfc70ef8810670980a81b",
+  "scope": "MT5の装着先銘柄に対応。GOLD・BTC/USD・ドル円・他のFXやCFDで、銘柄別の足・価格桁・取引時間を使用。帯・解消履歴・トレンド雲・P/EXITを保持し、AI保存は銘柄名付きファイルへ。",
+  "runtimeVerification": "既存MetaEditorでコンパイル、銘柄名・価格精度・費用・取引時間と既存判定の回帰テストを実施。各銘柄の実チャート装着・配信履歴・予測精度は未確認",
+  "file": "MultiAnalyzerGold-1.1.0-preview.10.zip",
+  "bytes": 221248,
+  "sha256": "bf714674c71f759db2a304a981620259faac8d3cea226ebe2b1b8db4264911c5",
   "sources": {
-    "MultiAnalyzerGold.mq5": "74c555f5bb68c5aaeb20c847a8f77a153999e17b30b78c26d141a397692d7b5e",
+    "MultiAnalyzerGold.mq5": "0e06854be7700165aeca436ebc144262284173b3bc75d35adc14ade0c89ce04a",
     "MAZoneCore.mqh": "878b328cc1e0f8fe1f39b8e5c72b8a17af93f13d7a50213ebc004b9089d1f464",
-    "MAFlowCore.mqh": "306ada4dc5297e406f9f443e2bc2153e06b7f321e5ffecb063fda8a3205ed2b5",
+    "MAFlowCore.mqh": "0472f9687e14466caadde4cc12826d3759c4a6961ccc35c43c90ab09d7173507",
     "MAHistoryCore.mqh": "46bff12e6dde4c851d9d6ec8479f318731f40962a86cb9a204ee487b777a02f0",
     "MAResponseCore.mqh": "7d4d35274c485caaf5e2d65230bdd58896732c5626c59a32da3761f66e622d29",
     "MAVisualCore.mqh": "67485cbc924e5f654892bb6defde651d46f3cab1ba353677677d230b0c7483e0",
-    "README_JA.txt": "c203aedc874a1522edab8d7e2a7ac6b226dda648caf97e837bc33f1a3b4f38ba",
-    "CHANGELOG.md": "1bccee66eab654fa6b5f4a6b698be72af50cda9310dfbc649e148d76bac03881"
+    "MAInstrumentCore.mqh": "f65ae44a8e5269702e11d865549e99738d92b422de01f97944927c877be3f1fa",
+    "README_JA.txt": "6adab9a1831d65714a0c6d2e0615215239912060f1be8992fd39a639f10bb4cc",
+    "CHANGELOG.md": "59a6ad584ae8d11655bfd5a461817819e80084b3cfb5686beaacfe8308fee40c"
   },
-  "compiledSha256": "e5d77171dd8170c532a4aa992a55be6565e6f265a07e5a6c36d8ffbb098b7c28",
+  "compiledSha256": "a08777b5baa3c4d3c316c54fa64bb692e9f42b6e0fe696f63460d3fe67062ba4",
   "compiler": {
     "errors": 0,
     "warnings": 0

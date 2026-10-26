@@ -37,7 +37,7 @@ double MAVolume(const MqlRates &b,const MAVolumeMode mode) {
  return mode==MA_TICK_ACTIVITY?(double)b.tick_volume:mode==MA_REAL_VOLUME?(double)b.real_volume:0;
 }
 string MAVolumeName(const MAVolumeMode mode) {
- return mode==MA_TICK_ACTIVITY?"XM tick activity (NOT traded quantity)":mode==MA_REAL_VOLUME?"broker real volume (zero = unavailable)":"volume unavailable / P withheld";
+ return mode==MA_TICK_ACTIVITY?"broker tick activity (NOT traded quantity)":mode==MA_REAL_VOLUME?"broker real volume (zero = unavailable)":"volume unavailable / P withheld";
 }
 void MAEMA(const MqlRates &c[],const int period,double &out[]) {
  int n=ArraySize(c);ArrayResize(out,n);ArrayInitialize(out,EMPTY_VALUE);double sum=0,prev=0,k=2.0/(period+1);
@@ -115,14 +115,14 @@ void MAAlign(MAFlowRow &exec[],const int seconds,const MAFlowRow &hourly[]) {
  }
 }
 MAPlan MAMakePlan(const MqlRates &b,const MAFlowRow &r,const int seconds,const int bars,
-                   const double costBps=7,const double minRR=1.8,const bool blocked=false) {
- MAPlan p;ZeroMemory(p);p.direction=r.direction>0?1:-1;p.entry=MARound(b.close,6);
+                   const double costBps=7,const double minRR=1.8,const bool blocked=false,const int priceDigits=6) {
+ MAPlan p;ZeroMemory(p);p.direction=r.direction>0?1:-1;p.entry=MARound(b.close,priceDigits);
  if(!r.ready||r.atr<=0) return p;
  double stop=p.direction>0?MathMin(r.lastLow>0?r.lastLow-r.atr*.12:b.close-r.atr,b.close-r.atr*.75):MathMax(r.lastHigh>0?r.lastHigh+r.atr*.12:b.close+r.atr,b.close+r.atr*.75);
  double risk=MathAbs(b.close-stop),cost=b.close*costBps/10000;
  if(risk<=0) risk=MathMax(b.close*.004,r.atr);
- p.valid=true;p.stop=MARound(b.close-p.direction*risk,6);p.tp1=MARound(b.close+p.direction*risk,6);p.tp2=MARound(b.close+p.direction*risk*2.2,6);p.tp3=MARound(b.close+p.direction*risk*3.2,6);
- p.risk=MARound(risk,6);p.totalCost=MARound(cost,6);p.costRiskRatio=MARound(cost/risk,6);p.netRR=MARound((risk*2.2-cost)/(risk+cost),2);
+ p.valid=true;p.stop=MARound(b.close-p.direction*risk,priceDigits);p.tp1=MARound(b.close+p.direction*risk,priceDigits);p.tp2=MARound(b.close+p.direction*risk*2.2,priceDigits);p.tp3=MARound(b.close+p.direction*risk*3.2,priceDigits);
+ p.risk=MARound(risk,priceDigits);p.totalCost=MARound(cost,priceDigits);p.costRiskRatio=MARound(cost/risk,6);p.netRR=MARound((risk*2.2-cost)/(risk+cost),2);
  p.costOK=p.costRiskRatio<=.22&&p.netRR>=minRR;
  p.pCandidate=bars>=220&&seconds>=900&&r.pullbackConfirmed&&r.adx>=20&&p.costOK&&!blocked;
  return p;

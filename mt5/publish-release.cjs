@@ -8,7 +8,7 @@ async function publish({root,repo,tag,commit,token,fetcher=fetch}){
  async function request(url,options={}){const r=await fetcher(url,{...options,headers:{...headers,...options.headers},signal:AbortSignal.timeout(30000)});return r;}
  async function json(url,options={}){const r=await request(url,options);if(!r.ok)throw Error('RELEASE_HTTP_'+r.status);return r.json();}
  let r=await request(base+'/releases/tags/'+encodeURIComponent(tag)),release;
- if(r.status===404)release=await json(base+'/releases',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tag_name:tag,target_commitish:commit,name:'MT5 Gold '+meta.version,draft:true,prerelease:true,body:`Windows版MT5の検証版です。\n\n${meta.scope}\n\n${meta.runtimeVerification}。自動売買は行いません。\n\nZIP SHA256: ${meta.sha256}\n\n導入・更新: https://yuzora-yu.github.io/Multi-Analyzer/mt5.html`})});
+ if(r.status===404)release=await json(base+'/releases',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tag_name:tag,target_commitish:commit,name:'MT5 Multi-Analyzer '+meta.version,draft:true,prerelease:true,body:`Windows版MT5の検証版です。\n\n${meta.scope}\n\n${meta.runtimeVerification}。自動売買は行いません。\n\nZIP SHA256: ${meta.sha256}\n\n導入・更新: https://yuzora-yu.github.io/Multi-Analyzer/mt5.html`})});
  else{if(!r.ok)throw Error('RELEASE_LOOKUP_HTTP_'+r.status);release=await r.json();}
  if(!Number.isSafeInteger(release.id)||release.tag_name!==tag||!Array.isArray(release.assets))throw Error('INVALID_RELEASE_IDENTITY');
  const assets=[{name:meta.file,bytes:fs.readFileSync(path.join(root,'downloads',meta.file)),type:'application/zip'},{name:'mt5-'+meta.version+'.json',bytes:fs.readFileSync(path.join(root,'downloads/mt5-latest.json')),type:'application/json'}];

@@ -24,7 +24,14 @@ test('crowded callouts reject collisions, chart controls, price line and offscre
   assert.equal(V.labelFits(left,200,w,h,width,height,height,[]),false);
  }
 });
-test('display upgrade preserves the previously released price, zone, response and history engines byte for byte',()=>{
+test('zone, response, history and P/EXIT rules retain their released implementation',()=>{
  const expected={'MAZoneCore.mqh':'878b328cc1e0f8fe1f39b8e5c72b8a17af93f13d7a50213ebc004b9089d1f464','MAFlowCore.mqh':'306ada4dc5297e406f9f443e2bc2153e06b7f321e5ffecb063fda8a3205ed2b5','MAHistoryCore.mqh':'46bff12e6dde4c851d9d6ec8479f318731f40962a86cb9a204ee487b777a02f0','MAResponseCore.mqh':'7d4d35274c485caaf5e2d65230bdd58896732c5626c59a32da3761f66e622d29'};
- for(const [file,hash] of Object.entries(expected)){const bytes=fs.readFileSync(path.join(__dirname,'../mt5',file),'utf8').replace(/\r\n/g,'\n');assert.equal(crypto.createHash('sha256').update(bytes).digest('hex'),hash,file);}
+ for(const [file,hash] of Object.entries(expected)){
+  let bytes=fs.readFileSync(path.join(__dirname,'../mt5',file),'utf8').replace(/\r\n/g,'\n');
+  // The sole Flow changes are the broker label and optional price rounding precision.
+  // Undo only those exact additions: the original rules must still hash identically.
+  if(file==='MAFlowCore.mqh')bytes=bytes.replace('broker tick activity','XM tick activity')
+   .replace(',const int priceDigits=6','').replaceAll(',priceDigits)',',6)');
+  assert.equal(crypto.createHash('sha256').update(bytes).digest('hex'),hash,file);
+ }
 });

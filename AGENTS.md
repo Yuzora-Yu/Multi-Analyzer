@@ -1,5 +1,9 @@
 # GOLD review workflow
 
+## MT5 chart-symbol support (2026-10-26 explicit user instruction)
+
+The MT5 indicator supports the attached chart symbol, including BTC/USD, USDJPY and other broker-provided FX/CFD symbols. This supersedes the Gold-only restriction for manual MT5 indicator use and its requested implementation/testing only. Use each symbol's native bars, digits, quote basis and trading sessions; do not claim equal predictive accuracy across instruments. It does not authorize BTC cloud monitoring, emails, scheduled acquisition, research accounts or collectors. The public market analyzer and existing cloud monitoring remain Gold-only. Market-data exports remain local and contain no account/position information. Do not install or operate MT5 charts without the user's current authorization.
+
 ## P-only mail and paused collector chat (2026-10-23 user instruction)
 
 Email notifications are limited to canonical confirmed M15 pullback-v1 P events. Do not email zone approach/in-zone or EXIT events. Keep chart EXIT calculations, dots and saved history. Use the operational p-only-mail wrapper; do not rewrite frozen demo dependencies or strategy conditions. No live test email is authorized by this change.
