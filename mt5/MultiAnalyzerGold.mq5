@@ -1,7 +1,7 @@
 #property copyright "Multi-Analyzer"
 #property link "https://yuzora-yu.github.io/Multi-Analyzer/"
-#property version "1.109"
-#property description "Multi-Analyzer MT5 1.1.0-preview.10. Chart symbol OHLC, SMC, P/EXIT and cloud. No trading."
+#property version "1.110"
+#property description "Multi-Analyzer MT5 1.1.0-preview.11. Automatic broker spread and commission costs. No trading."
 #property indicator_chart_window
 #property indicator_buffers 33
 #property indicator_plots 26
@@ -39,6 +39,7 @@
 #include "MAResponseCore.mqh"
 #include "MAVisualCore.mqh"
 #include "MAInstrumentCore.mqh"
+#include "MABrokerCost.mqh"
 
 input int HistoryBars=1000; // request 220..1500; price/SMC need60, EMA144 needs144, P still needs220
 input bool InitialBands=true;
@@ -52,7 +53,8 @@ input bool InitialCloud=true; // EMA5..144 fill, colored by the SAME ribbon as t
 input bool InitialSignals=true;
 input bool InitialDetails=false; // top-left data panel; independently remembered per chart
 input MAVolumeMode VolumeBasis=MA_TICK_ACTIVITY; // tick counts are NOT exchange trade volume
-input double AssumedRoundTripCostBps=7.0; // fixed assumption; configure per symbol, NOT measured execution cost
+input double AssumedRoundTripCostBps=7.0; // used only in legacy MA_FIXED_BPS mode
+input MACostMode PCostMode=MA_BROKER_AUTO; // default: broker-recorded spread + commission rules; fixed bps is legacy only
 input double MinimumNetRR=1.8;
 input bool ManualBlackout=false; // no automatic economic calendar is available in this indicator
 input bool ShowFrameDetails=false;
@@ -83,14 +85,95 @@ int historySeedStart=0,historyCopied=0;
 bool retryHistory=true;
 int visibleBands=0;
 string zoneDrawError="";
+MqlCommission brokerCommissionRules[];
+int brokerCommissionCount=-1,brokerCommissionError=0;
+datetime brokerCommissionObservedAt=0;
+ulong nextCommissionRead=0;
+string brokerCommissionKey="";
+MACostMemo costMemos[];
+
+void PruneCostMemos(const int seconds,const datetime oldest) {
+ int write=0;
+ for(int i=0;i<ArraySize(costMemos);i++) {
+  if(costMemos[i].seconds==seconds&&costMemos[i].time<oldest) continue;
+  if(write!=i) costMemos[write]=costMemos[i];write++;
+ }
+ ArrayResize(costMemos,write);
+}
+
+bool RefreshBrokerCommissions(const bool force=false) {
+ if(PCostMode!=MA_BROKER_AUTO) return false;
+ ulong now=GetTickCount64();if(!force&&now<nextCommissionRead) return false;
+ int oldCount=brokerCommissionCount;string oldKey=brokerCommissionKey;
+ ResetLastError();
+ if(TerminalInfoInteger(TERMINAL_CONNECTED)) brokerCommissionCount=SymbolInfoCommissions(_Symbol,brokerCommissionRules);
+ else {brokerCommissionCount=-1;ArrayResize(brokerCommissionRules,0);}
+ brokerCommissionError=brokerCommissionCount<0?GetLastError():0;
+ brokerCommissionObservedAt=TimeTradeServer();brokerCommissionKey=IntegerToString(brokerCommissionCount);
+ for(int i=0;i<ArraySize(brokerCommissionRules);i++) {
+  brokerCommissionKey+="|"+brokerCommissionRules[i].currency+":"+IntegerToString((int)brokerCommissionRules[i].mode_range)+":"+IntegerToString((int)brokerCommissionRules[i].mode_charge)+":"+IntegerToString((int)brokerCommissionRules[i].mode_entry)+":"+IntegerToString((int)brokerCommissionRules[i].mode_direction)+":"+IntegerToString((int)brokerCommissionRules[i].mode_profit);
+  for(int j=0;j<ArraySize(brokerCommissionRules[i].tiers);j++) {
+   MqlCommissionTier t=brokerCommissionRules[i].tiers[j];
+   brokerCommissionKey+="/"+IntegerToString((int)t.mode)+":"+IntegerToString((int)t.volume_type)+":"+DoubleToString(t.value,12)+":"+DoubleToString(t.min_value,12)+":"+DoubleToString(t.max_value,12)+":"+DoubleToString(t.range_from,12)+":"+DoubleToString(t.range_to,12)+":"+t.currency;
+  }
+ }
+ nextCommissionRead=now+(brokerCommissionCount<0?10000:60000);
+ return oldCount!=brokerCommissionCount||oldKey!=brokerCommissionKey;
+}
+MACostRecord BrokerCost(const MqlRates &b,const int side,const bool live=false) {
+ if(PCostMode==MA_FIXED_BPS) {MACostRecord fixed=MACostParts(b.close,b.close*AssumedRoundTripCostBps/10000,0,"MANUAL_FIXED_ROUND_TRIP_BPS");fixed.spreadPrice=EMPTY_VALUE;fixed.commissionPrice=EMPTY_VALUE;return fixed;}
+ double spread=EMPTY_VALUE;
+ if(live) {
+  MqlTick t;
+  if(SymbolInfoTick(_Symbol,t)&&TimeTradeServer()>=t.time&&TimeTradeServer()-t.time<120&&MASpreadBps(t.bid,t.ask)!=EMPTY_VALUE) spread=t.ask-t.bid;
+ } else if(b.spread>0) spread=b.spread*_Point;
+ MACostRecord cost=MABrokerRecord(b.close,spread,side,brokerCommissionCount,brokerCommissionRules,_Point,SymbolInfoDouble(_Symbol,SYMBOL_TRADE_CONTRACT_SIZE),SymbolInfoString(_Symbol,SYMBOL_CURRENCY_BASE),SymbolInfoString(_Symbol,SYMBOL_CURRENCY_PROFIT),MALinearProfitMode(SymbolInfoInteger(_Symbol,SYMBOL_TRADE_CALC_MODE)));
+ cost.commissionObservedAt=brokerCommissionObservedAt;
+ if(!MACostNumber(spread)) cost.reason=live?"現在のBid/Askが未取得・古いためP費用保留":"この確定足の記録spread未取得（0も不明扱い）";
+ return cost;
+}
+MACostRecord SignalCost(const MqlRates &b,const int side,const int seconds,const bool latest) {
+ int lo=0,hi=ArraySize(costMemos);
+ while(lo<hi) {int mid=(lo+hi)/2;if(MACostMemoCompare(costMemos[mid],seconds,b.time,side)<0) lo=mid+1;else hi=mid;}
+ bool found=lo<ArraySize(costMemos)&&MACostMemoCompare(costMemos[lo],seconds,b.time,side)==0;
+ if(found&&costMemos[lo].close==b.close&&costMemos[lo].spread==b.spread&&costMemos[lo].point==_Point) return costMemos[lo].cost;
+ MACostRecord cost=BrokerCost(b,side);
+ datetime now=TimeTradeServer(),closed=b.time+seconds;
+ if(PCostMode==MA_BROKER_AUTO&&latest&&now>=closed&&now-closed<=120) {
+  MACostRecord quote=BrokerCost(b,side,true);
+  if(!quote.ready) return quote;
+  // Capture the first observed quote after close; never resample this bar later.
+  double spread=MACostNumber(cost.spreadPrice)?MathMax(cost.spreadPrice,quote.spreadPrice):quote.spreadPrice;
+  cost=MACostParts(b.close,spread,quote.commissionPrice,"FIRST_SEEN_QUOTE_MAX_RECORDED_SPREAD");
+  cost.commissionObservedAt=brokerCommissionObservedAt;cost.observedAt=now;
+ }
+ if(!cost.ready) return cost;
+ if(!found) {
+  int n=ArraySize(costMemos);if(n>=24000) return cost;
+  ArrayResize(costMemos,n+1);for(int i=n;i>lo;i--) costMemos[i]=costMemos[i-1];
+ }
+ MACostMemo memo;ZeroMemory(memo);memo.time=b.time;memo.seconds=seconds;memo.side=side;
+ memo.close=b.close;memo.spread=b.spread;memo.point=_Point;memo.cost=cost;costMemos[lo]=memo;
+ return cost;
+}
+MAPlan CostedPlan(const MqlRates &b,const MAFlowRow &r,const int seconds,const int bars,const bool blocked,MACostRecord &cost,const bool latest=false) {
+ cost=SignalCost(b,r.direction,seconds,latest);
+ MAPlan plan=MAMakePlan(b,r,seconds,bars,cost.ready?cost.bps:0,MinimumNetRR,blocked||!cost.ready,MAPlanDigits(_Digits));
+ if(!cost.ready) {plan.totalCost=EMPTY_VALUE;plan.costRiskRatio=EMPTY_VALUE;plan.netRR=EMPTY_VALUE;plan.costOK=false;plan.pCandidate=false;}
+ return plan;
+}
 
 double ChartQuote(const MqlTick &tick) {
  return SymbolInfoInteger(_Symbol,SYMBOL_CHART_MODE)==SYMBOL_CHART_MODE_LAST?tick.last:tick.bid;
 }
 string ChartBasis() {return SymbolInfoInteger(_Symbol,SYMBOL_CHART_MODE)==SYMBOL_CHART_MODE_LAST?"LAST":"BID";}
-string CostSummary(const MqlTick &tick) {
- double spread=MASpreadBps(tick.bid,tick.ask);
- return "P費用 "+DoubleToString(AssumedRoundTripCostBps,2)+"bps仮定 / 現在spread "+(spread==EMPTY_VALUE?"未取得":DoubleToString(spread,2)+"bps")+"（判定費用とは別）";
+string LiveCostSummary() {
+ if(PCostMode==MA_FIXED_BPS) return "P費用: 手動固定 "+DoubleToString(AssumedRoundTripCostBps,2)+"bps（旧方式）";
+ int j=ArraySize(m15Rates)-1;if(j<0||j>=ArraySize(m15Flow)) return "P費用: 自動 / M15履歴待ち";
+ MACostRecord cost=BrokerCost(m15Rates[j],m15Flow[j].direction,true);
+ if(!cost.ready) return "P費用: 自動 / "+cost.reason+" / API error "+IntegerToString(brokerCommissionError);
+ MAPlan now=MAMakePlan(m15Rates[j],m15Flow[j],900,j+1,cost.bps,MinimumNetRR,false,MAPlanDigits(_Digits));
+ return "P費用 自動: 現在spread "+DoubleToString(cost.spreadPrice/_Point,1)+"pt + 手数料換算 "+DoubleToString(cost.commissionPrice,_Digits)+" = "+DoubleToString(cost.bps,2)+"bps\n元M15プランの現在費用条件 "+(now.costOK?"OK":"未達")+" / 将来の滑り・持越し未算入";
 }
 datetime witnessFrom[],witnessTo[];
 int nativeGapChecks=0;
@@ -176,7 +259,8 @@ void Controls() {
 }
 void Panel(const string text) {
  panelText=text;ObjectsDeleteAll(0,prefix+"panel");if(!showDetails) return;
- string source[];int count=StringSplit(text,'\n',source);string lines[];int n=0;
+ string display=text;StringReplace(display,"{LIVE_COST}",LiveCostSummary());
+ string source[];int count=StringSplit(display,'\n',source);string lines[];int n=0;
  int width=(int)MathMax(100,ChartGetInteger(0,CHART_WIDTH_IN_PIXELS)-40);
  for(int i=0;i<count;i++) {
   string line="";int used=0;
@@ -220,7 +304,7 @@ bool FrameRates(ENUM_TIMEFRAMES tf,MqlRates &rates[],const int count,const int m
  if(n<minimum) {quality="取得済 "+IntegerToString(n)+"本 / 価格計算に必要 "+IntegerToString(minimum)+"本";return false;}
  if(!SeriesInfoInteger(_Symbol,tf,SERIES_SYNCHRONIZED)) {quality="取得済 "+IntegerToString(n)+"本 / 同期確認中";return false;}
  if(!MAValid(rates)) {quality="取得済 / OHLC・時系列不整合";return false;}
- int seconds=PeriodSeconds(tf); datetime now=TimeCurrent();
+ int seconds=PeriodSeconds(tf);PruneCostMemos(seconds,rates[0].time); datetime now=TimeCurrent();
  if(rates[n-1].time+seconds>now) {quality="取得済 / 足終了時刻が業者時計より未来";return false;}
  if(tf==PERIOD_M15 && now-rates[n-1].time-seconds>1200) {quality="取得済 / M15更新遅延";return false;}
  if(ArraySize(weeklySessions)==0) {quality="取得済 / 業者セッション未取得";return false;}
@@ -270,7 +354,7 @@ void PaintSignals() {
  for(int i=MathMax(143,n-160);i<n;i++) {
   MAFlowRow r=chartFlow[i];MqlRates b=chartRates[i];double pad=r.atr*.45;
   if(r.switched) SignalText("turn",b.time,r.direction>0?b.low-r.atr*.65:b.high+r.atr*.65,r.direction>0?"TURN 上":"TURN 下",r.direction>0?BuyColor():SellColor());
-  MAPlan p=MAMakePlan(b,r,PeriodSeconds(),i+1,AssumedRoundTripCostBps,MinimumNetRR,ManualBlackout&&i==n-1,MAPlanDigits(_Digits));
+  MACostRecord cost;MAPlan p=CostedPlan(b,r,PeriodSeconds(),i+1,ManualBlackout&&i==n-1,cost,i==n-1);
   if(p.pCandidate) SignalText("p",b.time,r.direction>0?b.low-pad:b.high+pad,"P "+(VolumeBasis==MA_TICK_ACTIVITY?"tick ":"")+Arrow(r.direction),r.direction>0?(LightChart()?C'0,103,60':clrLimeGreen):(LightChart()?C'170,42,42':clrTomato));
   if(r.exitLong||r.exitShort) {
    int side=r.exitLong?1:-1,g=-1;
@@ -481,20 +565,21 @@ string ResponseLine(const MqlRates &c[],const MAFlowRow &rows[],const int second
  return line+" [同足の確定・観察用]";
 }
 void Refresh(const bool force=false) {
+ bool costChanged=RefreshBrokerCommissions();
  MqlTick tick;
  if(!ReadSessions()) {
   ObjectsDeleteAll(0,prefix+"zone");ObjectsDeleteAll(0,prefix+"retired.");retiredPainted=0;retryHistory=true;
-  Panel("MT5 1.1.0-preview.10 | "+_Symbol+" | 業者セッションを取得できず新規判定を保留\n接続・休場とは区別。セッション不明のまま営業中と推定しません。");return;
+  Panel("MT5 1.1.0-preview.11 | "+_Symbol+" | 業者セッションを取得できず新規判定を保留\n接続・休場とは区別。セッション不明のまま営業中と推定しません。");return;
  }
  bool live=TerminalInfoInteger(TERMINAL_CONNECTED) && SymbolInfoTick(_Symbol,tick) && ChartQuote(tick)>0 && TimeTradeServer()>=tick.time && TimeTradeServer()-tick.time<120;
  if(!live || !SessionOpen(TimeCurrent())) {
   ObjectsDeleteAll(0,prefix+"zone");ObjectsDeleteAll(0,prefix+"retired.");retiredPainted=0;lastM15=0;
   retryHistory=true;
-  Panel("MT5 1.1.0-preview.10 | "+_Symbol+" | 休場・未接続・価格更新待ち\n新規判定停止。過去サインは確定履歴。EXITは反転エントリーではありません。"); return;
+  Panel("MT5 1.1.0-preview.11 | "+_Symbol+" | 休場・未接続・価格更新待ち\n新規判定停止。過去サインは確定履歴。EXITは反転エントリーではありません。"); return;
  }
  datetime m=iTime(_Symbol,PERIOD_M15,1),h=iTime(_Symbol,PERIOD_H1,1),q=iTime(_Symbol,PERIOD_H4,1);
  datetime x=iTime(_Symbol,(ENUM_TIMEFRAMES)_Period,1),minute=iTime(_Symbol,PERIOD_M1,1);
- if(!force && !retryHistory && m==lastM15 && h==lastH1 && q==lastH4 && x==lastExec && minute==lastMinute) return;
+ if(!force && !costChanged && !retryHistory && m==lastM15 && h==lastH1 && q==lastH4 && x==lastExec && minute==lastMinute) return;
  retryHistory=false;
  lastM15=m;lastH1=h;lastH4=q;lastExec=x;lastMinute=minute;ArrayResize(candidates,0);ArrayResize(retiredCandidates,0);
  ArrayResize(m15Flow,0);ArrayResize(hourFlow,0);ArrayResize(chartFlow,0);chartAvailable=false;
@@ -554,9 +639,10 @@ void Refresh(const bool force=false) {
  }
  int j=ArraySize(m15Flow)-1;
  if(j>=0) {
-  MAFlowRow r=m15Flow[j];MAPlan p=MAMakePlan(m15Rates[j],r,900,j+1,AssumedRoundTripCostBps,MinimumNetRR,ManualBlackout||ArraySize(hourFlow)<220,MAPlanDigits(_Digits));
-  entry="M15 P: "+(j+1<220?"M15再構築220本待ち":ArraySize(hourFlow)<220?"H1再構築220本待ち":p.pCandidate?"条件成立 "+Arrow(p.direction):"WAIT")+" / H1一致 "+(r.hourlyAligned?"YES":"NO")+" / RR仮定 "+DoubleToString(p.netRR,2);
-  if(!p.costOK) entry+=" / 費用・RR条件未達（銘柄別の費用仮定を確認）";
+  MAFlowRow r=m15Flow[j];MACostRecord cost;MAPlan p=CostedPlan(m15Rates[j],r,900,j+1,ManualBlackout||ArraySize(hourFlow)<220,cost,true);
+  entry="M15 P確定足: "+(j+1<220?"M15再構築220本待ち":ArraySize(hourFlow)<220?"H1再構築220本待ち":p.pCandidate?"条件成立 "+Arrow(p.direction):"WAIT")+" / H1一致 "+(r.hourlyAligned?"YES":"NO")+" / 費用後RR "+(cost.ready?DoubleToString(p.netRR,2):"未取得");
+  if(!cost.ready) entry+=" / "+cost.reason;
+  else {entry+=" / 判定費用 "+DoubleToString(cost.bps,2)+"bps";if(!p.costOK) entry+=" / 費用・RR条件未達";}
   if(p.pCandidate) entry+=" / SL "+DoubleToString(p.stop,_Digits)+" / TP2 "+DoubleToString(p.tp2,_Digits);
  }
  string quote="観測 "+TimeToString(tick.time,TIME_SECONDS)+" Bid "+DoubleToString(tick.bid,_Digits)+" / Ask "+DoubleToString(tick.ask,_Digits)+" / spread "+DoubleToString((tick.ask-tick.bid)/_Point,1)+"pt";
@@ -566,7 +652,7 @@ void Refresh(const bool force=false) {
  bandState+="\n解消帯 "+(!showBands||!showRetired?"OFF":IntegerToString(retiredPainted)+"件 / 各足直近最大"+IntegerToString(RetiredZonesPerFrame)+"件・点線は解消時刻まで");
  if(zoneDrawError!="") holds+=zoneDrawError+"\n";
  BandCaption(painted);PaintSignals();PaintProfile();
- Panel("MT5 1.1.0-preview.10 | "+_Symbol+" | broker時刻 / 銘柄別独立版 "+ChartBasis()+"\n"+current+"\n"+response+"\n"+entry+"\n"+volume+"\n"+quote+" / "+CostSummary(tick)+"\n"+bandState+"\nEXIT表示 "+IntegerToString(exitLabels)+"組 / 停滞中の集約 "+IntegerToString(exitGroups)+"組（点・保存は全件）\n"+holds+historyNotes+"ニュース自動判定なし / "+(ManualBlackout?"手動P停止中":"Pは研究条件・注文なし")+(ShowFrameDetails?"\n"+status:""));
+ Panel("MT5 1.1.0-preview.11 | "+_Symbol+" | broker時刻 / 銘柄別独立版 "+ChartBasis()+"\n"+current+"\n"+response+"\n"+entry+"\n"+volume+"\n"+quote+"\n{LIVE_COST}\n"+bandState+"\nEXIT表示 "+IntegerToString(exitLabels)+"組 / 停滞中の集約 "+IntegerToString(exitGroups)+"組（点・保存は全件）\n"+holds+historyNotes+"ニュース自動判定なし / "+(ManualBlackout?"手動P停止中":"Pは研究条件・注文なし")+(ShowFrameDetails?"\n"+status:""));
  ChartRedraw();
 }
 void SetPlots() {
@@ -588,6 +674,9 @@ void FillCloud() {
 // No account, position, login, external request or mail access.
 string JNumber(const double v) {return v==EMPTY_VALUE||!MathIsValidNumber(v)?"null":DoubleToString(v,12);}
 string JBool(const bool b) {return b?"true":"false";}
+string CostJson(const MACostRecord &cost) {
+ return "{\"available\":"+JBool(cost.ready)+",\"basis\":\""+cost.basis+"\",\"spreadPrice\":"+JNumber(cost.spreadPrice)+",\"commissionPrice\":"+JNumber(cost.commissionPrice)+",\"totalBps\":"+JNumber(cost.bps)+",\"observedServerTime\":"+IntegerToString((long)cost.observedAt)+",\"commissionObservedServerTime\":"+IntegerToString((long)cost.commissionObservedAt)+",\"reason\":\""+MAJsonEscape(cost.reason)+"\"}";
+}
 string ResponseJson(const MAResponseRow &r) {
  return "{\"version\":\"closed-response-v1\",\"pressure\":"+IntegerToString(r.pressure)+",\"heldDirection\":"+IntegerToString(r.held)+",\"ribbon\":"+IntegerToString(r.ribbon)+",\"side\":"+IntegerToString(r.side)+",\"phase\":"+IntegerToString(r.phase)+",\"reference\":"+(r.side!=0?JNumber(r.reference):"null")+",\"fixedPad\":"+(r.side!=0?JNumber(r.pad):"null")+",\"brokenServerTime\":"+IntegerToString((long)r.brokenAt)+",\"changedServerTime\":"+IntegerToString((long)r.changedAt)+",\"expiresServerTime\":"+IntegerToString((long)r.expiresAt)+",\"closedServerTime\":"+IntegerToString((long)r.closedAt)+",\"observationOnly\":true}";
 }
@@ -605,17 +694,18 @@ void ExportFrameContext(const int file,const MqlRates &c[],const MAFlowRow &rows
  FileWriteString(file,"],\"contextBasis\":\"RECONSTRUCTED_FROM_THIS_EXPORT_CLOSED_BARS_NOT_A_CONTEMPORANEOUS_SIGNAL_LEDGER\"");
 }
 void ExportAnalysis() {
+ RefreshBrokerCommissions();
  string folder="MultiAnalyzerGold";FolderCreate(folder);
  string name=folder+"/MT5-"+MAFileSymbol(_Symbol)+"-"+IntegerToString((long)TimeLocal())+"-"+IntegerToString((long)GetMicrosecondCount())+".json";
  int file=FileOpen(name,FILE_WRITE|FILE_TXT|FILE_ANSI,0,CP_UTF8);if(file==INVALID_HANDLE) {Print("Market export could not open local file");return;}
  string symbol=MAJsonEscape(_Symbol);
  MqlTick quote;ZeroMemory(quote);bool quoted=SymbolInfoTick(_Symbol,quote);
- FileWriteString(file,"{\"version\":\"1.1.0-preview.10\",\"symbol\":\""+symbol+"\",\"clock\":\"BROKER_WALL_CLOCK_NOT_UTC\",\"exportedServerTime\":"+IntegerToString((long)TimeTradeServer())+",\"connected\":"+JBool((bool)TerminalInfoInteger(TERMINAL_CONNECTED))+",\"bid\":"+(quoted?JNumber(quote.bid):"null")+",\"ask\":"+(quoted?JNumber(quote.ask):"null")+",\"quoteTime\":"+(quoted?IntegerToString((long)quote.time):"null")+",\"assumedCostBps\":"+JNumber(AssumedRoundTripCostBps)+",\"volumeBasis\":\""+MAVolumeName(VolumeBasis)+"\",\"aggressorDelta\":null,\"cvd\":null,\"sessions\":[");
+ FileWriteString(file,"{\"version\":\"1.1.0-preview.11\",\"symbol\":\""+symbol+"\",\"clock\":\"BROKER_WALL_CLOCK_NOT_UTC\",\"exportedServerTime\":"+IntegerToString((long)TimeTradeServer())+",\"connected\":"+JBool((bool)TerminalInfoInteger(TERMINAL_CONNECTED))+",\"bid\":"+(quoted?JNumber(quote.bid):"null")+",\"ask\":"+(quoted?JNumber(quote.ask):"null")+",\"quoteTime\":"+(quoted?IntegerToString((long)quote.time):"null")+",\"assumedCostBps\":"+(PCostMode==MA_FIXED_BPS?JNumber(AssumedRoundTripCostBps):"null")+",\"volumeBasis\":\""+MAVolumeName(VolumeBasis)+"\",\"aggressorDelta\":null,\"cvd\":null,\"sessions\":[");
  for(int s=0;s<ArraySize(weeklySessions);s++) {
   if(s>0) FileWriteString(file,",");
   FileWriteString(file,"{\"weekday\":"+IntegerToString(weeklySessions[s].weekday)+",\"startSeconds\":"+IntegerToString(weeklySessions[s].start)+",\"stopSeconds\":"+IntegerToString(weeklySessions[s].stop)+"}");
  }
- FileWriteString(file,"],\"digits\":"+IntegerToString(_Digits)+",\"point\":"+JNumber(_Point)+",\"tickSize\":"+JNumber(SymbolInfoDouble(_Symbol,SYMBOL_TRADE_TICK_SIZE))+",\"chartPriceBasis\":\""+ChartBasis()+"\",\"baseCurrency\":\""+MAJsonEscape(SymbolInfoString(_Symbol,SYMBOL_CURRENCY_BASE))+"\",\"profitCurrency\":\""+MAJsonEscape(SymbolInfoString(_Symbol,SYMBOL_CURRENCY_PROFIT))+"\",\"spreadBpsNow\":"+(quoted?JNumber(MASpreadBps(quote.bid,quote.ask)):"null")+",\"costModel\":\"FIXED_ROUND_TRIP_BPS_ASSUMPTION_NOT_MEASURED\",\"planPriceDigits\":"+IntegerToString(MAPlanDigits(_Digits))+",\"frames\":[");
+ FileWriteString(file,"],\"digits\":"+IntegerToString(_Digits)+",\"point\":"+JNumber(_Point)+",\"tickSize\":"+JNumber(SymbolInfoDouble(_Symbol,SYMBOL_TRADE_TICK_SIZE))+",\"chartPriceBasis\":\""+ChartBasis()+"\",\"baseCurrency\":\""+MAJsonEscape(SymbolInfoString(_Symbol,SYMBOL_CURRENCY_BASE))+"\",\"profitCurrency\":\""+MAJsonEscape(SymbolInfoString(_Symbol,SYMBOL_CURRENCY_PROFIT))+"\",\"spreadBpsNow\":"+(quoted?JNumber(MASpreadBps(quote.bid,quote.ask)):"null")+",\"costModel\":\""+(PCostMode==MA_BROKER_AUTO?"broker-spread-v1":"manual-fixed-bps-v1")+"\",\"commissionRulesReported\":"+IntegerToString(brokerCommissionCount)+",\"commissionObservedServerTime\":"+IntegerToString((long)brokerCommissionObservedAt)+",\"commissionApiError\":"+IntegerToString(brokerCommissionError)+",\"commissionSchedule\":\""+MAJsonEscape(brokerCommissionKey)+"\",\"historicalCommissionScheduleKnown\":false,\"costLimitations\":\"Recorded bar spread for confirmed P; current commission schedule reconstructed, not historical proof. Future slippage, exit spread and swaps unknown.\",\"planPriceDigits\":"+IntegerToString(MAPlanDigits(_Digits))+",\"frames\":[");
  ENUM_TIMEFRAMES frames[]={PERIOD_M1,PERIOD_M5,PERIOD_M15,PERIOD_H1,PERIOD_H4,PERIOD_D1};
  for(int f=0;f<6;f++) {
   if(f>0) FileWriteString(file,",");MqlRates c[];MAFlowRow rows[];
@@ -628,8 +718,9 @@ void ExportAnalysis() {
    if(raw[i].time+PeriodSeconds(frames[f])>TimeCurrent()) continue;
    if(written++>0) FileWriteString(file,",");MAFlowRow r;ZeroMemory(r);r.e13=EMPTY_VALUE;r.e21=EMPTY_VALUE;
    int index=i-seed;bool derived=ready&&index>=0&&index<ArraySize(rows);
-   if(derived) r=rows[index];MAPlan p;ZeroMemory(p);if(derived) p=MAMakePlan(raw[i],r,PeriodSeconds(frames[f]),index+1,AssumedRoundTripCostBps,MinimumNetRR,ManualBlackout&&i==ArraySize(raw)-1,MAPlanDigits(_Digits));
-   FileWriteString(file,"{\"time\":"+IntegerToString((long)raw[i].time)+",\"open\":"+JNumber(raw[i].open)+",\"high\":"+JNumber(raw[i].high)+",\"low\":"+JNumber(raw[i].low)+",\"close\":"+JNumber(raw[i].close)+",\"volume\":"+JNumber(MAVolume(raw[i],VolumeBasis))+",\"tickVolume\":"+IntegerToString(raw[i].tick_volume)+",\"realVolume\":"+IntegerToString(raw[i].real_volume)+",\"spreadPoints\":"+IntegerToString(raw[i].spread)+",\"derivedAvailable\":"+JBool(derived)+",\"flowReady\":"+(derived?JBool(r.ready):"null")+",\"ema13\":"+JNumber(r.e13)+",\"ema21\":"+JNumber(r.e21)+",\"atr\":"+(derived?JNumber(r.atr):"null")+",\"adx\":"+(derived?JNumber(r.adx):"null")+",\"direction\":"+(derived&&r.ready?IntegerToString(r.direction):"null")+",\"ribbon\":"+(derived&&r.ready?IntegerToString(r.ribbon):"null")+",\"exitLong\":"+(derived&&r.ready?JBool(r.exitLong):"null")+",\"exitShort\":"+(derived&&r.ready?JBool(r.exitShort):"null")+",\"pullbackConfirmed\":"+(derived&&r.ready?JBool(r.pullbackConfirmed):"null")+",\"pCandidate\":"+(derived&&r.ready?JBool(p.pCandidate):"null")+",\"plan\":"+(derived&&r.ready?"{\"stop\":"+JNumber(p.stop)+",\"tp2\":"+JNumber(p.tp2)+",\"netRR\":"+JNumber(p.netRR)+"}":"null")+"}");
+   if(derived) r=rows[index];MAPlan p;ZeroMemory(p);MACostRecord cost;ZeroMemory(cost);cost.bps=EMPTY_VALUE;cost.spreadPrice=EMPTY_VALUE;cost.commissionPrice=EMPTY_VALUE;if(derived) p=CostedPlan(raw[i],r,PeriodSeconds(frames[f]),index+1,ManualBlackout&&i==ArraySize(raw)-1,cost,i==ArraySize(raw)-1);
+   FileWriteString(file,"{\"cost\":"+CostJson(cost)+",");
+   FileWriteString(file,"\"time\":"+IntegerToString((long)raw[i].time)+",\"open\":"+JNumber(raw[i].open)+",\"high\":"+JNumber(raw[i].high)+",\"low\":"+JNumber(raw[i].low)+",\"close\":"+JNumber(raw[i].close)+",\"volume\":"+JNumber(MAVolume(raw[i],VolumeBasis))+",\"tickVolume\":"+IntegerToString(raw[i].tick_volume)+",\"realVolume\":"+IntegerToString(raw[i].real_volume)+",\"spreadPoints\":"+IntegerToString(raw[i].spread)+",\"derivedAvailable\":"+JBool(derived)+",\"flowReady\":"+(derived?JBool(r.ready):"null")+",\"ema13\":"+JNumber(r.e13)+",\"ema21\":"+JNumber(r.e21)+",\"atr\":"+(derived?JNumber(r.atr):"null")+",\"adx\":"+(derived?JNumber(r.adx):"null")+",\"direction\":"+(derived&&r.ready?IntegerToString(r.direction):"null")+",\"ribbon\":"+(derived&&r.ready?IntegerToString(r.ribbon):"null")+",\"exitLong\":"+(derived&&r.ready?JBool(r.exitLong):"null")+",\"exitShort\":"+(derived&&r.ready?JBool(r.exitShort):"null")+",\"pullbackConfirmed\":"+(derived&&r.ready?JBool(r.pullbackConfirmed):"null")+",\"pCandidate\":"+(derived&&r.ready?JBool(p.pCandidate):"null")+",\"plan\":"+(derived&&r.ready?"{\"stop\":"+JNumber(p.stop)+",\"tp2\":"+JNumber(p.tp2)+",\"netRR\":"+JNumber(p.netRR)+"}":"null")+"}");
   }
   FileWriteString(file,"]");ExportFrameContext(file,c,rows,ready,frames[f]);FileWriteString(file,"}");
  }
@@ -650,13 +741,14 @@ void FillPlots(const int total,const datetime &time[]) {
   r5[i]=r.e5;r8[i]=r.e8;r13[i]=r.e13;r21[i]=r.e21;r34[i]=r.e34;r55[i]=r.e55;r89[i]=r.e89;r144[i]=r.e144;
   if(j>=19) {double sum=0,sd=0;for(int k=j-19;k<=j;k++) sum+=chartRates[k].close;double mean=sum/20;for(int k=j-19;k<=j;k++) sd+=MathPow(chartRates[k].close-mean,2);sd=MathSqrt(sd/20);bm[i]=mean;bu[i]=mean+2*sd;bl[i]=mean-2*sd;}
   if(r.exitLong) exitBuy[i]=b.high+r.atr*.2;if(r.exitShort) exitSell[i]=b.low-r.atr*.2;
-  MAPlan p=MAMakePlan(b,r,PeriodSeconds(),j+1,AssumedRoundTripCostBps,MinimumNetRR,ManualBlackout&&j==n-1,MAPlanDigits(_Digits));
+  MACostRecord cost;MAPlan p=CostedPlan(b,r,PeriodSeconds(),j+1,ManualBlackout&&j==n-1,cost,j==n-1);
   if(p.pCandidate) {if(r.direction>0) pBuy[i]=b.low-r.atr*.2;else pSell[i]=b.high+r.atr*.2;}
   if(r.switched) {if(r.direction>0) turnBuy[i]=b.low-r.atr*.65;else turnSell[i]=b.high+r.atr*.65;}
  }
  FillCloud();
 }
 int OnInit() {
+ ArrayResize(costMemos,0);nextCommissionRead=0;
  if(!MACoreSelfTest()||!MAFlowSelfTest()||!MAHistorySelfTest()) {Print("Multi-Analyzer core self-test failed");return INIT_FAILED;}
  if(_Point<=0 || _Digits<0 || _Digits>12) {Print("銘柄の価格仕様を取得できません");return INIT_FAILED;}
  if(HistoryBars<220 || HistoryBars>1500 || RetiredZonesPerFrame<0 || RetiredZonesPerFrame>10 || StringLen(InstanceName)>24||AssumedRoundTripCostBps<0||AssumedRoundTripCostBps>100||MinimumNetRR<=0) return INIT_PARAMETERS_INCORRECT;
@@ -683,14 +775,14 @@ int OnInit() {
  color colors[]={clrCyan,clrDeepSkyBlue,clrDodgerBlue,clrRoyalBlue,clrMediumPurple,clrViolet,clrOrange,clrOrangeRed,clrGold,clrGold,clrLimeGreen,clrTomato,clrAqua,clrDeepPink};
  for(int i=0;i<19;i++) {PlotIndexSetDouble(i,PLOT_EMPTY_VALUE,EMPTY_VALUE);if(i>=5) {PlotIndexSetString(i,PLOT_LABEL,labels[i-5]);PlotIndexSetInteger(i,PLOT_LINE_COLOR,colors[i-5]);PlotIndexSetInteger(i,PLOT_LINE_WIDTH,i>=13?2:1);if(i>=13) PlotIndexSetInteger(i,PLOT_ARROW,i<=14?159:i==16||i==18?234:233);}}
  IndicatorSetInteger(INDICATOR_DIGITS,_Digits);
- IndicatorSetString(INDICATOR_SHORTNAME,"Multi-Analyzer 1.1.0-preview.10 "+_Symbol+" "+(VolumeBasis==MA_TICK_ACTIVITY?"tick":"real/off"));
+ IndicatorSetString(INDICATOR_SHORTNAME,"Multi-Analyzer 1.1.0-preview.11 "+_Symbol+" "+(VolumeBasis==MA_TICK_ACTIVITY?"tick":"real/off"));
  ApplyPalette();Controls();SetPlots();
  EventSetTimer(2);Refresh(true);return INIT_SUCCEEDED;
 }
 int OnCalculate(const int rates_total,const int prev_calculated,const datetime &time[],const double &open[],const double &high[],const double &low[],const double &close[],const long &tick_volume[],const long &volume[],const int &spread[]) {
  ArraySetAsSeries(time,false);Refresh();FillPlots(rates_total,time);return rates_total;
 }
-void OnTimer() {Refresh();}
+void OnTimer() {Refresh();if(showDetails) Panel(panelText);}
 void OnChartEvent(const int id,const long &lparam,const double &dparam,const string &sparam) {
  if(id==CHARTEVENT_CHART_CHANGE) {ApplyPalette();Controls();int painted=RenderCandidates();BandCaption(painted);PaintSignals();PaintProfile();Panel(panelText);ChartRedraw();return;}
  if(id!=CHARTEVENT_OBJECT_CLICK) return;

@@ -1,6 +1,6 @@
 {
-  "version": "1.1.0-preview.10",
-  "mqlVersion": "1.109",
+  "version": "1.1.0-preview.11",
+  "mqlVersion": "1.110",
   "stage": "preview",
   "sourceFiles": [
     "MultiAnalyzerGold.mq5",
@@ -10,9 +10,10 @@
     "MAResponseCore.mqh",
     "MAVisualCore.mqh",
     "MAInstrumentCore.mqh",
+    "MABrokerCost.mqh",
     "README_JA.txt",
     "CHANGELOG.md"
   ],
-  "scope": "MT5の装着先銘柄に対応。GOLD・BTC/USD・ドル円・他のFXやCFDで、銘柄別の足・価格桁・取引時間を使用。帯・解消履歴・トレンド雲・P/EXITを保持し、AI保存は銘柄名付きファイルへ。",
-  "runtimeVerification": "既存MetaEditorでコンパイル、銘柄名・価格精度・費用・取引時間と既存判定の回帰テストを実施。各銘柄の実チャート装着・配信履歴・予測精度は未確認"
+  "scope": "Pの費用を初期設定で自動取得。確定足の記録スプレッドと銘柄の手数料配信規則を使用し、現在のBid/Askによる費用確認を別表示。未取得・未対応の費用条件ではPを保留。帯・雲・EXITとWebのGold監視は維持。",
+  "runtimeVerification": "MetaEditorでコンパイルし、費用単位・往復手数料・未取得時の保留・過去足への現在spread混入防止・JSON出力を自動検査。XM実配信の手数料規則と実チャート装着、収益精度は未確認"
 }

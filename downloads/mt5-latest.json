@@ -1,6 +1,6 @@
 {
-  "version": "1.1.0-preview.10",
-  "mqlVersion": "1.109",
+  "version": "1.1.0-preview.11",
+  "mqlVersion": "1.110",
   "stage": "preview",
   "sourceFiles": [
     "MultiAnalyzerGold.mq5",
@@ -10,26 +10,28 @@
     "MAResponseCore.mqh",
     "MAVisualCore.mqh",
     "MAInstrumentCore.mqh",
+    "MABrokerCost.mqh",
     "README_JA.txt",
     "CHANGELOG.md"
   ],
-  "scope": "MT5の装着先銘柄に対応。GOLD・BTC/USD・ドル円・他のFXやCFDで、銘柄別の足・価格桁・取引時間を使用。帯・解消履歴・トレンド雲・P/EXITを保持し、AI保存は銘柄名付きファイルへ。",
-  "runtimeVerification": "既存MetaEditorでコンパイル、銘柄名・価格精度・費用・取引時間と既存判定の回帰テストを実施。各銘柄の実チャート装着・配信履歴・予測精度は未確認",
-  "file": "MultiAnalyzerGold-1.1.0-preview.10.zip",
-  "bytes": 221248,
-  "sha256": "bf714674c71f759db2a304a981620259faac8d3cea226ebe2b1b8db4264911c5",
+  "scope": "Pの費用を初期設定で自動取得。確定足の記録スプレッドと銘柄の手数料配信規則を使用し、現在のBid/Askによる費用確認を別表示。未取得・未対応の費用条件ではPを保留。帯・雲・EXITとWebのGold監視は維持。",
+  "runtimeVerification": "MetaEditorでコンパイルし、費用単位・往復手数料・未取得時の保留・過去足への現在spread混入防止・JSON出力を自動検査。XM実配信の手数料規則と実チャート装着、収益精度は未確認",
+  "file": "MultiAnalyzerGold-1.1.0-preview.11.zip",
+  "bytes": 254030,
+  "sha256": "6cb5d76517d1b76384dc347d04c9eab05b50459b0ca9e8b0848348a382dba370",
   "sources": {
-    "MultiAnalyzerGold.mq5": "0e06854be7700165aeca436ebc144262284173b3bc75d35adc14ade0c89ce04a",
+    "MultiAnalyzerGold.mq5": "95cdeb822e30f6a4477eb4a5f7aa741e783ebb87e2dec0c99fac8ed41f3044aa",
     "MAZoneCore.mqh": "878b328cc1e0f8fe1f39b8e5c72b8a17af93f13d7a50213ebc004b9089d1f464",
     "MAFlowCore.mqh": "0472f9687e14466caadde4cc12826d3759c4a6961ccc35c43c90ab09d7173507",
     "MAHistoryCore.mqh": "46bff12e6dde4c851d9d6ec8479f318731f40962a86cb9a204ee487b777a02f0",
     "MAResponseCore.mqh": "7d4d35274c485caaf5e2d65230bdd58896732c5626c59a32da3761f66e622d29",
     "MAVisualCore.mqh": "67485cbc924e5f654892bb6defde651d46f3cab1ba353677677d230b0c7483e0",
     "MAInstrumentCore.mqh": "f65ae44a8e5269702e11d865549e99738d92b422de01f97944927c877be3f1fa",
-    "README_JA.txt": "6adab9a1831d65714a0c6d2e0615215239912060f1be8992fd39a639f10bb4cc",
-    "CHANGELOG.md": "59a6ad584ae8d11655bfd5a461817819e80084b3cfb5686beaacfe8308fee40c"
+    "MABrokerCost.mqh": "f098e66e9e0c04c58460b7525726c43c0f1d389001c23bdb8fe40b36ddecf7ab",
+    "README_JA.txt": "560120ef73019a6dda0c266ebe1736839ea835b908a18463bdc7ff80f96e9fbd",
+    "CHANGELOG.md": "78b4c32c04d0a10f61ce5b06d0187ecf4f2c2453960acb5fc7c58a8fd3ccce64"
   },
-  "compiledSha256": "a08777b5baa3c4d3c316c54fa64bb692e9f42b6e0fe696f63460d3fe67062ba4",
+  "compiledSha256": "9d8191d4d2b48fd8d5be4b725074748e090984f4c068cfa314ef377a39098b23",
   "compiler": {
     "errors": 0,
     "warnings": 0

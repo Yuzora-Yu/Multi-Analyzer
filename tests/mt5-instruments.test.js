@@ -61,7 +61,9 @@ test('indicator uses the chart symbol, explicit precision and quote basis at eve
  assert(!/StringFind\(symbol,"(?:GOLD|XAU)"/.test(s));assert.match(s,/INDICATOR_DIGITS,_Digits/);
  assert.match(s,/SYMBOL_CHART_MODE_LAST\?tick.last:tick.bid/);assert.match(s,/SYMBOL_TRADE_TICK_SIZE/);
  assert.match(s,/MAFileSymbol\(_Symbol\)/);assert.match(s,/MAJsonEscape\(_Symbol\)/);
- const calls=s.match(/MAMakePlan\([^\n]+/g);assert.equal(calls.length,4);
+ const calls=s.match(/MAMakePlan\([^\n]+/g);assert.equal(calls.length,2);
  for(const call of calls)assert(call.includes('MAPlanDigits(_Digits)'));
- for(const file of ['MAInstrumentCore.mqh','MultiAnalyzerGold.mq5'])assert(!/\b(?:OrderSend|SendMail|WebRequest|AccountInfo\w*|PositionGet\w*)\s*\(/.test(fs.readFileSync(path.join(root,file),'utf8')));
+ assert.equal((s.match(/MAPlan p=CostedPlan\(/g)||[]).length,3);
+ assert.match(s,/p=CostedPlan\(raw\[i\]/);
+ for(const file of ['MAInstrumentCore.mqh','MABrokerCost.mqh','MultiAnalyzerGold.mq5'])assert(!/\b(?:OrderSend|SendMail|WebRequest|AccountInfo\w*|PositionGet\w*)\s*\(/.test(fs.readFileSync(path.join(root,file),'utf8')));
 });
