@@ -1,6 +1,6 @@
 {
-  "version": "1.1.0-preview.12",
-  "mqlVersion": "1.120",
+  "version": "1.1.0-preview.13",
+  "mqlVersion": "1.130",
   "stage": "preview",
   "sourceFiles": [
     "MultiAnalyzerGold.mq5",
@@ -12,16 +12,17 @@
     "MAInstrumentCore.mqh",
     "MABrokerCost.mqh",
     "MAZoneImportance.mqh",
+    "MAPDisplayCore.mqh",
     "README_JA.txt",
     "CHANGELOG.md"
   ],
-  "scope": "帯に大局・波・短期の役割と重要度を追加。形成時の相対活動量・変位・確認済み構造突破・再訪回数を評価し、高重要度の輪郭と短いラベル、説明とAI保存へ反映。銘柄別の自動費用取得・元の帯・P/EXIT・解消帯履歴を維持。",
-  "runtimeVerification": "MetaEditorのコンパイル、Web/MT5重要度の配点一致、形成後の情報混入・連続再訪・未取得量の扱い・既存判定不変を自動検査。実チャートの装着・XM実配信の手数料規則・重要度の予測精度は未確認",
-  "file": "MultiAnalyzerGold-1.1.0-preview.12.zip",
-  "bytes": 276598,
-  "sha256": "d3dbb68d9084736a372116ebd0c273452a2b03baf22bb6ddf4aaccc22afa8dfc",
+  "scope": "元のPと初回描画処理時の足を、灰色の表示Pと点線で接続。表示時刻・価格をローカル保持しAI保存にも追加。未記録の過去Pは時刻を推定せず、P/EXIT判定と費用条件は維持。",
+  "runtimeVerification": "MetaEditorコンパイル、記録の初期化・遅延表示・重複防止・上限と時刻整合性、既存P/EXIT不変を自動検査。実チャートの初回ライブP・ネイティブ保存復元・実際の描画と予測精度は未確認",
+  "file": "MultiAnalyzerGold-1.1.0-preview.13.zip",
+  "bytes": 311649,
+  "sha256": "383940a43f7e8648f3e3ff44d12b0b2662929130dd7c0dad6046f9b874f5d64e",
   "sources": {
-    "MultiAnalyzerGold.mq5": "9c56d3344bac2b4769b2fa4d10d156a3697253ecb2d174679fd967a3daf0ea8e",
+    "MultiAnalyzerGold.mq5": "d8f2d7365c82e5e5cc0d0788894c76debc3ad375cb0e9ce65a8a99f3ec527d86",
     "MAZoneCore.mqh": "878b328cc1e0f8fe1f39b8e5c72b8a17af93f13d7a50213ebc004b9089d1f464",
     "MAFlowCore.mqh": "0472f9687e14466caadde4cc12826d3759c4a6961ccc35c43c90ab09d7173507",
     "MAHistoryCore.mqh": "46bff12e6dde4c851d9d6ec8479f318731f40962a86cb9a204ee487b777a02f0",
@@ -30,10 +31,11 @@
     "MAInstrumentCore.mqh": "f65ae44a8e5269702e11d865549e99738d92b422de01f97944927c877be3f1fa",
     "MABrokerCost.mqh": "f098e66e9e0c04c58460b7525726c43c0f1d389001c23bdb8fe40b36ddecf7ab",
     "MAZoneImportance.mqh": "afb48bdd27314b85301c16420e58212df3da0d2aed14372631b4d413dd483f87",
-    "README_JA.txt": "4ad6f16475322b2b7ede6526281fba6d128f5c788b38a7df4a8d3366d3469713",
-    "CHANGELOG.md": "a49aaed53952fdce557c5aa7c2d0fc9adeb4eae60156205d6cb952fa3723294d"
+    "MAPDisplayCore.mqh": "e9741d26d3cb8158e77baf9d5461896d4771f29ecea7ce4f77a421892c202411",
+    "README_JA.txt": "1a1592a45ac7fe10b38a48e27d5a48d09d0d331596dd7d2b606a258135f6cd96",
+    "CHANGELOG.md": "b2c8e1a64377539436b6b65e32d8d0c43160fa99aa312f00cb84461436754c19"
   },
-  "compiledSha256": "f3cc92afc61448b0659fd6de47ec627805461b370aa6970a908084442ca2ef40",
+  "compiledSha256": "679e485fbc2159b1673ded78c3bf8eb67d693f310923dc894eb989b45553c14c",
   "compiler": {
     "errors": 0,
     "warnings": 0

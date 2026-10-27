@@ -1,6 +1,6 @@
 {
-  "version": "1.1.0-preview.12",
-  "mqlVersion": "1.120",
+  "version": "1.1.0-preview.13",
+  "mqlVersion": "1.130",
   "stage": "preview",
   "sourceFiles": [
     "MultiAnalyzerGold.mq5",
@@ -12,9 +12,10 @@
     "MAInstrumentCore.mqh",
     "MABrokerCost.mqh",
     "MAZoneImportance.mqh",
+    "MAPDisplayCore.mqh",
     "README_JA.txt",
     "CHANGELOG.md"
   ],
-  "scope": "帯に大局・波・短期の役割と重要度を追加。形成時の相対活動量・変位・確認済み構造突破・再訪回数を評価し、高重要度の輪郭と短いラベル、説明とAI保存へ反映。銘柄別の自動費用取得・元の帯・P/EXIT・解消帯履歴を維持。",
-  "runtimeVerification": "MetaEditorのコンパイル、Web/MT5重要度の配点一致、形成後の情報混入・連続再訪・未取得量の扱い・既存判定不変を自動検査。実チャートの装着・XM実配信の手数料規則・重要度の予測精度は未確認"
+  "scope": "元のPと初回描画処理時の足を、灰色の表示Pと点線で接続。表示時刻・価格をローカル保持しAI保存にも追加。未記録の過去Pは時刻を推定せず、P/EXIT判定と費用条件は維持。",
+  "runtimeVerification": "MetaEditorコンパイル、記録の初期化・遅延表示・重複防止・上限と時刻整合性、既存P/EXIT不変を自動検査。実チャートの初回ライブP・ネイティブ保存復元・実際の描画と予測精度は未確認"
 }

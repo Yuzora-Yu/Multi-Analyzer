@@ -1,7 +1,7 @@
 #property copyright "Multi-Analyzer"
 #property link "https://yuzora-yu.github.io/Multi-Analyzer/"
-#property version "1.120"
-#property description "Multi-Analyzer MT5 1.1.0-preview.12. Timeframe and formation quality zone importance. No trading."
+#property version "1.130"
+#property description "Multi-Analyzer MT5 1.1.0-preview.13. P source and first render candle trace. No trading."
 #property indicator_chart_window
 #property indicator_buffers 33
 #property indicator_plots 26
@@ -41,6 +41,7 @@
 #include "MAInstrumentCore.mqh"
 #include "MABrokerCost.mqh"
 #include "MAZoneImportance.mqh"
+#include "MAPDisplayCore.mqh"
 
 input int HistoryBars=1000; // request 220..1500; price/SMC need60, EMA144 needs144, P still needs220
 input bool InitialBands=true;
@@ -52,6 +53,8 @@ input bool InitialBB=true;
 input bool InitialRibbon=true;
 input bool InitialCloud=true; // EMA5..144 fill, colored by the SAME ribbon as the Web chart
 input bool InitialSignals=true;
+input bool InitialPDisplayTrace=true; // second neutral P at the first render candle, not another signal
+input int PDisplayTraceCount=20; // latest 1..40 recorded pairs; local ledger retains at most 256
 input bool InitialDetails=false; // top-left data panel; independently remembered per chart
 input MAVolumeMode VolumeBasis=MA_TICK_ACTIVITY; // tick counts are NOT exchange trade volume
 input double AssumedRoundTripCostBps=7.0; // used only in legacy MA_FIXED_BPS mode
@@ -70,6 +73,11 @@ bool showBands=true,showBB=true,showRibbon=true,showSignals=true,showDetails=fal
 bool showCloud=true;
 bool showRetired=true;
 bool showAllZoneFrames=false,showZoneLabels=true;
+bool showPDisplayTrace=true,pDisplayDirty=false,pDisplayStoreOK=true,pDisplayStoreWritable=true,pDisplayNeedsPaint=false;
+datetime pDisplayBaseline=0,pDisplayNextSave=0;
+string pDisplayScope="",pDisplayFile="";
+int pDisplayLease=INVALID_HANDLE;
+MAPDisplayRecord pDisplayRecords[];
 int zoneLabelBuy=0,zoneLabelSell=0;
 MALabelBox labelBoxes[];
 struct MAExitGroup {int side,first,last,count;double firstPrice,atr;string times;};
@@ -232,8 +240,8 @@ bool LightChart() {
 color ExitColor() {return LightChart()?C'58,78,118':C'155,190,235';}
 color BuyColor() {return LightChart()?C'0,103,92':clrAqua;}
 color SellColor() {return LightChart()?C'155,56,29':clrOrange;}
-int ControlColumns() {return MathMax(1,MathMin(10,(int)(ChartGetInteger(0,CHART_WIDTH_IN_PIXELS)-20)/100));}
-int PanelTop() {return 28+((10+ControlColumns()-1)/ControlColumns())*32;}
+int ControlColumns() {return MathMax(1,MathMin(11,(int)(ChartGetInteger(0,CHART_WIDTH_IN_PIXELS)-20)/100));}
+int PanelTop() {return 28+((11+ControlColumns()-1)/ControlColumns())*32;}
 void ApplyPalette() {
  color light[]={C'19,85,166',C'166,79,0',C'91,107,126',C'91,107,126',C'91,107,126',
   C'0,108,128',C'0,106,161',C'19,85,166',C'46,69,157',C'102,58,151',C'141,46,134',C'164,80,0',C'174,49,28',
@@ -268,6 +276,8 @@ void Controls() {
  Button("cloud","トレンド雲",612,showCloud);
  Button("retired","解消帯",712,showRetired);
  Button("frameScope","下位足も",812,showAllZoneFrames);Button("bandText","帯文字",912,showZoneLabels);
+ Button("pDisplay","P表示足",1012,showPDisplayTrace);
+ ObjectSetString(0,prefix+"pDisplay",OBJPROP_TOOLTIP,"元のP → 初回描画処理時の足を灰色の表示Pと線で表示。別サインではありません。過去の未記録時刻は推定しません。");
  ObjectSetString(0,prefix+"frameScope",OBJPROP_TOOLTIP,"OFF: 表示足以上の帯 / ON: 下位足も表示。判定・AI保存は不変。");
  ObjectSetString(0,prefix+"bandText",OBJPROP_TOOLTIP,"有効帯の説明文字だけを切替。解消帯は点線とツールチップを保持。");
 }
@@ -350,26 +360,138 @@ bool SignalText(const string kind,const datetime time,const double price,const s
  int window=0;datetime labelTime;double labelPrice;
  if(!ChartXYToTimePrice(0,px,py,window,labelTime,labelPrice)||window!=0) return false;
  string name=prefix+"mark."+kind+IntegerToString((long)time);
- ObjectCreate(0,name,OBJ_TEXT,0,labelTime,labelPrice);ObjectSetString(0,name,OBJPROP_TEXT,text);
+ if(!ObjectCreate(0,name,OBJ_TEXT,0,labelTime,labelPrice)||!ObjectSetString(0,name,OBJPROP_TEXT,text)) return false;
  ObjectSetInteger(0,name,OBJPROP_ANCHOR,ANCHOR_LEFT_LOWER);
  ObjectSetString(0,name,OBJPROP_FONT,"Meiryo");ObjectSetInteger(0,name,OBJPROP_FONTSIZE,8);
  ObjectSetInteger(0,name,OBJPROP_COLOR,col);ObjectSetInteger(0,name,OBJPROP_SELECTABLE,false);
- ObjectSetString(0,name,OBJPROP_TOOLTIP,text+" | confirmed "+TimeToString(time+PeriodSeconds())+" broker | "+extra+" | "+MAVolumeName(VolumeBasis)+" | EXIT is NOT a reversal entry");
+ ObjectSetString(0,name,OBJPROP_TOOLTIP,text+" | confirmed "+TimeToString(time+PeriodSeconds())+" broker | "+extra+" | "+MAVolumeName(VolumeBasis)+(kind=="xb"||kind=="xs"?" | EXIT is NOT a reversal entry":""));
  if(px!=x||py!=y) {
   string lead=name+".leader";ObjectCreate(0,lead,OBJ_TREND,0,time,price,labelTime,labelPrice);
   ObjectSetInteger(0,lead,OBJPROP_COLOR,LightChart()?C'148,163,184':clrSlateGray);ObjectSetInteger(0,lead,OBJPROP_RAY_RIGHT,false);ObjectSetInteger(0,lead,OBJPROP_RAY_LEFT,false);ObjectSetInteger(0,lead,OBJPROP_SELECTABLE,false);
  }
  return true;
 }
+// Only records future render passes after the first successful history baseline.
+// Startup/recalculated history is NEVER stamped with the attachment time.
+void EnsurePDisplayBaseline() {
+ if(pDisplayBaseline>0||!chartAvailable||ArraySize(chartRates)==0) return;
+ pDisplayBaseline=chartRates[ArraySize(chartRates)-1].time+PeriodSeconds();
+}
+string PDisplayLine(const MAPDisplayRecord &r) {
+ return IntegerToString((long)r.source)+"|"+IntegerToString((long)r.confirmed)+"|"+IntegerToString((long)r.observedServer)+"|"+IntegerToString((long)r.observedUTC)+"|"+IntegerToString((long)r.displayBar)+"|"+IntegerToString(r.side)+"|"+DoubleToString(r.sourcePrice,12)+"|"+DoubleToString(r.displayPrice,12)+"|"+(r.delayed?"1":"0");
+}
+void LoadPDisplayTrace() {
+ ArrayResize(pDisplayRecords,0);pDisplayBaseline=0;pDisplayDirty=false;pDisplayStoreOK=true;pDisplayStoreWritable=true;
+ pDisplayScope="p-display-v1|"+IntegerToString(ChartID())+"|"+MAFileSymbol(InstanceName)+"|"+MAFileSymbol(_Symbol)+"|"+IntegerToString(PeriodSeconds())+"|"+IntegerToString(HistoryBars)+"|"+IntegerToString((int)VolumeBasis)+"|"+IntegerToString((int)PCostMode)+"|"+DoubleToString(AssumedRoundTripCostBps,8)+"|"+DoubleToString(MinimumNetRR,8)+"|"+(ManualBlackout?"1":"0");
+ uint hash=2166136261;for(int i=0;i<StringLen(pDisplayScope);i++) hash=(hash^(uint)StringGetCharacter(pDisplayScope,i))*16777619;
+ pDisplayFile="MultiAnalyzerGold/PDisplayTrace/"+IntegerToString(ChartID())+"-"+StringFormat("%08X",hash)+".txt";
+ // A duplicate indicator with the same chart/input scope must not overwrite the first writer.
+ pDisplayLease=FileOpen(pDisplayFile+".lease",FILE_READ|FILE_WRITE|FILE_BIN);
+ if(pDisplayLease==INVALID_HANDLE) {pDisplayStoreOK=false;pDisplayStoreWritable=false;Print("P display ledger unavailable or another matching instance is writing; memory only.");}
+ if(!FileIsExist(pDisplayFile)) return;
+ int f=FileOpen(pDisplayFile,FILE_READ|FILE_TXT|FILE_ANSI,0,CP_UTF8);
+ bool valid=f!=INVALID_HANDLE;MAPDisplayRecord loaded[];
+ if(valid) {
+  valid=FileSize(f)<131072&&FileReadString(f)==pDisplayScope;bool ended=false;
+  while(valid&&!FileIsEnding(f)) {
+   string line=FileReadString(f);if(line==""&&FileIsEnding(f)) break;
+   if(line=="END|"+IntegerToString(ArraySize(loaded))) {ended=FileIsEnding(f);if(!ended) valid=false;break;}
+   string v[];if(StringSplit(line,'|',v)!=9) {valid=false;break;}
+   MAPDisplayRecord r;ZeroMemory(r);
+   r.source=(datetime)StringToInteger(v[0]);r.confirmed=(datetime)StringToInteger(v[1]);r.observedServer=(datetime)StringToInteger(v[2]);r.observedUTC=(datetime)StringToInteger(v[3]);r.displayBar=(datetime)StringToInteger(v[4]);r.side=(int)StringToInteger(v[5]);r.sourcePrice=StringToDouble(v[6]);r.displayPrice=StringToDouble(v[7]);r.delayed=v[8]=="1";
+   valid=ArraySize(loaded)<256&&PDisplayLine(r)==line&&MAPDisplayRemember(loaded,r,PeriodSeconds(),256);
+  }
+  valid=valid&&ended;FileClose(f);
+ }
+ if(valid) ArrayCopy(pDisplayRecords,loaded);
+ else {pDisplayStoreOK=false;pDisplayStoreWritable=false;Print("P display ledger unreadable/scope mismatch. Preserved without overwrite; new observations remain in memory.");}
+}
+void SavePDisplayTrace() {
+ if(!pDisplayDirty||!pDisplayStoreWritable||TimeLocal()<pDisplayNextSave) return;
+ pDisplayNextSave=TimeLocal()+10;
+ string temp=pDisplayFile+"."+IntegerToString((long)GetMicrosecondCount())+".tmp";
+ int f=FileOpen(temp,FILE_WRITE|FILE_TXT|FILE_ANSI,0,CP_UTF8);bool ok=f!=INVALID_HANDLE;
+ if(ok) {
+  ok=FileWriteString(f,pDisplayScope+"\r\n")>0;
+  for(int i=0;i<ArraySize(pDisplayRecords)&&ok;i++) ok=FileWriteString(f,PDisplayLine(pDisplayRecords[i])+"\r\n")>0;
+  if(ok) ok=FileWriteString(f,"END|"+IntegerToString(ArraySize(pDisplayRecords))+"\r\n")>0;
+  ResetLastError();FileFlush(f);if(GetLastError()!=0) ok=false;FileClose(f);
+  if(ok) ok=FileMove(temp,0,pDisplayFile,FILE_REWRITE);
+  if(!ok) FileDelete(temp);
+ }
+ if(ok) {pDisplayDirty=false;pDisplayStoreOK=true;}
+ else {if(pDisplayStoreOK) Print("P display ledger save failed; will retry. In-memory observation retained.");pDisplayStoreOK=false;}
+}
+void RecordPDisplay(const MqlRates &b,const MAFlowRow &r) {
+ if(!showSignals||!chartAvailable||MQLInfoInteger(MQL_TESTER)||MAPDisplayFind(pDisplayRecords,b.time,r.direction)>=0) return;
+ datetime now=TimeTradeServer(),displayBar=iTime(_Symbol,_Period,0);int seconds=PeriodSeconds();
+ MqlTick tick;ZeroMemory(tick);
+ if(!TerminalInfoInteger(TERMINAL_CONNECTED)||!SymbolInfoTick(_Symbol,tick)||tick.time>now||now-tick.time>120||
+    !MAPDisplayEligible(b.time,seconds,pDisplayBaseline,now,displayBar,r.direction)) return;
+ MAPDisplayRecord entry;ZeroMemory(entry);entry.source=b.time;entry.confirmed=b.time+seconds;
+ entry.observedServer=now;entry.observedUTC=TimeGMT();entry.displayBar=displayBar;entry.side=r.direction;
+ entry.sourcePrice=r.direction>0?b.low-r.atr*.2:b.high+r.atr*.2;
+ entry.displayPrice=ChartQuote(tick)+(r.direction>0?-1:1)*r.atr*.35;entry.delayed=displayBar>entry.confirmed;
+ if(MAPDisplayRemember(pDisplayRecords,entry,seconds,256)) {pDisplayDirty=true;pDisplayNeedsPaint=true;}
+}
+string PDisplayTip(const MAPDisplayRecord &r) {
+ return "表示P（別の売買サインではありません）\n元足 "+TimeToString(r.source,TIME_DATE|TIME_MINUTES)+" / 確定 "+TimeToString(r.confirmed,TIME_DATE|TIME_MINUTES)+" broker\n初回描画処理 "+TimeToString(r.observedServer,TIME_DATE|TIME_SECONDS)+" broker\n"+
+  TimeToString(r.observedUTC,TIME_DATE|TIME_SECONDS)+" UTC / "+TimeToString(r.observedUTC+9*3600,TIME_DATE|TIME_SECONDS)+" JST（PC時計由来・時計精度未検証）\n表示足 "+TimeToString(r.displayBar,TIME_DATE|TIME_MINUTES)+" broker"+(r.delayed?" / 遅れて初表示":"")+
+  "\n元の描画位置と初回観測価格を保持。閲覧・配信・約定時刻の証明ではありません。"+(!pDisplayStoreOK||pDisplayDirty?"\n未保存の記録あり":"");
+}
+void PaintPDisplayTrace() {
+ pDisplayNeedsPaint=false;ObjectsDeleteAll(0,prefix+"ptrace.");if(!showSignals||!showPDisplayTrace) return;
+ int n=ArraySize(pDisplayRecords);color col=LightChart()?C'71,85,105':C'180,193,210';
+ MALabelBox boxes[];ArrayCopy(boxes,labelBoxes);
+ for(int i=MathMax(0,n-PDisplayTraceCount);i<n;i++) {
+  MAPDisplayRecord r=pDisplayRecords[i];string id=prefix+"ptrace."+IntegerToString((long)r.source)+"."+IntegerToString(r.side),tip=PDisplayTip(r);
+  // Preserve the first observed anchors even if historical re-calculation later changes P.
+  ObjectCreate(0,id+".line",OBJ_TREND,0,r.source,r.sourcePrice,r.displayBar,r.displayPrice);
+  ObjectSetInteger(0,id+".line",OBJPROP_COLOR,col);ObjectSetInteger(0,id+".line",OBJPROP_STYLE,STYLE_DOT);ObjectSetInteger(0,id+".line",OBJPROP_WIDTH,1);
+  ObjectSetInteger(0,id+".line",OBJPROP_RAY_LEFT,false);ObjectSetInteger(0,id+".line",OBJPROP_RAY_RIGHT,false);
+  ObjectSetInteger(0,id+".line",OBJPROP_SELECTABLE,false);ObjectSetString(0,id+".line",OBJPROP_TOOLTIP,tip);
+  string dots[]={".source",".shown"};datetime times[]={r.source,r.displayBar};double prices[]={r.sourcePrice,r.displayPrice};
+  for(int d=0;d<2;d++) {
+   ObjectCreate(0,id+dots[d],OBJ_ARROW,0,times[d],prices[d]);ObjectSetInteger(0,id+dots[d],OBJPROP_ARROWCODE,159);
+   ObjectSetInteger(0,id+dots[d],OBJPROP_COLOR,col);ObjectSetInteger(0,id+dots[d],OBJPROP_WIDTH,1);ObjectSetInteger(0,id+dots[d],OBJPROP_SELECTABLE,false);ObjectSetString(0,id+dots[d],OBJPROP_TOOLTIP,tip+"\nこの点は保存された初回描画位置。現在のP再成立を意味しません。");
+  }
+  int x,y,width=(int)ChartGetInteger(0,CHART_WIDTH_IN_PIXELS)-82,height=(int)ChartGetInteger(0,CHART_HEIGHT_IN_PIXELS)-26;
+  if(showDetails||!ChartTimePriceToXY(0,0,r.displayBar,r.displayPrice,x,y)) continue;
+  int left=x+4;if(left+48>width) left=x-48;int top=0;bool placed=false;
+  for(int step=0;step<9&&!placed;step++) {
+   int dy=(step==0?0:((step+1)/2)*20*(step%2==1?1:-1)),candidate=y+(r.side>0?4:-20)+dy;
+   if(MALabelFits(left,candidate,48,16,width,height,PanelTop()+20,boxes)) {top=candidate;placed=true;}
+  }
+  if(!placed) continue; // Both dots and the exact candle connector remain.
+  int k=ArraySize(boxes);ArrayResize(boxes,k+1);boxes[k].left=left;boxes[k].right=left+48;boxes[k].top=top;boxes[k].bottom=top+16;
+  ObjectCreate(0,id+".label",OBJ_LABEL,0,0,0);ObjectSetString(0,id+".label",OBJPROP_TEXT,"表示P");
+  ObjectSetInteger(0,id+".label",OBJPROP_CORNER,CORNER_LEFT_UPPER);ObjectSetInteger(0,id+".label",OBJPROP_XDISTANCE,left);ObjectSetInteger(0,id+".label",OBJPROP_YDISTANCE,top);
+  ObjectSetString(0,id+".label",OBJPROP_FONT,"Meiryo");ObjectSetInteger(0,id+".label",OBJPROP_FONTSIZE,8);ObjectSetInteger(0,id+".label",OBJPROP_COLOR,col);
+  ObjectSetInteger(0,id+".label",OBJPROP_ANCHOR,ANCHOR_LEFT_UPPER);ObjectSetInteger(0,id+".label",OBJPROP_SELECTABLE,false);ObjectSetString(0,id+".label",OBJPROP_TOOLTIP,tip);
+ }
+}
+string PDisplayJson() {
+ string out="{\"version\":\"p-display-v1\",\"scope\":\"chart-symbol-timeframe-inputs\",\"frame\":\""+FrameName(_Period)+"\",\"baselineCloseServerTime\":"+IntegerToString((long)pDisplayBaseline)+",\"retentionLimit\":256,\"persisted\":"+JBool(pDisplayStoreOK&&!pDisplayDirty)+",\"utcClockBasis\":\"PC_TIMEGMT_NOT_INDEPENDENTLY_VERIFIED\",\"meaning\":\"FIRST_INDICATOR_RENDER_PASS_NOT_DELIVERY_OR_VIEWING_PROOF; HISTORICAL_UNKNOWN_TIMES_NOT_INFERRED; RECORDED_P_MAY_DIFFER_FROM_CURRENT_RECALCULATION\",\"records\":[";
+ for(int i=0;i<ArraySize(pDisplayRecords);i++) {
+  MAPDisplayRecord r=pDisplayRecords[i];if(i>0) out+=",";
+  out+="{\"sourceBarServerTime\":"+IntegerToString((long)r.source)+",\"confirmedServerTime\":"+IntegerToString((long)r.confirmed)+",\"firstRenderServerTime\":"+IntegerToString((long)r.observedServer)+",\"firstRenderUTC\":"+IntegerToString((long)r.observedUTC)+",\"displayBarServerTime\":"+IntegerToString((long)r.displayBar)+",\"side\":"+IntegerToString(r.side)+",\"sourceMarkerPrice\":"+JNumber(r.sourcePrice)+",\"displayMarkerPrice\":"+JNumber(r.displayPrice)+",\"delayed\":"+JBool(r.delayed)+"}";
+ }
+ return out+"]}";
+}
 void PaintSignals() {
- ObjectsDeleteAll(0,prefix+"mark.");exitLabels=0;exitGroups=0;if(!showSignals||!chartAvailable) return;
+ ObjectsDeleteAll(0,prefix+"mark.");exitLabels=0;exitGroups=0;
+ EnsurePDisplayBaseline();if(!showSignals||!chartAvailable) {PaintPDisplayTrace();return;}
  int n=ArraySize(chartFlow);
  MAExitGroup groups[];
  for(int i=MathMax(143,n-160);i<n;i++) {
   MAFlowRow r=chartFlow[i];MqlRates b=chartRates[i];double pad=r.atr*.45;
   if(r.switched) SignalText("turn",b.time,r.direction>0?b.low-r.atr*.65:b.high+r.atr*.65,r.direction>0?"TURN 上":"TURN 下",r.direction>0?BuyColor():SellColor());
   MACostRecord cost;MAPlan p=CostedPlan(b,r,PeriodSeconds(),i+1,ManualBlackout&&i==n-1,cost,i==n-1);
-  if(p.pCandidate) SignalText("p",b.time,r.direction>0?b.low-pad:b.high+pad,"P "+(VolumeBasis==MA_TICK_ACTIVITY?"tick ":"")+Arrow(r.direction),r.direction>0?(LightChart()?C'0,103,60':clrLimeGreen):(LightChart()?C'170,42,42':clrTomato));
+  if(p.pCandidate) {
+   int trace=MAPDisplayFind(pDisplayRecords,b.time,r.direction);
+   string displayInfo=trace<0?"初回表示時刻は未記録（足終了時刻と表示時刻は別）":"初回描画 "+TimeToString(pDisplayRecords[trace].observedServer,TIME_DATE|TIME_SECONDS)+" broker / 表示Pへ接続";
+   if(SignalText("p",b.time,r.direction>0?b.low-pad:b.high+pad,"P "+(VolumeBasis==MA_TICK_ACTIVITY?"tick ":"")+Arrow(r.direction),r.direction>0?(LightChart()?C'0,103,60':clrLimeGreen):(LightChart()?C'170,42,42':clrTomato),displayInfo)) RecordPDisplay(b,r);
+  }
   if(r.exitLong||r.exitShort) {
    int side=r.exitLong?1:-1,g=-1;
    if(MAExitRange(r.adx,r.e13,r.e21,r.atr)) for(int k=ArraySize(groups)-1;k>=0;k--) {
@@ -385,6 +507,7 @@ void PaintSignals() {
   if(SignalText(g.side>0?"xb":"xs",b.time,g.side>0?b.high+pad:b.low-pad,text,ExitColor(),"元の確定時刻 "+g.times+" / 近接ラベルの表示集約のみ。各点・判定・保存は全件維持")) exitLabels++;
   if(g.count>1) exitGroups++;
  }
+ PaintPDisplayTrace();SavePDisplayTrace();
 }
 void PaintProfile() {
  ObjectsDeleteAll(0,prefix+"profile");if(!showBands||!chartAvailable) return;
@@ -596,13 +719,13 @@ void Refresh(const bool force=false) {
  MqlTick tick;
  if(!ReadSessions()) {
   ObjectsDeleteAll(0,prefix+"zone");ObjectsDeleteAll(0,prefix+"retired.");retiredPainted=0;retryHistory=true;
-  Panel("MT5 1.1.0-preview.12 | "+_Symbol+" | 業者セッションを取得できず新規判定を保留\n接続・休場とは区別。セッション不明のまま営業中と推定しません。");return;
+  Panel("MT5 1.1.0-preview.13 | "+_Symbol+" | 業者セッションを取得できず新規判定を保留\n接続・休場とは区別。セッション不明のまま営業中と推定しません。");return;
  }
  bool live=TerminalInfoInteger(TERMINAL_CONNECTED) && SymbolInfoTick(_Symbol,tick) && ChartQuote(tick)>0 && TimeTradeServer()>=tick.time && TimeTradeServer()-tick.time<120;
  if(!live || !SessionOpen(TimeCurrent())) {
   ObjectsDeleteAll(0,prefix+"zone");ObjectsDeleteAll(0,prefix+"retired.");retiredPainted=0;lastM15=0;
   retryHistory=true;
-  Panel("MT5 1.1.0-preview.12 | "+_Symbol+" | 休場・未接続・価格更新待ち\n新規判定停止。過去サインは確定履歴。EXITは反転エントリーではありません。"); return;
+  Panel("MT5 1.1.0-preview.13 | "+_Symbol+" | 休場・未接続・価格更新待ち\n新規判定停止。過去サインは確定履歴。EXITは反転エントリーではありません。"); return;
  }
  datetime m=iTime(_Symbol,PERIOD_M15,1),h=iTime(_Symbol,PERIOD_H1,1),q=iTime(_Symbol,PERIOD_H4,1);
  datetime x=iTime(_Symbol,(ENUM_TIMEFRAMES)_Period,1),minute=iTime(_Symbol,PERIOD_M1,1);
@@ -680,7 +803,7 @@ void Refresh(const bool force=false) {
  bandState+="\n解消帯 "+(!showBands||!showRetired?"OFF":IntegerToString(retiredPainted)+"件 / 各足直近最大"+IntegerToString(RetiredZonesPerFrame)+"件・点線は解消時刻まで");
  if(zoneDrawError!="") holds+=zoneDrawError+"\n";
  BandCaption(painted);PaintSignals();PaintProfile();
- Panel("MT5 1.1.0-preview.12 | "+_Symbol+" | broker時刻 / 銘柄別独立版 "+ChartBasis()+"\n"+current+"\n"+response+"\n"+entry+"\n"+volume+"\n"+quote+"\n{LIVE_COST}\n"+bandState+"\nEXIT表示 "+IntegerToString(exitLabels)+"組 / 停滞中の集約 "+IntegerToString(exitGroups)+"組（点・保存は全件）\n"+holds+historyNotes+"ニュース自動判定なし / "+(ManualBlackout?"手動P停止中":"Pは研究条件・注文なし")+(ShowFrameDetails?"\n"+status:""));
+ Panel("MT5 1.1.0-preview.13 | "+_Symbol+" | broker時刻 / 銘柄別独立版 "+ChartBasis()+"\n"+current+"\n"+response+"\n"+entry+"\n"+volume+"\n"+quote+"\n{LIVE_COST}\n"+bandState+"\nEXIT表示 "+IntegerToString(exitLabels)+"組 / 停滞中の集約 "+IntegerToString(exitGroups)+"組（点・保存は全件）\n"+holds+historyNotes+"ニュース自動判定なし / "+(ManualBlackout?"手動P停止中":"Pは研究条件・注文なし")+(ShowFrameDetails?"\n"+status:""));
  ChartRedraw();
 }
 void SetPlots() {
@@ -734,7 +857,7 @@ void ExportAnalysis() {
  int file=FileOpen(name,FILE_WRITE|FILE_TXT|FILE_ANSI,0,CP_UTF8);if(file==INVALID_HANDLE) {Print("Market export could not open local file");return;}
  string symbol=MAJsonEscape(_Symbol);
  MqlTick quote;ZeroMemory(quote);bool quoted=SymbolInfoTick(_Symbol,quote);
- FileWriteString(file,"{\"version\":\"1.1.0-preview.12\",\"symbol\":\""+symbol+"\",\"clock\":\"BROKER_WALL_CLOCK_NOT_UTC\",\"exportedServerTime\":"+IntegerToString((long)TimeTradeServer())+",\"connected\":"+JBool((bool)TerminalInfoInteger(TERMINAL_CONNECTED))+",\"bid\":"+(quoted?JNumber(quote.bid):"null")+",\"ask\":"+(quoted?JNumber(quote.ask):"null")+",\"quoteTime\":"+(quoted?IntegerToString((long)quote.time):"null")+",\"assumedCostBps\":"+(PCostMode==MA_FIXED_BPS?JNumber(AssumedRoundTripCostBps):"null")+",\"volumeBasis\":\""+MAVolumeName(VolumeBasis)+"\",\"aggressorDelta\":null,\"cvd\":null,\"sessions\":[");
+ FileWriteString(file,"{\"version\":\"1.1.0-preview.13\",\"symbol\":\""+symbol+"\",\"clock\":\"BROKER_WALL_CLOCK_NOT_UTC\",\"exportedServerTime\":"+IntegerToString((long)TimeTradeServer())+",\"connected\":"+JBool((bool)TerminalInfoInteger(TERMINAL_CONNECTED))+",\"bid\":"+(quoted?JNumber(quote.bid):"null")+",\"ask\":"+(quoted?JNumber(quote.ask):"null")+",\"quoteTime\":"+(quoted?IntegerToString((long)quote.time):"null")+",\"assumedCostBps\":"+(PCostMode==MA_FIXED_BPS?JNumber(AssumedRoundTripCostBps):"null")+",\"volumeBasis\":\""+MAVolumeName(VolumeBasis)+"\",\"aggressorDelta\":null,\"cvd\":null,\"sessions\":[");
  for(int s=0;s<ArraySize(weeklySessions);s++) {
   if(s>0) FileWriteString(file,",");
   FileWriteString(file,"{\"weekday\":"+IntegerToString(weeklySessions[s].weekday)+",\"startSeconds\":"+IntegerToString(weeklySessions[s].start)+",\"stopSeconds\":"+IntegerToString(weeklySessions[s].stop)+"}");
@@ -758,7 +881,7 @@ void ExportAnalysis() {
   }
   FileWriteString(file,"]");ExportFrameContext(file,c,rows,ready,frames[f]);FileWriteString(file,"}");
  }
- FileWriteString(file,"]}\n");FileFlush(file);FileClose(file);
+ SavePDisplayTrace();FileWriteString(file,"],\"pDisplayTrace\":"+PDisplayJson()+"}\n");FileFlush(file);FileClose(file);
  Print("Market local analysis export: MQL5/Files/",name);
  ObjectSetString(0,prefix+"export",OBJPROP_TOOLTIP,"保存済み: MQL5/Files/"+name+"。このJSONをチャットへ添付できます。外部送信なし。");
 }
@@ -776,16 +899,17 @@ void FillPlots(const int total,const datetime &time[]) {
   if(j>=19) {double sum=0,sd=0;for(int k=j-19;k<=j;k++) sum+=chartRates[k].close;double mean=sum/20;for(int k=j-19;k<=j;k++) sd+=MathPow(chartRates[k].close-mean,2);sd=MathSqrt(sd/20);bm[i]=mean;bu[i]=mean+2*sd;bl[i]=mean-2*sd;}
   if(r.exitLong) exitBuy[i]=b.high+r.atr*.2;if(r.exitShort) exitSell[i]=b.low-r.atr*.2;
   MACostRecord cost;MAPlan p=CostedPlan(b,r,PeriodSeconds(),j+1,ManualBlackout&&j==n-1,cost,j==n-1);
-  if(p.pCandidate) {if(r.direction>0) pBuy[i]=b.low-r.atr*.2;else pSell[i]=b.high+r.atr*.2;}
+  if(p.pCandidate) {if(r.direction>0) pBuy[i]=b.low-r.atr*.2;else pSell[i]=b.high+r.atr*.2;RecordPDisplay(b,r);}
   if(r.switched) {if(r.direction>0) turnBuy[i]=b.low-r.atr*.65;else turnSell[i]=b.high+r.atr*.65;}
  }
  FillCloud();
+ SavePDisplayTrace();if(pDisplayNeedsPaint) PaintPDisplayTrace();
 }
 int OnInit() {
  ArrayResize(costMemos,0);nextCommissionRead=0;
  if(!MACoreSelfTest()||!MAFlowSelfTest()||!MAHistorySelfTest()) {Print("Multi-Analyzer core self-test failed");return INIT_FAILED;}
  if(_Point<=0 || _Digits<0 || _Digits>12) {Print("銘柄の価格仕様を取得できません");return INIT_FAILED;}
- if(HistoryBars<220 || HistoryBars>1500 || RetiredZonesPerFrame<0 || RetiredZonesPerFrame>10 || StringLen(InstanceName)>24||AssumedRoundTripCostBps<0||AssumedRoundTripCostBps>100||MinimumNetRR<=0) return INIT_PARAMETERS_INCORRECT;
+ if(HistoryBars<220 || HistoryBars>1500 || RetiredZonesPerFrame<0 || RetiredZonesPerFrame>10 || PDisplayTraceCount<1 || PDisplayTraceCount>40 || StringLen(InstanceName)>24||AssumedRoundTripCostBps<0||AssumedRoundTripCostBps>100||MinimumNetRR<=0) return INIT_PARAMETERS_INCORRECT;
  prefix="MAGold_"+IntegerToString(ChartID())+"_"+IntegerToString(GetMicrosecondCount())+"_";
  key="MAGold.1.1.preview."+IntegerToString(ChartID())+"."+InstanceName;
  showBands=GlobalVariableCheck(key+".z")?GlobalVariableGet(key+".z")>0:InitialBands;
@@ -797,6 +921,8 @@ int OnInit() {
  showDetails=GlobalVariableCheck(key+".d")?GlobalVariableGet(key+".d")>0:InitialDetails;
  showAllZoneFrames=GlobalVariableCheck(key+".af")?GlobalVariableGet(key+".af")>0:InitialAllZoneFrames;
  showZoneLabels=GlobalVariableCheck(key+".zt")?GlobalVariableGet(key+".zt")>0:InitialZoneLabels;
+ showPDisplayTrace=GlobalVariableCheck(key+".pt")?GlobalVariableGet(key+".pt")>0:InitialPDisplayTrace;
+ LoadPDisplayTrace();
  SetIndexBuffer(0,e20,INDICATOR_DATA);SetIndexBuffer(1,e50,INDICATOR_DATA);
  SetIndexBuffer(2,bm,INDICATOR_DATA);SetIndexBuffer(3,bu,INDICATOR_DATA);SetIndexBuffer(4,bl,INDICATOR_DATA);
  SetIndexBuffer(5,r5,INDICATOR_DATA);SetIndexBuffer(6,r8,INDICATOR_DATA);SetIndexBuffer(7,r13,INDICATOR_DATA);SetIndexBuffer(8,r21,INDICATOR_DATA);SetIndexBuffer(9,r34,INDICATOR_DATA);SetIndexBuffer(10,r55,INDICATOR_DATA);SetIndexBuffer(11,r89,INDICATOR_DATA);SetIndexBuffer(12,r144,INDICATOR_DATA);
@@ -809,14 +935,14 @@ int OnInit() {
  color colors[]={clrCyan,clrDeepSkyBlue,clrDodgerBlue,clrRoyalBlue,clrMediumPurple,clrViolet,clrOrange,clrOrangeRed,clrGold,clrGold,clrLimeGreen,clrTomato,clrAqua,clrDeepPink};
  for(int i=0;i<19;i++) {PlotIndexSetDouble(i,PLOT_EMPTY_VALUE,EMPTY_VALUE);if(i>=5) {PlotIndexSetString(i,PLOT_LABEL,labels[i-5]);PlotIndexSetInteger(i,PLOT_LINE_COLOR,colors[i-5]);PlotIndexSetInteger(i,PLOT_LINE_WIDTH,i>=13?2:1);if(i>=13) PlotIndexSetInteger(i,PLOT_ARROW,i<=14?159:i==16||i==18?234:233);}}
  IndicatorSetInteger(INDICATOR_DIGITS,_Digits);
- IndicatorSetString(INDICATOR_SHORTNAME,"Multi-Analyzer 1.1.0-preview.12 "+_Symbol+" "+(VolumeBasis==MA_TICK_ACTIVITY?"tick":"real/off"));
+ IndicatorSetString(INDICATOR_SHORTNAME,"Multi-Analyzer 1.1.0-preview.13 "+_Symbol+" "+(VolumeBasis==MA_TICK_ACTIVITY?"tick":"real/off"));
  ApplyPalette();Controls();SetPlots();
  EventSetTimer(2);Refresh(true);return INIT_SUCCEEDED;
 }
 int OnCalculate(const int rates_total,const int prev_calculated,const datetime &time[],const double &open[],const double &high[],const double &low[],const double &close[],const long &tick_volume[],const long &volume[],const int &spread[]) {
  ArraySetAsSeries(time,false);Refresh();FillPlots(rates_total,time);return rates_total;
 }
-void OnTimer() {Refresh();if(showDetails) Panel(panelText);}
+void OnTimer() {Refresh();SavePDisplayTrace();if(showDetails) Panel(panelText);}
 void OnChartEvent(const int id,const long &lparam,const double &dparam,const string &sparam) {
  if(id==CHARTEVENT_CHART_CHANGE) {ApplyPalette();Controls();int painted=RenderCandidates();BandCaption(painted);PaintSignals();PaintProfile();Panel(panelText);ChartRedraw();return;}
  if(id!=CHARTEVENT_OBJECT_CLICK) return;
@@ -827,10 +953,11 @@ void OnChartEvent(const int id,const long &lparam,const double &dparam,const str
  if(sparam==prefix+"retired") {showRetired=!showRetired;GlobalVariableSet(key+".h",showRetired?1:0);Button("retired","解消帯",712,showRetired);Refresh(true);}
  if(sparam==prefix+"frameScope") {showAllZoneFrames=!showAllZoneFrames;GlobalVariableSet(key+".af",showAllZoneFrames?1:0);Controls();Refresh(true);}
  if(sparam==prefix+"bandText") {showZoneLabels=!showZoneLabels;GlobalVariableSet(key+".zt",showZoneLabels?1:0);Controls();Refresh(true);}
+ if(sparam==prefix+"pDisplay") {showPDisplayTrace=!showPDisplayTrace;GlobalVariableSet(key+".pt",showPDisplayTrace?1:0);Controls();PaintPDisplayTrace();ChartRedraw();}
  if(sparam==prefix+"signals") {showSignals=!showSignals;GlobalVariableSet(key+".s",showSignals?1:0);Button("signals","P / EXIT",312,showSignals);SetPlots();Refresh(true);}
  if(sparam==prefix+"details") {showDetails=!showDetails;GlobalVariableSet(key+".d",showDetails?1:0);Button("details","詳細",412,showDetails);Refresh(true);}
  if(sparam==prefix+"export") {ExportAnalysis();ObjectSetInteger(0,prefix+"export",OBJPROP_STATE,false);}
 }
 void OnDeinit(const int reason) {
- EventKillTimer();if(StringLen(prefix)>0) ObjectsDeleteAll(0,prefix);
+ EventKillTimer();pDisplayNextSave=0;SavePDisplayTrace();if(pDisplayLease!=INVALID_HANDLE) FileClose(pDisplayLease);if(StringLen(prefix)>0) ObjectsDeleteAll(0,prefix);
 }
