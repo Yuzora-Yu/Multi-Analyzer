@@ -1,7 +1,7 @@
 /* Current, read-only SMC reaction hypotheses. Never an entry or a frozen-engine input. */
-(function(root,factory){const api=factory(typeof module==='object'&&module.exports?require('./market-feed'):root.MultiAnalyzerFeed,typeof module==='object'&&module.exports?require('./trend-context'):root.MultiAnalyzerTrendContext);if(typeof module==='object'&&module.exports)module.exports=api;else root.MultiAnalyzerReversal=api;})(globalThis,function(Feed,Trend){
+(function(root,factory){const api=factory(typeof module==='object'&&module.exports?require('./market-feed'):root.MultiAnalyzerFeed,typeof module==='object'&&module.exports?require('./trend-context'):root.MultiAnalyzerTrendContext,typeof module==='object'&&module.exports?require('./zone-importance'):root.MultiAnalyzerZoneImportance);if(typeof module==='object'&&module.exports)module.exports=api;else root.MultiAnalyzerReversal=api;})(globalThis,function(Feed,Trend,Importance){
   'use strict';
-  const VERSION='smc-reaction-context-v2',STEP=900000;
+  const VERSION='smc-reaction-context-v3-importance',STEP=900000;
   const FRAMES=[['15m','m15',15,32],['1H','h1',60,24],['4H','h4',240,12]];
   const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const price=v=>Number.isFinite(v)?v.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}):'未取得';
@@ -52,15 +52,16 @@
     const m15=frame(a.m15,15,a.generatedAt),atr=m15?.values?.atr,bar=m15?.candles.at(-1);
     if(!m15||!(atr>0)||!bar)return stop('欠損・未確定足があるため反転候補を推定しません。');
     const candidates=[],retired=[],micro=a.exec?.intervalMinutes;
-    const frames=[...([1,5].includes(micro)?[[micro+'m','exec',micro,micro===1?480:96]]:[]),...FRAMES];
+    const frames=[...(micro>0&&![15,60,240].includes(micro)?[[micro===1440?'日足':micro+'m','exec',micro,micro===1?480:micro===5?96:12]]:[]),...FRAMES];
     for(const [name,key,minutes,lookback] of frames){
       const tf=frame(a[key],minutes,a.generatedAt);if(!tf)continue;
-      const step=minutes*60000;
+      const step=minutes*60000,prepared=Importance.prepare(tf.candles,minutes);
       function add(c,index){
         if(index<0||![c.low,c.high].every(Number.isFinite)||c.low<=0||c.high<=c.low||!completePath(tf,index))return;
         const distance=Math.max(c.low-bar.close,bar.close-c.high,0);if(distance>atr*8)return;
         const path=lifecycle(tf,index,c),expired=tf.candles.length-1-index>lookback;
-        const item={...c,frame:name,minutes,formedAt:tf.candles[index].time+step,originAt:tf.candles[index].time,withdrawalPrice:c.direction==='SHORT'?c.high:c.low,withdrawalMinutes:minutes,distance,...path};
+        const item={...c,frame:name,minutes,formedAt:tf.candles[index].time+step,originAt:tf.candles[index].time,withdrawalPrice:c.direction==='SHORT'?c.high:c.low,withdrawalMinutes:minutes,distance,...path,
+          importance:Importance.evaluate(prepared,c,index,{observedAt:a.generatedAt})};
         if(path.withdrawnAt||path.filledAt||expired){retired.push({...item,expired});return;}
         item.phase=bar.close>=c.low&&bar.close<=c.high?'帯内・反転未確認':path.visits?'再訪履歴あり・反応待ち':'接近待ち';
         item.role=frame(a.h4,240,a.generatedAt)?Trend.zoneRole(a,item).label:'4Hの方向未確認';item.matches=[];
@@ -92,7 +93,12 @@
     const grouped=[];
     for(const c of candidates.sort((x,y)=>x.formedAt-y.formedAt||(x.high-x.low)-(y.high-y.low))){
       const same=c.kind==='SWEEP'?grouped.find(x=>x.kind==='SWEEP'&&x.direction===c.direction&&x.extremeAt===c.extremeAt&&(c.direction==='SHORT'?x.high===c.high:x.low===c.low)):null;
-      if(same){same.related??=[];same.related.push({frame:c.frame,formedAt:c.formedAt,sourceLevel:c.sourceLevel});}else grouped.push(c);
+      const reference=z=>({frame:z.frame,formedAt:z.formedAt,sourceLevel:z.sourceLevel,low:z.low,high:z.high,withdrawalPrice:z.withdrawalPrice,withdrawalMinutes:z.withdrawalMinutes});
+      if(same){
+        // Represent one extreme with its highest confirmed source, preserving every original range.
+        if(c.minutes>same.minutes){c.related=[...(same.related||[]),reference(same)];grouped[grouped.indexOf(same)]=c;}
+        else {same.related??=[];same.related.push(reference(c));}
+      }else grouped.push(c);
     }
     const overlapping=[];
     const selected=['LONG','SHORT'].flatMap(direction=>{
@@ -100,11 +106,11 @@
       for(const c of own.filter(c=>c.kind==='SWEEP').sort((x,y)=>y.formedAt-x.formedAt)){
         if(sweeps.some(z=>c.low<=z.high&&c.high>=z.low))overlapping.push(c);else sweeps.push(c);
       }
-      // Preserve a second, distinct source zone before filling space with sweeps.
-      // This is display coverage, not a probability score or a trading priority.
-      const zones=own.filter(c=>c.kind!=='SWEEP').sort((x,y)=>x.distance-y.distance),nearest=zones[0];
-      const other=zones.find(c=>nearest&&c.minutes!==nearest.minutes&&(c.high<nearest.low||c.low>nearest.high));
-      return [...(nearest?[nearest]:[]),...(other?[other]:[]),...sweeps].slice(0,3);
+      // Parent context first; retain a nearby distinct source for timing coverage.
+      // Priority is a declared observation heuristic, never a win probability.
+      const zones=own.filter(c=>c.kind!=='SWEEP').sort(Importance.compare),primary=zones[0];
+      const other=zones.filter(c=>primary&&c.minutes!==primary.minutes&&(c.high<primary.low||c.low>primary.high)).sort((x,y)=>x.distance-y.distance)[0];
+      return [...(primary?[primary]:[]),...(other?[other]:[]),...sweeps.sort(Importance.compare)].slice(0,3);
     });
     const references=[];
     for(const [name,key,n] of FRAMES){const tf=frame(a[key],n,a.generatedAt);if(!tf)continue;
@@ -112,7 +118,8 @@
     }
     return {...out,available:true,reason:null,price:bar.close,priceClosedAt:bar.time+STEP,candidates:selected,overlapping,retired:retired.sort((x,y)=>y.formedAt-x.formedAt).slice(0,6),references:references.filter((r,i,all)=>all.findIndex(x=>x.price===r.price)===i).sort((x,y)=>Math.abs(x.price-bar.close)-Math.abs(y.price-bar.close)).slice(0,6),
       note:'価格パターンからの反転仮説です。実際の機関注文・反転確率・入場成立を示しません。根拠の重複を独立した賛成票に数えません。元のP/EXIT・通知・固定デモは変更しません。',
-      historyNote:'表示中の1分・5分足があれば、その確定SMC帯も含め各方向最大3帯表示。異なる形成足の離れた有効帯を最大2帯残し、重なる古い掃いは履歴へ分離。確率順には並べません。1分480本・5分96本・15分32本・1H24本・4H12本まで。保存履歴の外や形成前の反応は未評価。'};
+      importanceVersion:Importance.VERSION,
+      historyNote:'大局→波→短期の役割と重要度で優先表示し、近い別時間足の帯も保持。各方向最大3帯。確率順には並べません。重なる古い掃いは履歴へ分離。1分480本・5分96本・15分32本・1H24本・4H12本まで。保存履歴の外や形成前の反応は未評価。'};
   }
   const title=c=>c.kind==='SWEEP'?'掃い・復帰の反転候補':`有効${c.kind}の反応候補`;
   function lines(c){
@@ -120,23 +127,24 @@
     return [`反転候補の確認 ${date(c.observedAt)} / 基準15分 ${date(c.priceClosedAt)} / Bybit ${price(c.price)}`,...c.candidates.flatMap(z=>[
       `${z.direction==='LONG'?'買い':'売り'}反転候補 ${price(z.low)}～${price(z.high)} / ${title(z)} / ${z.frame} / ${z.phase}`,
       `形成確認 ${date(z.formedAt)} / ${z.evidence} ${z.role}。後続の再訪${z.visits||0}回（連続接触は1回）。`,
+      ...Importance.lines(z.importance),
       `撤回：${z.minutes}分終値が ${price(z.withdrawalPrice)}${z.direction==='SHORT'?'超':'未満'}。保護SLは再訪時の高安の外側で別途確認。`,
       z.structureAt?`${z.frame}の後続${z.structureType}を観測 ${date(z.structureAt)}。1分・5分の入場確認とは別です。`:'反転成立は未確認。帯での拒否・回復→1分・5分の構造転換→初戻りを別途確認。',
       ...(z.matches.length?['現在の近接水準（帯幅は変更しない）：'+z.matches.slice(0,4).map(x=>x.label+' '+price(x.price)).join(' / ')]:[])
     ]),...(c.overlapping||[]).map(z=>`重複する以前の掃い ${z.frame} ${price(z.low)}～${price(z.high)} / 確認 ${date(z.formedAt)}。元の幅を保持して履歴へ分離。`),...c.references.map(r=>`流動性の参照点 ${r.label} ${price(r.price)} / 確認 ${date(r.confirmedAt)}。単独水準は反転帯・注文の証拠ではありません。`),c.historyNote,c.note];
   }
-  function html(c,{formatPrice=price,expanded=false}={}){
+  function html(c,{formatPrice=price,expanded=false,expandedImportance=[]}={}){
     const p=t=>'<p>'+esc(t)+'</p>';
     if(!c?.available)return '<h3>反転が起きるか観察する帯</h3>'+p(c?.reason||'確認中');
     const cards=c.candidates.map(z=>`<section class="reversal-card ${z.direction==='SHORT'?'zone-short':'zone-long'}"><h4>${z.direction==='SHORT'?'売り':'買い'}反転候補 ${esc(formatPrice(z.low))}～${esc(formatPrice(z.high))}</h4>`+
-      p(`${title(z)} / ${z.frame} / ${z.phase}`)+p(z.evidence)+p(`形成確認 ${date(z.formedAt)} / ${z.role} / 後続の再訪${z.visits||0}回`)+
+      Importance.html(z.importance,{id:z.id,expanded:expandedImportance.includes(z.id)})+p(`${title(z)} / ${z.frame} / ${z.phase}`)+p(z.evidence)+p(`形成確認 ${date(z.formedAt)} / ${z.role} / 再訪${z.visits||0}回`)+
       p(`撤回：${z.minutes}分終値 ${formatPrice(z.withdrawalPrice)}${z.direction==='SHORT'?'超':'未満'}。SLは再訪高安の外側で別管理。`)+
       (z.displacementAt?p(`形成後の強い実体を観測 ${date(z.displacementAt)}。反転・入場の保証ではありません。`):'')+
       p(z.structureAt?`${z.frame}の後続${z.structureType}を観測 ${date(z.structureAt)}。短期の入場確認とは別です。`:'反転成立は未確認。拒否・回復→1分・5分の構造転換→初戻りを別途確認。')+
       (z.related?.length?p('同じ極値を'+z.related.map(r=>r.frame+'（確認 '+date(r.formedAt)+'）').join(' / ')+'でも観測。独立した根拠数には数えません。'):'')+
       (z.matches.length?p('現在の近接水準：'+z.matches.slice(0,4).map(x=>x.label+' '+formatPrice(x.price)).join(' / ')+'。近接で帯や撤回境界を広げません。'):'')+'</section>').join('');
     return '<h3>反転が起きるか観察する帯</h3>'+p(`確認 ${date(c.observedAt)} / 15分基準 ${date(c.priceClosedAt)}。チャート上部の「反転帯」で表示を切替。`)+cards+(cards?'':p('現在の確定足から有効な反転観察帯を確認できません。'))+
-      `<details ${expanded?'open':''}><summary>流動性の参照点・撤回履歴</summary>`+c.references.map(r=>p(r.label+' '+formatPrice(r.price)+' / 確認 '+date(r.confirmedAt))).join('')+
+      `<details data-reversal-history ${expanded?'open':''}><summary>流動性の参照点・撤回履歴</summary>`+c.references.map(r=>p(r.label+' '+formatPrice(r.price)+' / 確認 '+date(r.confirmedAt))).join('')+
       (c.overlapping||[]).map(z=>p(`重複する以前の掃い ${z.frame} ${formatPrice(z.low)}～${formatPrice(z.high)} / 確認 ${date(z.formedAt)}。元の幅を保持して履歴へ分離。`)).join('')+
       c.retired.map(z=>p(`${z.frame} ${title(z)} ${formatPrice(z.low)}～${formatPrice(z.high)}：${z.withdrawnAt?'終値で撤回 '+date(z.withdrawnAt):z.filledAt?'FVG全充足 '+date(z.filledAt):'観察期限終了'}。再開・拡張しません。`)).join('')+p(c.historyNote)+'</details><small>'+esc(c.note)+'</small>';
   }

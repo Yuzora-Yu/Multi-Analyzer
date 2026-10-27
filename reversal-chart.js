@@ -19,10 +19,11 @@
       const x=chart.timeScale().timeToCoordinate(Math.floor(first.time/1000)),top=series.priceToCoordinate(z.high),low=series.priceToCoordinate(z.low);
       if(x==null||top==null||low==null||![x,top,low].every(Number.isFinite)||x>=right||low<0||top>bottom)continue;
       const left=Math.max(0,x),long=z.direction==='LONG',color=long?'#5bc4ee':'#ed985a';
-      ctx.fillStyle=long?'rgba(65,165,220,.13)':'rgba(235,140,65,.13)';ctx.fillRect(left,top,right-left,Math.max(1,low-top));
-      ctx.strokeStyle=color;ctx.lineWidth=1;ctx.setLineDash(z.kind==='SWEEP'?[5,4]:[2,3]);
+      const grade=z.importance?.grade,alpha=grade==='high'?.19:grade==='support'?.07:.12;
+      ctx.fillStyle=long?`rgba(65,165,220,${alpha})`:`rgba(235,140,65,${alpha})`;ctx.fillRect(left,top,right-left,Math.max(1,low-top));
+      ctx.strokeStyle=color;ctx.lineWidth=grade==='high'?2:1;ctx.setLineDash(z.kind==='SWEEP'?[5,4]:[2,3]);
       for(const y of [top,low]){ctx.beginPath();ctx.moveTo(left,y);ctx.lineTo(right,y);ctx.stroke();}ctx.setLineDash([]);
-      const text=`${long?'買反転':'売反転'} ${z.frame} ${z.kind==='SWEEP'?'掃い':z.kind} ${z.low.toFixed(2)}–${z.high.toFixed(2)}`;
+      const text=`${long?'買反転':'売反転'} ${z.frame} ${z.kind==='SWEEP'?'掃い':z.kind}${z.importance?.available?' ['+z.importance.role.label+'・'+z.importance.label+']':''} ${z.low.toFixed(2)}–${z.high.toFixed(2)}`;
       ctx.font='10px sans-serif';let y=Math.max(13,Math.min(bottom-3,top-3));while(labels.some(t=>Math.abs(t-y)<15)&&y+15<bottom)y+=15;labels.push(y);
       const w=Math.min(right-4,ctx.measureText(text).width+8);if(w<=20)continue;
       // A recent band may begin at the right edge; keep its current annotation

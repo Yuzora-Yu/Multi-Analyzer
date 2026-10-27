@@ -1,6 +1,6 @@
 {
-  "version": "1.1.0-preview.11",
-  "mqlVersion": "1.110",
+  "version": "1.1.0-preview.12",
+  "mqlVersion": "1.120",
   "stage": "preview",
   "sourceFiles": [
     "MultiAnalyzerGold.mq5",
@@ -11,16 +11,17 @@
     "MAVisualCore.mqh",
     "MAInstrumentCore.mqh",
     "MABrokerCost.mqh",
+    "MAZoneImportance.mqh",
     "README_JA.txt",
     "CHANGELOG.md"
   ],
-  "scope": "Pの費用を初期設定で自動取得。確定足の記録スプレッドと銘柄の手数料配信規則を使用し、現在のBid/Askによる費用確認を別表示。未取得・未対応の費用条件ではPを保留。帯・雲・EXITとWebのGold監視は維持。",
-  "runtimeVerification": "MetaEditorでコンパイルし、費用単位・往復手数料・未取得時の保留・過去足への現在spread混入防止・JSON出力を自動検査。XM実配信の手数料規則と実チャート装着、収益精度は未確認",
-  "file": "MultiAnalyzerGold-1.1.0-preview.11.zip",
-  "bytes": 254030,
-  "sha256": "6cb5d76517d1b76384dc347d04c9eab05b50459b0ca9e8b0848348a382dba370",
+  "scope": "帯に大局・波・短期の役割と重要度を追加。形成時の相対活動量・変位・確認済み構造突破・再訪回数を評価し、高重要度の輪郭と短いラベル、説明とAI保存へ反映。銘柄別の自動費用取得・元の帯・P/EXIT・解消帯履歴を維持。",
+  "runtimeVerification": "MetaEditorのコンパイル、Web/MT5重要度の配点一致、形成後の情報混入・連続再訪・未取得量の扱い・既存判定不変を自動検査。実チャートの装着・XM実配信の手数料規則・重要度の予測精度は未確認",
+  "file": "MultiAnalyzerGold-1.1.0-preview.12.zip",
+  "bytes": 276598,
+  "sha256": "d3dbb68d9084736a372116ebd0c273452a2b03baf22bb6ddf4aaccc22afa8dfc",
   "sources": {
-    "MultiAnalyzerGold.mq5": "95cdeb822e30f6a4477eb4a5f7aa741e783ebb87e2dec0c99fac8ed41f3044aa",
+    "MultiAnalyzerGold.mq5": "9c56d3344bac2b4769b2fa4d10d156a3697253ecb2d174679fd967a3daf0ea8e",
     "MAZoneCore.mqh": "878b328cc1e0f8fe1f39b8e5c72b8a17af93f13d7a50213ebc004b9089d1f464",
     "MAFlowCore.mqh": "0472f9687e14466caadde4cc12826d3759c4a6961ccc35c43c90ab09d7173507",
     "MAHistoryCore.mqh": "46bff12e6dde4c851d9d6ec8479f318731f40962a86cb9a204ee487b777a02f0",
@@ -28,10 +29,11 @@
     "MAVisualCore.mqh": "67485cbc924e5f654892bb6defde651d46f3cab1ba353677677d230b0c7483e0",
     "MAInstrumentCore.mqh": "f65ae44a8e5269702e11d865549e99738d92b422de01f97944927c877be3f1fa",
     "MABrokerCost.mqh": "f098e66e9e0c04c58460b7525726c43c0f1d389001c23bdb8fe40b36ddecf7ab",
-    "README_JA.txt": "560120ef73019a6dda0c266ebe1736839ea835b908a18463bdc7ff80f96e9fbd",
-    "CHANGELOG.md": "78b4c32c04d0a10f61ce5b06d0187ecf4f2c2453960acb5fc7c58a8fd3ccce64"
+    "MAZoneImportance.mqh": "afb48bdd27314b85301c16420e58212df3da0d2aed14372631b4d413dd483f87",
+    "README_JA.txt": "4ad6f16475322b2b7ede6526281fba6d128f5c788b38a7df4a8d3366d3469713",
+    "CHANGELOG.md": "a49aaed53952fdce557c5aa7c2d0fc9adeb4eae60156205d6cb952fa3723294d"
   },
-  "compiledSha256": "9d8191d4d2b48fd8d5be4b725074748e090984f4c068cfa314ef377a39098b23",
+  "compiledSha256": "f3cc92afc61448b0659fd6de47ec627805461b370aa6970a908084442ca2ef40",
   "compiler": {
     "errors": 0,
     "warnings": 0

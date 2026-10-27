@@ -89,7 +89,7 @@
     const references=[...(anchors?[{label:'指標前15分終値',price:anchors.preClose},{label:'初動15分高値',price:anchors.first15.high},{label:'初動15分安値',price:anchors.first15.low},{label:'初動1時間高値',price:anchors.firstHour.high},{label:'初動1時間安値',price:anchors.firstHour.low}]:[]),...(range?[{label:'上海日中の観察高値',price:range.high},{label:'上海日中の観察安値',price:range.low}]:[])];
     const plans=Array.isArray(zoneReviews)?['SHORT','LONG'].flatMap(direction=>{
       const candidates=zoneReviews.filter(r=>!r.withdrawal&&r.zone?.direction===direction&&[r.zone.low,r.zone.high,r.zone.invalidationClose,r.zone.protectiveStop].every(Number.isFinite)&&r.zone.low>0&&r.zone.high>=r.zone.low);
-      candidates.sort((x,y)=>Math.max(x.zone.low-bar.close,bar.close-x.zone.high,0)-Math.max(y.zone.low-bar.close,bar.close-y.zone.high,0));
+      candidates.sort((x,y)=>(y.importance?.role?.order||0)-(x.importance?.role?.order||0)||(y.importance?.score??-1)-(x.importance?.score??-1)||Math.max(x.zone.low-bar.close,bar.close-x.zone.high,0)-Math.max(y.zone.low-bar.close,bar.close-y.zone.high,0));
       const r=candidates[0];if(!r)return [];
       const radius=Number.isFinite(m15.values?.atr)&&m15.values.atr>0?m15.values.atr*.2:0;
       return [{direction,priority:preferred===direction?'主シナリオ':preferred?'反対シナリオ':'並列シナリオ',zone:structuredClone(r.zone),focus:structuredClone(r.focus??null),

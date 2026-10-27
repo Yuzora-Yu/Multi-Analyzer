@@ -1,7 +1,7 @@
 #property copyright "Multi-Analyzer"
 #property link "https://yuzora-yu.github.io/Multi-Analyzer/"
-#property version "1.110"
-#property description "Multi-Analyzer MT5 1.1.0-preview.11. Automatic broker spread and commission costs. No trading."
+#property version "1.120"
+#property description "Multi-Analyzer MT5 1.1.0-preview.12. Timeframe and formation quality zone importance. No trading."
 #property indicator_chart_window
 #property indicator_buffers 33
 #property indicator_plots 26
@@ -40,6 +40,7 @@
 #include "MAVisualCore.mqh"
 #include "MAInstrumentCore.mqh"
 #include "MABrokerCost.mqh"
+#include "MAZoneImportance.mqh"
 
 input int HistoryBars=1000; // request 220..1500; price/SMC need60, EMA144 needs144, P still needs220
 input bool InitialBands=true;
@@ -77,6 +78,19 @@ string panelText="";
 datetime lastM15=0,lastH1=0,lastH4=0,lastExec=0,lastMinute=0;
 MAZone candidates[];
 MAZone retiredCandidates[];
+struct MAPriorityRecord {MAZone source;MAZonePriority importance;};
+MAPriorityRecord importanceRecords[];
+void CacheFrameImportance(const MqlRates &c[],const MAZone &zones[]) {
+ MAImportanceFact facts[];if(!MAImportancePrepare(c,VolumeBasis,facts)) return;
+ for(int i=0;i<ArraySize(zones);i++) {int n=ArraySize(importanceRecords);ArrayResize(importanceRecords,n+1);importanceRecords[n].source=zones[i];importanceRecords[n].importance=MAImportanceEvaluate(c,facts,zones[i]);}
+}
+MAZonePriority ImportanceFor(const MAZone &z) {
+ for(int i=ArraySize(importanceRecords)-1;i>=0;i--) {
+  MAZone original=importanceRecords[i].source;
+  if(original.frame==z.frame&&original.formed==z.formed&&original.kind==z.kind&&original.side==z.side&&original.low==z.low&&original.high==z.high) return importanceRecords[i].importance;
+ }
+ MAZonePriority q;ZeroMemory(q);q.relativeVolume=EMPTY_VALUE;q.bodyATR=EMPTY_VALUE;return q;
+}
 int retiredPainted=0;
 string quality="履歴の同期を待っています";
 MASession weeklySessions[];
@@ -394,7 +408,8 @@ void ZoneCallout(const MAZone &z,const string id,const string info) {
  if(!showZoneLabels||showDetails||(z.side>0?zoneLabelBuy:zoneLabelSell)>=2) return;
  int width=(int)ChartGetInteger(0,CHART_WIDTH_IN_PIXELS)-82,height=(int)ChartGetInteger(0,CHART_HEIGHT_IN_PIXELS,0)-20;
  int x,y;if(!ChartTimePriceToXY(0,0,z.formed,(z.low+z.high)*.5,x,y)||x>width||y<0||y>height) return;
- string label=(z.side>0?"買":"売")+IntegerToString((z.side>0?zoneLabelBuy:zoneLabelSell)+1)+" "+z.frame+" "+MAKind(z.kind)+" "+DoubleToString(z.low,_Digits)+"–"+DoubleToString(z.high,_Digits);
+ MAZonePriority priority=ImportanceFor(z);
+ string label=(z.side>0?"買":"売")+IntegerToString((z.side>0?zoneLabelBuy:zoneLabelSell)+1)+" "+z.frame+" "+MAKind(z.kind)+" ["+MAImportanceLabel(priority)+"] "+DoubleToString(z.low,_Digits)+"–"+DoubleToString(z.high,_Digits);
  int w=StringLen(label)*8+12,h=18,left=width-w-8,top=0;bool placed=false;
  for(int i=0;i<31&&!placed;i++) {
   int offset=i==0?0:((i+1)/2)*22*(i%2==1?1:-1),candidate=y-h/2+offset;
@@ -415,6 +430,7 @@ void ZoneCallout(const MAZone &z,const string id,const string info) {
 }
 bool PaintZone(const MAZone &z,const int index) {
  string id=prefix+"zone"+IntegerToString(index);
+  MAZonePriority importance=ImportanceFor(z);
  datetime end=TimeCurrent()+PeriodSeconds((ENUM_TIMEFRAMES)_Period)*5;
  color col=LightChart()?(z.side>0?C'221,236,249':C'250,225,212'):(z.side>0?clrDarkSlateGray:clrSaddleBrown);
  ResetLastError();
@@ -423,10 +439,18 @@ bool PaintZone(const MAZone &z,const int index) {
  if(z.high>=bottom&&z.low<=top) visibleBands++;
  ObjectSetInteger(0,id,OBJPROP_COLOR,col); ObjectSetInteger(0,id,OBJPROP_FILL,true);
  ObjectSetInteger(0,id,OBJPROP_BACK,true); ObjectSetInteger(0,id,OBJPROP_SELECTABLE,false);
+  if(importance.available&&importance.grade==2) {
+   ObjectCreate(0,id+"outline",OBJ_RECTANGLE,0,z.formed,z.low,end,z.high);
+   ObjectSetInteger(0,id+"outline",OBJPROP_FILL,false);ObjectSetInteger(0,id+"outline",OBJPROP_WIDTH,2);
+   ObjectSetInteger(0,id+"outline",OBJPROP_COLOR,z.side>0?BuyColor():SellColor());
+   ObjectSetInteger(0,id+"outline",OBJPROP_BACK,true);ObjectSetInteger(0,id+"outline",OBJPROP_SELECTABLE,false);
+  }
  string label=z.frame+" "+(z.side>0?"買反転 ":"売反転 ")+MAKind(z.kind)+" "+DoubleToString(z.low,_Digits)+"–"+DoubleToString(z.high,_Digits);
  string info=label+" | 形成 "+TimeToString(z.formed)+" (broker) | 再訪 "+IntegerToString(z.visits)+
   " | "+z.frame+"終値が "+DoubleToString(z.side>0?z.low:z.high,_Digits)+(z.side>0?"未満":"超")+"で撤回。反転成立・入場ではありません。";
  if(z.kind==1) info+=" FVGは全充足でも失効。";
+  info+=" | "+MAImportanceText(importance,VolumeBasis);
+  if(ObjectFind(0,id+"outline")>=0) ObjectSetString(0,id+"outline",OBJPROP_TOOLTIP,info);
  ObjectSetString(0,id,OBJPROP_TOOLTIP,info);ZoneCallout(z,id,info);
  return true;
 }
@@ -497,7 +521,7 @@ int RenderCandidates() {
    double y=candidates[k].side>0?candidates[k].low:candidates[k].high;
    if(MathAbs(x-y)<_Point*.5) {
     duplicate=true;
-    if(candidates[i].formed<candidates[k].formed || (candidates[i].formed==candidates[k].formed && candidates[i].high-candidates[i].low<candidates[k].high-candidates[k].low)) picked[j]=i;
+     if(candidates[i].seconds>candidates[k].seconds || (candidates[i].seconds==candidates[k].seconds&&candidates[i].formed<candidates[k].formed)) picked[j]=i;
     break;
    }
   }
@@ -509,7 +533,9 @@ int RenderCandidates() {
   for(int j=0;j<ArraySize(picked);j++) {
    int i=picked[j]; if(candidates[i].side!=side || candidates[i].kind==2) continue;
    double d=MathMax(candidates[i].low-price,MathMax(price-candidates[i].high,0));
-   if(d<distance) {distance=d; active=i;}
+   MAZonePriority candidatePriority=ImportanceFor(candidates[i]),bestPriority;ZeroMemory(bestPriority);
+   if(active>=0) bestPriority=ImportanceFor(candidates[active]);
+   if(active<0||MAMoreImportant(candidatePriority,d,bestPriority,distance)) {distance=d; active=i;}
   }
   int count=0; if(active>=0) {if(PaintZone(candidates[active],painted)) painted++;count++;}
   int second=-1;double secondDistance=DBL_MAX;
@@ -542,6 +568,7 @@ int RenderCandidates() {
 }
 void AppendFrameZones(const MqlRates &c[],const int seconds,const string frame,const int maxAge,const double atr,const double reference) {
  MAZone zs[];MAAnalyze(c,seconds,frame,zs);int n=ArraySize(c);
+  CacheFrameImportance(c,zs);
  if(n>0) AppendRetiredZones(zs,c[n-1].time+seconds,maxAge);
  for(int z=0;z<ArraySize(zs);z++) if(zs[z].active&&n-1-zs[z].index<=maxAge) {
   if(atr>0&&MathMax(zs[z].low-reference,MathMax(reference-zs[z].high,0))>atr*8) continue;
@@ -569,19 +596,19 @@ void Refresh(const bool force=false) {
  MqlTick tick;
  if(!ReadSessions()) {
   ObjectsDeleteAll(0,prefix+"zone");ObjectsDeleteAll(0,prefix+"retired.");retiredPainted=0;retryHistory=true;
-  Panel("MT5 1.1.0-preview.11 | "+_Symbol+" | 業者セッションを取得できず新規判定を保留\n接続・休場とは区別。セッション不明のまま営業中と推定しません。");return;
+  Panel("MT5 1.1.0-preview.12 | "+_Symbol+" | 業者セッションを取得できず新規判定を保留\n接続・休場とは区別。セッション不明のまま営業中と推定しません。");return;
  }
  bool live=TerminalInfoInteger(TERMINAL_CONNECTED) && SymbolInfoTick(_Symbol,tick) && ChartQuote(tick)>0 && TimeTradeServer()>=tick.time && TimeTradeServer()-tick.time<120;
  if(!live || !SessionOpen(TimeCurrent())) {
   ObjectsDeleteAll(0,prefix+"zone");ObjectsDeleteAll(0,prefix+"retired.");retiredPainted=0;lastM15=0;
   retryHistory=true;
-  Panel("MT5 1.1.0-preview.11 | "+_Symbol+" | 休場・未接続・価格更新待ち\n新規判定停止。過去サインは確定履歴。EXITは反転エントリーではありません。"); return;
+  Panel("MT5 1.1.0-preview.12 | "+_Symbol+" | 休場・未接続・価格更新待ち\n新規判定停止。過去サインは確定履歴。EXITは反転エントリーではありません。"); return;
  }
  datetime m=iTime(_Symbol,PERIOD_M15,1),h=iTime(_Symbol,PERIOD_H1,1),q=iTime(_Symbol,PERIOD_H4,1);
  datetime x=iTime(_Symbol,(ENUM_TIMEFRAMES)_Period,1),minute=iTime(_Symbol,PERIOD_M1,1);
  if(!force && !costChanged && !retryHistory && m==lastM15 && h==lastH1 && q==lastH4 && x==lastExec && minute==lastMinute) return;
  retryHistory=false;
- lastM15=m;lastH1=h;lastH4=q;lastExec=x;lastMinute=minute;ArrayResize(candidates,0);ArrayResize(retiredCandidates,0);
+ lastM15=m;lastH1=h;lastH4=q;lastExec=x;lastMinute=minute;ArrayResize(candidates,0);ArrayResize(retiredCandidates,0);ArrayResize(importanceRecords,0);
  ArrayResize(m15Flow,0);ArrayResize(hourFlow,0);ArrayResize(chartFlow,0);chartAvailable=false;
  ENUM_TIMEFRAMES frames[]={PERIOD_M15,PERIOD_H1,PERIOD_H4};
  string status="",holds="",historyNotes="";double nearATR=0,reference=0;
@@ -592,6 +619,7 @@ void Refresh(const bool force=false) {
   if(f==0) {ArrayCopy(m15Rates,c);MAFlow(c,VolumeBasis,m15Flow);}
   if(f==1) {ArrayCopy(hourRates,c);MAFlow(c,VolumeBasis,hourFlow);}
   MAZone zs[]; MAAnalyze(c,PeriodSeconds(tf),FrameName(tf),zs);
+  CacheFrameImportance(c,zs);
   int n=ArraySize(c),maxAge=f==0?32:f==1?24:12;
   AppendRetiredZones(zs,c[n-1].time+PeriodSeconds(tf),maxAge);
   if(f==0) {double atr[];MAATR(c,atr);nearATR=atr[n-1];reference=c[n-1].close;}
@@ -652,7 +680,7 @@ void Refresh(const bool force=false) {
  bandState+="\n解消帯 "+(!showBands||!showRetired?"OFF":IntegerToString(retiredPainted)+"件 / 各足直近最大"+IntegerToString(RetiredZonesPerFrame)+"件・点線は解消時刻まで");
  if(zoneDrawError!="") holds+=zoneDrawError+"\n";
  BandCaption(painted);PaintSignals();PaintProfile();
- Panel("MT5 1.1.0-preview.11 | "+_Symbol+" | broker時刻 / 銘柄別独立版 "+ChartBasis()+"\n"+current+"\n"+response+"\n"+entry+"\n"+volume+"\n"+quote+"\n{LIVE_COST}\n"+bandState+"\nEXIT表示 "+IntegerToString(exitLabels)+"組 / 停滞中の集約 "+IntegerToString(exitGroups)+"組（点・保存は全件）\n"+holds+historyNotes+"ニュース自動判定なし / "+(ManualBlackout?"手動P停止中":"Pは研究条件・注文なし")+(ShowFrameDetails?"\n"+status:""));
+ Panel("MT5 1.1.0-preview.12 | "+_Symbol+" | broker時刻 / 銘柄別独立版 "+ChartBasis()+"\n"+current+"\n"+response+"\n"+entry+"\n"+volume+"\n"+quote+"\n{LIVE_COST}\n"+bandState+"\nEXIT表示 "+IntegerToString(exitLabels)+"組 / 停滞中の集約 "+IntegerToString(exitGroups)+"組（点・保存は全件）\n"+holds+historyNotes+"ニュース自動判定なし / "+(ManualBlackout?"手動P停止中":"Pは研究条件・注文なし")+(ShowFrameDetails?"\n"+status:""));
  ChartRedraw();
 }
 void SetPlots() {
@@ -680,16 +708,22 @@ string CostJson(const MACostRecord &cost) {
 string ResponseJson(const MAResponseRow &r) {
  return "{\"version\":\"closed-response-v1\",\"pressure\":"+IntegerToString(r.pressure)+",\"heldDirection\":"+IntegerToString(r.held)+",\"ribbon\":"+IntegerToString(r.ribbon)+",\"side\":"+IntegerToString(r.side)+",\"phase\":"+IntegerToString(r.phase)+",\"reference\":"+(r.side!=0?JNumber(r.reference):"null")+",\"fixedPad\":"+(r.side!=0?JNumber(r.pad):"null")+",\"brokenServerTime\":"+IntegerToString((long)r.brokenAt)+",\"changedServerTime\":"+IntegerToString((long)r.changedAt)+",\"expiresServerTime\":"+IntegerToString((long)r.expiresAt)+",\"closedServerTime\":"+IntegerToString((long)r.closedAt)+",\"observationOnly\":true}";
 }
+string ImportanceJson(const MAZonePriority &q) {
+ if(!q.available) return "{\"version\":\"zone-importance-v1\",\"available\":false}";
+ return "{\"version\":\"zone-importance-v1\",\"available\":true,\"role\":{\"order\":"+IntegerToString(q.role)+",\"label\":\""+MAImportanceRoleLabel(q.role)+"\"},\"score\":"+IntegerToString(q.score)+",\"grade\":\""+(q.grade==2?"high":q.grade==1?"medium":"support")+"\",\"partial\":"+JBool(q.partial)+
+  ",\"parts\":{\"timeframe\":"+IntegerToString(q.tfPoints)+",\"volume\":"+IntegerToString(q.volPoints)+",\"displacement\":"+IntegerToString(q.bodyPoints)+",\"structure\":"+IntegerToString(q.structurePoints)+",\"freshness\":"+IntegerToString(q.freshPoints)+"},\"formation\":{\"confirmedServerTime\":"+IntegerToString((long)q.formationAt)+",\"displacementClosedServerTime\":"+IntegerToString((long)q.displacementAt)+",\"relativeVolume\":"+JNumber(q.relativeVolume)+",\"volumeBasis\":\""+MAVolumeName(VolumeBasis)+"\",\"baselinePeriod\":21,\"baselineBars\":"+IntegerToString(q.baselineBars)+",\"bodyATR\":"+JNumber(q.bodyATR)+",\"structureBreak\":"+JBool(q.structure)+"},\"current\":{\"observedThroughServerTime\":"+IntegerToString((long)q.observedThrough)+",\"visits\":"+IntegerToString(q.visits)+"},\"observationOnly\":true,\"sessionNormalized\":false}";
+}
 void ExportFrameContext(const int file,const MqlRates &c[],const MAFlowRow &rows[],const bool ready,const ENUM_TIMEFRAMES tf) {
  MAResponseRow rs[];if(ready) MAResponse(c,rows,PeriodSeconds(tf),rs);int n=ArraySize(rs);
  FileWriteString(file,",\"response\":"+(n>0?ResponseJson(rs[n-1]):"null")+",\"responseEvents\":[");
  int written=0;
  for(int i=0;i<n;i++) if(rs[i].side!=0&&(i==0||rs[i].changedAt!=rs[i-1].changedAt)) {if(written++>0) FileWriteString(file,",");FileWriteString(file,ResponseJson(rs[i]));}
- FileWriteString(file,"],\"zones\":[");MAZone zs[];if(ready) MAAnalyze(c,PeriodSeconds(tf),FrameName(tf),zs);
+ FileWriteString(file,"],\"zones\":[");MAZone zs[];MAImportanceFact facts[];if(ready) {MAAnalyze(c,PeriodSeconds(tf),FrameName(tf),zs);MAImportancePrepare(c,VolumeBasis,facts);}
  for(int i=0;i<ArraySize(zs);i++) {
   MAZone z=zs[i];if(i>0) FileWriteString(file,",");
+  MAZonePriority priority=MAImportanceEvaluate(c,facts,z);
   string id=z.frame+":"+MAKind(z.kind)+":"+IntegerToString(z.side)+":"+IntegerToString((long)z.formed)+":"+DoubleToString(z.low,_Digits)+":"+DoubleToString(z.high,_Digits);
-  FileWriteString(file,"{\"id\":\""+id+"\",\"kind\":\""+MAKind(z.kind)+"\",\"side\":"+IntegerToString(z.side)+",\"frame\":\""+z.frame+"\",\"seconds\":"+IntegerToString(z.seconds)+",\"low\":"+JNumber(z.low)+",\"high\":"+JNumber(z.high)+",\"formedServerTime\":"+IntegerToString((long)z.formed)+",\"active\":"+JBool(z.active)+",\"visits\":"+IntegerToString(z.visits)+",\"retiredServerTime\":"+IntegerToString((long)z.retiredAt)+",\"retiredReason\":"+IntegerToString(z.retiredReason)+",\"withdrawalClose\":"+JNumber(z.side>0?z.low:z.high)+"}");
+  FileWriteString(file,"{\"id\":\""+id+"\",\"kind\":\""+MAKind(z.kind)+"\",\"side\":"+IntegerToString(z.side)+",\"frame\":\""+z.frame+"\",\"seconds\":"+IntegerToString(z.seconds)+",\"low\":"+JNumber(z.low)+",\"high\":"+JNumber(z.high)+",\"formedServerTime\":"+IntegerToString((long)z.formed)+",\"active\":"+JBool(z.active)+",\"visits\":"+IntegerToString(z.visits)+",\"retiredServerTime\":"+IntegerToString((long)z.retiredAt)+",\"retiredReason\":"+IntegerToString(z.retiredReason)+",\"withdrawalClose\":"+JNumber(z.side>0?z.low:z.high)+",\"importance\":"+ImportanceJson(priority)+"}");
  }
  FileWriteString(file,"],\"contextBasis\":\"RECONSTRUCTED_FROM_THIS_EXPORT_CLOSED_BARS_NOT_A_CONTEMPORANEOUS_SIGNAL_LEDGER\"");
 }
@@ -700,7 +734,7 @@ void ExportAnalysis() {
  int file=FileOpen(name,FILE_WRITE|FILE_TXT|FILE_ANSI,0,CP_UTF8);if(file==INVALID_HANDLE) {Print("Market export could not open local file");return;}
  string symbol=MAJsonEscape(_Symbol);
  MqlTick quote;ZeroMemory(quote);bool quoted=SymbolInfoTick(_Symbol,quote);
- FileWriteString(file,"{\"version\":\"1.1.0-preview.11\",\"symbol\":\""+symbol+"\",\"clock\":\"BROKER_WALL_CLOCK_NOT_UTC\",\"exportedServerTime\":"+IntegerToString((long)TimeTradeServer())+",\"connected\":"+JBool((bool)TerminalInfoInteger(TERMINAL_CONNECTED))+",\"bid\":"+(quoted?JNumber(quote.bid):"null")+",\"ask\":"+(quoted?JNumber(quote.ask):"null")+",\"quoteTime\":"+(quoted?IntegerToString((long)quote.time):"null")+",\"assumedCostBps\":"+(PCostMode==MA_FIXED_BPS?JNumber(AssumedRoundTripCostBps):"null")+",\"volumeBasis\":\""+MAVolumeName(VolumeBasis)+"\",\"aggressorDelta\":null,\"cvd\":null,\"sessions\":[");
+ FileWriteString(file,"{\"version\":\"1.1.0-preview.12\",\"symbol\":\""+symbol+"\",\"clock\":\"BROKER_WALL_CLOCK_NOT_UTC\",\"exportedServerTime\":"+IntegerToString((long)TimeTradeServer())+",\"connected\":"+JBool((bool)TerminalInfoInteger(TERMINAL_CONNECTED))+",\"bid\":"+(quoted?JNumber(quote.bid):"null")+",\"ask\":"+(quoted?JNumber(quote.ask):"null")+",\"quoteTime\":"+(quoted?IntegerToString((long)quote.time):"null")+",\"assumedCostBps\":"+(PCostMode==MA_FIXED_BPS?JNumber(AssumedRoundTripCostBps):"null")+",\"volumeBasis\":\""+MAVolumeName(VolumeBasis)+"\",\"aggressorDelta\":null,\"cvd\":null,\"sessions\":[");
  for(int s=0;s<ArraySize(weeklySessions);s++) {
   if(s>0) FileWriteString(file,",");
   FileWriteString(file,"{\"weekday\":"+IntegerToString(weeklySessions[s].weekday)+",\"startSeconds\":"+IntegerToString(weeklySessions[s].start)+",\"stopSeconds\":"+IntegerToString(weeklySessions[s].stop)+"}");
@@ -775,7 +809,7 @@ int OnInit() {
  color colors[]={clrCyan,clrDeepSkyBlue,clrDodgerBlue,clrRoyalBlue,clrMediumPurple,clrViolet,clrOrange,clrOrangeRed,clrGold,clrGold,clrLimeGreen,clrTomato,clrAqua,clrDeepPink};
  for(int i=0;i<19;i++) {PlotIndexSetDouble(i,PLOT_EMPTY_VALUE,EMPTY_VALUE);if(i>=5) {PlotIndexSetString(i,PLOT_LABEL,labels[i-5]);PlotIndexSetInteger(i,PLOT_LINE_COLOR,colors[i-5]);PlotIndexSetInteger(i,PLOT_LINE_WIDTH,i>=13?2:1);if(i>=13) PlotIndexSetInteger(i,PLOT_ARROW,i<=14?159:i==16||i==18?234:233);}}
  IndicatorSetInteger(INDICATOR_DIGITS,_Digits);
- IndicatorSetString(INDICATOR_SHORTNAME,"Multi-Analyzer 1.1.0-preview.11 "+_Symbol+" "+(VolumeBasis==MA_TICK_ACTIVITY?"tick":"real/off"));
+ IndicatorSetString(INDICATOR_SHORTNAME,"Multi-Analyzer 1.1.0-preview.12 "+_Symbol+" "+(VolumeBasis==MA_TICK_ACTIVITY?"tick":"real/off"));
  ApplyPalette();Controls();SetPlots();
  EventSetTimer(2);Refresh(true);return INIT_SUCCEEDED;
 }

@@ -767,6 +767,7 @@
     if(!box||!B)return;
     const view=window.MultiAnalyzerZoneView?.analysis(a)||a;
     const zoneReviews=typeof R?.zoneWithdrawal==='function'?(view.marketMap?.candidates||[]).map(zone=>({zone,
+      importance:!state.offlineCsv&&!INITIAL_PARAMS.has('snapshot')?window.MultiAnalyzerZoneImportance?.forZone(view,zone):null,
       withdrawal:R.zoneWithdrawal(view,zone),focus:window.MultiAnalyzerZoneFocus?.describe(view,zone)||null})):null;
     const brief=B.describe(view,{asset:state.instrumentId,now:Date.now(),mode:state.offlineCsv?'csv':INITIAL_PARAMS.has('snapshot')?'archive':'live',
       health:snapshotHealth(),snapshotId:state.snapshot?.id||null,zoneReviews});
@@ -775,9 +776,10 @@
 
   function renderReversalContext(a) {
     const box=$('reversalContext'),R=window.MultiAnalyzerReversal;if(!box||!R)return;
+    const expandedImportance=[...(box.querySelectorAll?.('details[data-importance-zone][open]')||[])].map(d=>d.dataset.importanceZone);
     state.reversalContext=R.describe(a,{asset:state.instrumentId,now:Date.now(),
       mode:state.offlineCsv?'csv':INITIAL_PARAMS.has('snapshot')?'archive':'live',health:snapshotHealth(),snapshotId:state.snapshot?.id||null});
-    box.innerHTML=R.html(state.reversalContext,{formatPrice:mappedPrice,expanded:box.querySelector('details')?.open===true});
+    box.innerHTML=R.html(state.reversalContext,{formatPrice:mappedPrice,expanded:box.querySelector('details[data-reversal-history]')?.open===true,expandedImportance});
     const response=$('priceResponse'),P=window.MultiAnalyzerResponse;
     if(response&&P)response.innerHTML=P.html(P.describe(a,{asset:state.instrumentId,now:Date.now(),mode:state.offlineCsv?'csv':INITIAL_PARAMS.has('snapshot')?'archive':'live',health:snapshotHealth()}),{formatPrice:mappedPrice,expanded:response.querySelector('details')?.open===true});
   }
@@ -798,6 +800,7 @@
     const box=$('marketMap'),map=a.marketMap;
     if(!box)return;
     const expandedGeometry=new Set([...(box.querySelectorAll?.('details[data-geometry-zone]')||[])].filter(d=>d.open).map(d=>d.dataset.geometryZone));
+    const expandedImportance=new Set([...(box.querySelectorAll?.('details[data-importance-zone][open]')||[])].map(d=>d.dataset.importanceZone));
     if(!map?.valid){box.innerHTML='<p><strong>候補帯</strong><span>データ不足・更新停止。最新データで再確認します。</span></p>';return;}
     const basisBar=a.m15?.candles?.at(-1),basisClose=basisBar?.time+a.m15?.intervalMinutes*60000;
     const basisAvailable=a.m15?.ready&&!a.m15.quality?.stale&&a.m15.intervalMinutes===15&&Number.isFinite(basisBar?.time)&&Number.isFinite(basisBar?.close)&&Number.isFinite(basisClose)&&Number.isFinite(a.generatedAt)&&basisClose<=a.generatedAt;
@@ -811,6 +814,7 @@
     const fields=list=>'<dl class="zone-fields">'+list.map(([label,text])=>`<div><dt>${esc(label)}</dt><dd>${esc(text)}</dd></div>`).join('')+'</dl>';
     const cards=map.candidates.map((z,i)=>{
       const withdrawal=window.MultiAnalyzerReview?.zoneWithdrawal?.(a,z);
+      const importance=canTrack&&!withdrawal?window.MultiAnalyzerZoneImportance?.forZone(a,z):null;
       const focus=window.MultiAnalyzerZoneFocus?.describe(a,z);
       const geometry=health?.blocked||withdrawal?null:window.MultiAnalyzerZoneGeometry?.describe(a,z);
       const confirmation=window.MultiAnalyzerReview?.confirmationContext?.(a,z,mappedPrice,health);
@@ -822,6 +826,7 @@
       else local.push(['局所観察','現在の背景帯内に、確定MA・BBの局所重合を確認できません。']);
       const side=z.direction==='SHORT'?'売り':'買い';
       return `<section class="zone-card ${z.direction==='SHORT'?'zone-short':'zone-long'}"><h4>${withdrawal?'15分条件で撤回・':''}${side}背景 ${esc(mappedPrice(z.low))}～${esc(mappedPrice(z.high))}</h4><p class="zone-phase">${esc(`${withdrawal?'この15分条件の候補は再開しません':phase[z.phase]} / ${z.frame} ${z.type}（帯の形成足） / ${withdrawal?'保存判定の元候補':role}`)}</p>`+
+        (importance?window.MultiAnalyzerZoneImportance.html(importance,{id:z.id,expanded:expandedImportance.has(z.id)}):'')+
         (withdrawal?fields([['撤回した確定足',window.MultiAnalyzerReview.withdrawalText(withdrawal,mappedPrice)]]):'')+
         fields([['確認条件',z.condition],...(confirmation&&!withdrawal?[['固定追跡の確認価格',confirmation.text]]:[]),['この画面の撤回条件',`15分終値${mappedPrice(z.invalidationClose)}${z.direction==='SHORT'?'超':'未満'}で撤回。形成足名にかかわらず、判定は15分足です。別途保存した追跡は、その保存条件で確認します。`],[withdrawal?'保存判定のSL参考':'保護SL参考',`${mappedPrice(z.protectiveStop)}${withdrawal?'（撤回済み・新規追跡には使いません）':'（再訪高安で再計算）'}`],['反応・利確候補',z.targets.map(t=>mappedPrice(t)).join(' / ')||'未確認']])+fields(local)+
         (geometry?`<details data-geometry-zone="${esc(z.id)}" ${expandedGeometry.has(z.id)?'open':''}><summary>確認を待った場合の残り値幅</summary>${window.MultiAnalyzerZoneGeometry.text(geometry,mappedPrice).map(t=>`<p>${esc(t)}</p>`).join('')}</details>`:'')+
@@ -942,10 +947,12 @@
     if (!m) return;
     const end = toChartTime(state.data.exec.at(-1).time);
     const earliest = toChartTime(state.data.exec.slice(-140)[0].time);
+    const importance=!state.offlineCsv&&!INITIAL_PARAMS.has('snapshot')&&!snapshotHealth()?.blocked?window.MultiAnalyzerZoneImportance?.forFrame(state.analysis.exec,state.analysis.generatedAt):null;
     for (const z of m.zones.slice(-6)) {
-      const color = z.side === 'bull' ? '#43d49d55' : '#ff6b7855';
+      const priority=importance?.zones.find(q=>q.time===z.time&&q.kind===z.type&&q.low===z.low&&q.high===z.high)?.importance;
+      const color = z.side === 'bull' ? priority?.grade==='high'?'#43d49dbb':'#43d49d55' : priority?.grade==='high'?'#ff6b78bb':'#ff6b7855';
       for (const price of [z.low, z.high]) {
-        const series = state.chart.addLineSeries({ color, lineWidth: 2, lineStyle: z.type === 'FVG' ? 2 : 0, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false, autoscaleInfoProvider: () => null });
+        const series = state.chart.addLineSeries({ color, lineWidth: priority?.grade==='support'?1:2, lineStyle: z.type === 'FVG' ? 2 : 0, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false, autoscaleInfoProvider: () => null });
         const start = Math.max(earliest, toChartTime(z.time));
         series.setData(start < end ? [{ time: start, value: price }, { time: end, value: price }] : [{ time: start, value: price }]);
         state.zoneSeries.push(series);

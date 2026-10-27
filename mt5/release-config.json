@@ -1,6 +1,6 @@
 {
-  "version": "1.1.0-preview.11",
-  "mqlVersion": "1.110",
+  "version": "1.1.0-preview.12",
+  "mqlVersion": "1.120",
   "stage": "preview",
   "sourceFiles": [
     "MultiAnalyzerGold.mq5",
@@ -11,9 +11,10 @@
     "MAVisualCore.mqh",
     "MAInstrumentCore.mqh",
     "MABrokerCost.mqh",
+    "MAZoneImportance.mqh",
     "README_JA.txt",
     "CHANGELOG.md"
   ],
-  "scope": "Pの費用を初期設定で自動取得。確定足の記録スプレッドと銘柄の手数料配信規則を使用し、現在のBid/Askによる費用確認を別表示。未取得・未対応の費用条件ではPを保留。帯・雲・EXITとWebのGold監視は維持。",
-  "runtimeVerification": "MetaEditorでコンパイルし、費用単位・往復手数料・未取得時の保留・過去足への現在spread混入防止・JSON出力を自動検査。XM実配信の手数料規則と実チャート装着、収益精度は未確認"
+  "scope": "帯に大局・波・短期の役割と重要度を追加。形成時の相対活動量・変位・確認済み構造突破・再訪回数を評価し、高重要度の輪郭と短いラベル、説明とAI保存へ反映。銘柄別の自動費用取得・元の帯・P/EXIT・解消帯履歴を維持。",
+  "runtimeVerification": "MetaEditorのコンパイル、Web/MT5重要度の配点一致、形成後の情報混入・連続再訪・未取得量の扱い・既存判定不変を自動検査。実チャートの装着・XM実配信の手数料規則・重要度の予測精度は未確認"
 }

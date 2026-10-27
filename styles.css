@@ -32,6 +32,10 @@
 .reversal-overlay{position:absolute;inset:0;pointer-events:none;z-index:3}
 .reversal-context .reversal-card{margin:10px 0;padding:12px;border:1px solid #3b5268;border-left:3px solid #5bc4ee;border-radius:8px;background:#101c28;min-width:0}
 .reversal-context .reversal-card.zone-short{border-left-color:#ed985a}
+.zone-importance{display:inline-block;margin:3px 0 7px;padding:3px 8px;border:1px solid #61778a;border-radius:5px;font-size:12px;line-height:1.5;color:#d5e2ec;background:#172632}
+.zone-importance.high{color:#ffe4a3;border-color:#bd9650;background:#332a17;font-weight:700}
+.zone-importance.support,.zone-importance.unavailable{color:#afbecb;border-color:#425564;background:#14202a}
+.zone-importance-details{margin:0 0 9px;font-size:12px}.zone-importance-details summary{cursor:pointer;color:#b9cad9}.zone-importance-details p{line-height:1.65;overflow-wrap:anywhere}
 .reversal-context .reversal-card h4{margin:0 0 8px;font-size:13px}
 .reversal-context .reversal-card p{display:block;margin:6px 0;line-height:1.65;overflow-wrap:anywhere}
 @media(max-width:760px){.workspace-modes{flex-wrap:wrap;gap:4px}.workspace-modes button{padding-inline:7px;font-size:11px;min-height:40px}.reversal-context .reversal-card{padding:10px}}
