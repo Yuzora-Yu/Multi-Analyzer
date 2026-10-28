@@ -25,6 +25,7 @@ class PublicAssetsTests(unittest.TestCase):
             scripts = [s for s in re.findall(r'<script[^>]+src="([^"]+)"', page) if not s.startswith('https:')]
             script_paths = [s.split('?')[0] for s in scripts]
             self.assertIn('market-brief.js', script_paths)
+            self.assertIn('day-map.js', script_paths)
             self.assertIn('marker-details.js', script_paths)
             self.assertIn('reversal-context.js', script_paths)
             self.assertIn('reversal-chart.js', script_paths)

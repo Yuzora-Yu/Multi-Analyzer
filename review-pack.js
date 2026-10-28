@@ -204,7 +204,7 @@
       return missing.length?'未成立：'+missing.join('・'):'新規候補の条件待ち（共通判定を参照）';
     });
   }
-  function consultation(a,now,{archived=false}={}){
+  function consultation(a,now,{archived=false,extraFrames=[]}={}){
     const Focus=globalThis.MultiAnalyzerZoneFocus,C=globalThis.MultiAnalyzerCheckpoint,G=globalThis.MultiAnalyzerZoneGeometry;
     const zones=(a.signal.marketMap?.candidates||[]).map(z=>{
       const withdrawal=zoneWithdrawal(a.signal,z);
@@ -222,8 +222,11 @@
     const marketBrief=globalThis.MultiAnalyzerMarketBrief?.describe(a.signal,{asset:a.asset,now,mode:archived?'archive':'live',health:a.health,
       snapshotId:a.snapshot?.id||null,zoneReviews:zones})||null;
     const reversalContext=globalThis.MultiAnalyzerReversal?.describe(a.signal,{asset:a.asset,now,mode:archived?'archive':'live',health:a.health,snapshotId:a.snapshot?.id||null})||null;
+    const dayMapModule=globalThis.MultiAnalyzerDayMap;
+    const dayInput={...a.signal,exec:extraFrames.find(f=>f?.intervalMinutes===5)||a.signal.exec};
+    const dayMap=dayMapModule?dayMapModule.observe(dayMapModule.build(dayInput,{asset:a.asset,now,mode:archived?'archive':'live',health:a.health}),dayInput,Math.min(now,a.signal.generatedAt)):null;
     const priceResponse=globalThis.MultiAnalyzerResponse?.describe(a.signal,{asset:a.asset,now,mode:archived?'archive':'live',health:a.health})||null;
-    return {basis:'Bybit元市場価格。端末の固定帯は保存時の換算を別記。',marketBrief,reversalContext,priceResponse,trendContext:globalThis.MultiAnalyzerTrendContext?.describe(a.signal,{asset:a.asset})||null,zones,checkpoints,checkpointText:checkpoints.flatMap(c=>C.describe(c)),note:archived?'過去判定に現在の端末チェックポイントを混入しません。':'端末内の観察記録。保存後の追跡であり、元の予測やPサインを書き換えません。'};
+    return {basis:'Bybit元市場価格。端末の固定帯は保存時の換算を別記。',marketBrief,dayMap,reversalContext,priceResponse,trendContext:globalThis.MultiAnalyzerTrendContext?.describe(a.signal,{asset:a.asset})||null,zones,checkpoints,checkpointText:checkpoints.flatMap(c=>C.describe(c)),note:archived?'過去判定に現在の端末チェックポイントを混入しません。':'端末内の観察記録。保存後の追跡であり、元の予測やPサインを書き換えません。'};
   }
   // Presentation evidence only. The snapshot and its fixed engine verdict stay intact.
   function zoneWithdrawal(a,z){
@@ -304,7 +307,7 @@
       `予定の確認時刻 ${Number.isFinite(risk.checkedAt)?jst(risk.checkedAt):'未確認'} / ${risk.coverage==='expired'?'確認期限切れ。最新予定との再照合が必要です。':risk.coverage==='partial'?'一部の予定のみ。全予定を網羅しません。':'確認範囲未確認。'}`,
       basis?.note||'元判定の予定情報です。現在の予定を過去の判定に混入しません。'];
   }
-  function decisionText(d){const q=d.consultation;return [...(q?.checkpointText?.length?['前回固定したチェックポイント（元条件で先に確認）',...q.checkpointText]:[]),...timingText(d.timingContext),...(q?.marketBrief?globalThis.MultiAnalyzerMarketBrief?.lines(q.marketBrief)||[]:[]),...(q?.reversalContext?globalThis.MultiAnalyzerReversal?.lines(q.reversalContext)||[]:[]),...(q?.priceResponse?globalThis.MultiAnalyzerResponse?.lines(q.priceResponse)||[]:[]),...(d.health?[`鮮度確認 ${jst(d.health.assessedAt)}：${d.health.message}`]:[]),`${d.verdict} / ${d.direction}`,...calendarText(d),d.exit||'今回の足に青いEXITなし',
+  function decisionText(d){const q=d.consultation;return [...(q?.checkpointText?.length?['前回固定したチェックポイント（元条件で先に確認）',...q.checkpointText]:[]),...timingText(d.timingContext),...(q?.dayMap?globalThis.MultiAnalyzerDayMap?.lines(q.dayMap)||[]:[]),...(q?.marketBrief?globalThis.MultiAnalyzerMarketBrief?.lines(q.marketBrief)||[]:[]),...(q?.reversalContext?globalThis.MultiAnalyzerReversal?.lines(q.reversalContext)||[]:[]),...(q?.priceResponse?globalThis.MultiAnalyzerResponse?.lines(q.priceResponse)||[]:[]),...(d.health?[`鮮度確認 ${jst(d.health.assessedAt)}：${d.health.message}`]:[]),`${d.verdict} / ${d.direction}`,...calendarText(d),d.exit||'今回の足に青いEXITなし',
     ...(q?[q.basis,...(q.trendContext?[`現在地の基準：15分確定価格 ${num(q.trendContext.price)} / ${q.trendContext.priceClosedAt?jst(q.trendContext.priceClosedAt):'未取得'}`]:[]),...(q.trendContext?.frames||[]).flatMap(f=>[`${f.name} 構造 ${f.structure} / MA ${f.ma} / ${f.available?'確定 '+jst(f.closedAt):f.sessionWait?sessionWaitText(f.sessionWait):'未取得・遅延'}：${f.levels.map(l=>`${l.label} ${num(l.price)} の${l.position}（15分確定価格比）`).join(' / ')}`,...(f.leg?[`${f.name} 確認済み${f.leg.direction} ${num(f.leg.start.price)}→${num(f.leg.end.price)}（終点確認 ${jst(f.leg.end.confirmedAt)}）から ${num(f.leg.ratio)}％ / ${f.leg.levels.map(l=>`${num(l.percent)}％ ${num(l.price)}`).join(' / ')}。${f.leg.note}`]:[])]),...q.zones.flatMap(({zone:z,focus:f,geometryText,geometryBasis,confirmationPreview,withdrawal,roleContext,importance})=>[
       `${withdrawal?'15分条件で撤回・元の':''}背景 ${z.direction} ${z.frame} ${z.type}（帯の形成足） ${num(z.low)}～${num(z.high)} / ${z.condition} / この画面は15分終値 ${num(z.invalidationClose)}${z.direction==='SHORT'?'超':'未満'}で撤回 / SL参考 ${num(z.protectiveStop)}`,
       ...(roleContext?[roleContext.label+'。'+roleContext.note]:[]),
@@ -448,7 +451,7 @@
       if(!archivedId){signal?.throwIfAborted();try{monitor=await transport.get('https://multi-analyzer-monitor.rikai-829.workers.dev/api/monitor',{tf:'health'});receivedAt=Date.now();}catch(e){if(signal?.aborted)throw e;}}
       const assessedAt=Date.now();for(const a of pack.assets)a.health=Health.assess({snapshot:a.snapshot,monitor:monitor?.assets?.[a.asset],monitorReceivedAt:receivedAt,now:assessedAt,archived:Boolean(archivedId)});
     }
-    for(const a of pack.assets){a.consultation=consultation(a,pack.capturedAt,{archived:Boolean(archivedId)});a.timingContext=timingContext(pack,a,pack.capturedAt);}
+    for(const a of pack.assets){a.consultation=consultation(a,pack.capturedAt,{archived:Boolean(archivedId),extraFrames:pack.records.filter(r=>r.asset===a.asset).map(r=>r.analysis)});a.timingContext=timingContext(pack,a,pack.capturedAt);}
     return pack;
   }
   function init({getAsset,getArchiveId,onLayout}){

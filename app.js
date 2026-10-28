@@ -180,6 +180,7 @@
     $('actionTargets').textContent='休場中は新しい価格・判定を取得しません';
     $('referenceQuote').textContent='GOLD休場・参考価格の取得停止';
     if($('marketBrief'))$('marketBrief').textContent='GOLD休場・新しい背景付き候補の提示を停止しています。';
+    if($('dayMap'))$('dayMap').textContent='GOLD休場・前日地図の更新停止';
     state.reversalContext=null;
     if($('reversalContext'))$('reversalContext').textContent='GOLD休場・新しい反転候補の表示を停止しています。';
     if($('priceResponse'))$('priceResponse').textContent='GOLD休場・短期圧力の更新を停止しています。';
@@ -222,7 +223,7 @@
       $(`${prefix}Rsi`).textContent='—';$(`${prefix}Adx`).textContent='—';
     }
     state.reversalContext=null;
-    for (const id of ['marketBrief','reversalContext','priceResponse','marketMap','trendContext','flowSummary','smcContext','smcDetails']) $(id).textContent='データ取得後に判定します。';
+    for (const id of ['dayMap','marketBrief','reversalContext','priceResponse','marketMap','trendContext','flowSummary','smcContext','smcDetails']) $(id).textContent='データ取得後に判定します。';
     $('checkpointStatus').textContent='';$('checkpointStatus').hidden=true;
     $('snapshotHealth').hidden=false;$('snapshotHealth').textContent='共通判定の確認待ち';
     $('currentSnapshotLink').href='?asset='+state.instrumentId+'&tf=15m';
@@ -726,6 +727,7 @@
     renderTrendContext(a);
     renderMarketMap(a);
     renderMarketBrief(a);
+    renderDayMap(a);
     renderReversalContext(a);
     $('longScore').textContent = a.longScore;
     $('shortScore').textContent = a.shortScore;
@@ -760,6 +762,13 @@
       box.hidden=!records.length;
       box.innerHTML='<h3>前回固定したチェックポイント</h3>'+records.map(c=>'<section>'+C.describe(c).map(t=>`<p>${esc(t)}</p>`).join('')+`<button type="button" data-checkpoint-remove="${esc(c.id)}">この追跡を解除</button></section>`).join('');
     } catch(e) { box.hidden=false;box.textContent='追跡保存を更新できません：'+e.message; }
+  }
+
+  function renderDayMap(a) {
+    const box=$('dayMap'),D=window.MultiAnalyzerDayMap;if(!box||!D)return;
+    const open=box.querySelector('details')?.open||false;
+    const map=D.build(a,{asset:state.instrumentId,now:Date.now(),mode:state.offlineCsv?'csv':INITIAL_PARAMS.has('snapshot')?'archive':'live',health:snapshotHealth()});
+    box.innerHTML=D.html(D.observe(map,a));if(open&&box.querySelector('details'))box.querySelector('details').open=true;
   }
 
   function renderMarketBrief(a) {

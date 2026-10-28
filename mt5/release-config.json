@@ -1,6 +1,6 @@
 {
-  "version": "1.1.0-preview.13",
-  "mqlVersion": "1.130",
+  "version": "1.1.0-preview.14",
+  "mqlVersion": "1.140",
   "stage": "preview",
   "sourceFiles": [
     "MultiAnalyzerGold.mq5",
@@ -13,9 +13,10 @@
     "MABrokerCost.mqh",
     "MAZoneImportance.mqh",
     "MAPDisplayCore.mqh",
+    "MADayMapCore.mqh",
     "README_JA.txt",
     "CHANGELOG.md"
   ],
-  "scope": "元のPと初回描画処理時の足を、灰色の表示Pと点線で接続。表示時刻・価格をローカル保持しAI保存にも追加。未記録の過去Pは時刻を推定せず、P/EXIT判定と費用条件は維持。",
-  "runtimeVerification": "MetaEditorコンパイル、記録の初期化・遅延表示・重複防止・上限と時刻整合性、既存P/EXIT不変を自動検査。実チャートの初回ライブP・ネイティブ保存復元・実際の描画と予測精度は未確認"
+  "scope": "前日D1の高安・半値と、前日終了までに形成された元OB/FVGを別表示する前日地図を追加。当日の接触・解消を追跡しAI保存にも記録。元P/EXIT・費用条件と帯履歴は維持。",
+  "runtimeVerification": "前日情報の固定・未来足の除外・欠損時保留・解消後の復活防止を自動検査。MetaEditorコンパイル0エラー0警告。実チャート装着・ネイティブ表示と予測精度は未確認"
 }

@@ -1,7 +1,7 @@
 #property copyright "Multi-Analyzer"
 #property link "https://yuzora-yu.github.io/Multi-Analyzer/"
-#property version "1.130"
-#property description "Multi-Analyzer MT5 1.1.0-preview.13. P source and first render candle trace. No trading."
+#property version "1.140"
+#property description "Multi-Analyzer MT5 1.1.0-preview.14. Previous-day context map and source-zone follow-up. No trading."
 #property indicator_chart_window
 #property indicator_buffers 33
 #property indicator_plots 26
@@ -42,6 +42,7 @@
 #include "MABrokerCost.mqh"
 #include "MAZoneImportance.mqh"
 #include "MAPDisplayCore.mqh"
+#include "MADayMapCore.mqh"
 
 input int HistoryBars=1000; // request 220..1500; price/SMC need60, EMA144 needs144, P still needs220
 input bool InitialBands=true;
@@ -55,6 +56,7 @@ input bool InitialCloud=true; // EMA5..144 fill, colored by the SAME ribbon as t
 input bool InitialSignals=true;
 input bool InitialPDisplayTrace=true; // second neutral P at the first render candle, not another signal
 input int PDisplayTraceCount=20; // latest 1..40 recorded pairs; local ledger retains at most 256
+input bool InitialDayMap=false; // compact previous-day map, separate from chart zone labels
 input bool InitialDetails=false; // top-left data panel; independently remembered per chart
 input MAVolumeMode VolumeBasis=MA_TICK_ACTIVITY; // tick counts are NOT exchange trade volume
 input double AssumedRoundTripCostBps=7.0; // used only in legacy MA_FIXED_BPS mode
@@ -71,6 +73,11 @@ MAFlowRow chartFlow[],m15Flow[],hourFlow[];
 string prefix,key;
 bool showBands=true,showBB=true,showRibbon=true,showSignals=true,showDetails=false,chartAvailable=false;
 bool showCloud=true;
+bool showDayMap=false,dayMapReady=false;
+datetime dayMapCutoff=0,dayMapPreviousStart=0;
+double dayMapHigh=0,dayMapLow=0,dayMapMid=0;
+string dayMapCoverage="";
+MADayEntry dayMapEntries[];
 bool showRetired=true;
 bool showAllZoneFrames=false,showZoneLabels=true;
 bool showPDisplayTrace=true,pDisplayDirty=false,pDisplayStoreOK=true,pDisplayStoreWritable=true,pDisplayNeedsPaint=false;
@@ -240,8 +247,8 @@ bool LightChart() {
 color ExitColor() {return LightChart()?C'58,78,118':C'155,190,235';}
 color BuyColor() {return LightChart()?C'0,103,92':clrAqua;}
 color SellColor() {return LightChart()?C'155,56,29':clrOrange;}
-int ControlColumns() {return MathMax(1,MathMin(11,(int)(ChartGetInteger(0,CHART_WIDTH_IN_PIXELS)-20)/100));}
-int PanelTop() {return 28+((11+ControlColumns()-1)/ControlColumns())*32;}
+int ControlColumns() {return MathMax(1,MathMin(12,(int)(ChartGetInteger(0,CHART_WIDTH_IN_PIXELS)-20)/100));}
+int PanelTop() {return 28+((12+ControlColumns()-1)/ControlColumns())*32;}
 void ApplyPalette() {
  color light[]={C'19,85,166',C'166,79,0',C'91,107,126',C'91,107,126',C'91,107,126',
   C'0,108,128',C'0,106,161',C'19,85,166',C'46,69,157',C'102,58,151',C'141,46,134',C'164,80,0',C'174,49,28',
@@ -277,6 +284,8 @@ void Controls() {
  Button("retired","解消帯",712,showRetired);
  Button("frameScope","下位足も",812,showAllZoneFrames);Button("bandText","帯文字",912,showZoneLabels);
  Button("pDisplay","P表示足",1012,showPDisplayTrace);
+ Button("dayMap","前日地図",1112,showDayMap);
+ ObjectSetString(0,prefix+"dayMap",OBJPROP_TOOLTIP,"前日D1の高安・半値と、その終了時までのOB/FVG起点を再構築。地図の水準は固定、当日の解消を別記。P/EXIT条件は不変。");
  ObjectSetString(0,prefix+"pDisplay",OBJPROP_TOOLTIP,"元のP → 初回描画処理時の足を灰色の表示Pと線で表示。別サインではありません。過去の未記録時刻は推定しません。");
  ObjectSetString(0,prefix+"frameScope",OBJPROP_TOOLTIP,"OFF: 表示足以上の帯 / ON: 下位足も表示。判定・AI保存は不変。");
  ObjectSetString(0,prefix+"bandText",OBJPROP_TOOLTIP,"有効帯の説明文字だけを切替。解消帯は点線とツールチップを保持。");
@@ -344,6 +353,44 @@ bool FrameRates(ENUM_TIMEFRAMES tf,MqlRates &rates[],const int count,const int m
  if(nativeGapChecks>0) quality+=(quality=="OK"?" / ":" / ")+"下位の業者足と空白照合 "+IntegerToString(nativeGapChecks)+"件（休場理由未確認）";
  if(ArraySize(rates)<220) quality+=" / P準備に220本必要";
  return true;
+}
+bool DayMapPrefix(const ENUM_TIMEFRAMES tf,const datetime cutoff,MqlRates &c[]) {
+ MqlRates raw[];ArraySetAsSeries(raw,false);int count=CopyRates(_Symbol,tf,cutoff-1,MA_DAY_MAP_HISTORY+1,raw);
+ if(count<=0||!SeriesInfoInteger(_Symbol,tf,SERIES_SYNCHRONIZED)||!MAValid(raw)) return false;
+ int seconds=PeriodSeconds(tf),closed=0;while(closed<count&&raw[closed].time+seconds<=cutoff) closed++;
+ if(closed<MA_DAY_MAP_HISTORY) return false;
+ ArrayCopy(c,raw,0,closed-MA_DAY_MAP_HISTORY,MA_DAY_MAP_HISTORY);
+ return NativeHistoryStart(c,seconds)==0;
+}
+void RefreshDayMap() {
+ datetime cutoff=iTime(_Symbol,PERIOD_D1,0);if(cutoff<=0||cutoff>TimeCurrent()) {dayMapReady=false;return;}
+ if(cutoff!=dayMapCutoff||!dayMapReady) {
+  dayMapCutoff=cutoff;dayMapReady=false;ArrayResize(dayMapEntries,0);dayMapCoverage="";
+  MqlRates previous[];ArraySetAsSeries(previous,false);
+  if(CopyRates(_Symbol,PERIOD_D1,1,1,previous)!=1||!SeriesInfoInteger(_Symbol,PERIOD_D1,SERIES_SYNCHRONIZED)||!MADayBarValid(previous[0])||previous[0].time>=cutoff) return;
+  dayMapPreviousStart=previous[0].time;dayMapHigh=previous[0].high;dayMapLow=previous[0].low;dayMapMid=(dayMapHigh+dayMapLow)/2;
+  MADayEntry all[];ENUM_TIMEFRAMES frames[]={PERIOD_M5,PERIOD_M15,PERIOD_H1,PERIOD_H4};
+  for(int f=0;f<4;f++) {MqlRates c[];bool ready=DayMapPrefix(frames[f],cutoff,c);
+   dayMapCoverage+=(f>0?" / ":"")+FrameName(frames[f])+(ready?" OK":" 不足");
+   if(ready) MADayCollect(c,cutoff,PeriodSeconds(frames[f]),FrameName(frames[f]),dayMapMid,dayMapHigh-dayMapLow,VolumeBasis,all);
+  }
+  MADaySelect(all,dayMapEntries);dayMapReady=true;
+ }
+ for(int i=0;i<ArraySize(dayMapEntries);i++) {
+  MqlRates c[];ArraySetAsSeries(c,false);int sec=dayMapEntries[i].zone.seconds;
+  int copied=CopyRates(_Symbol,(ENUM_TIMEFRAMES)(sec==300?PERIOD_M5:sec==900?PERIOD_M15:sec==3600?PERIOD_H1:PERIOD_H4),cutoff-sec,TimeCurrent(),c);
+  if(copied<=0) {dayMapEntries[i].status=3;continue;}
+  MADayObserve(dayMapEntries[i],c,cutoff,TimeCurrent(),weeklySessions);
+ }
+}
+string DayMapText() {
+ if(!dayMapReady) return "前日地図: 業者D1・起点履歴の同期待ち";
+ string text="前日地図 | 基準 "+TimeToString(dayMapCutoff,TIME_DATE|TIME_MINUTES)+" broker / "+ChartBasis()+" / 前日確定足から再構築";
+ text+="\n前日 高 "+DoubleToString(dayMapHigh,_Digits)+" / 半値 "+DoubleToString(dayMapMid,_Digits)+" / 安 "+DoubleToString(dayMapLow,_Digits);
+ for(int i=0;i<ArraySize(dayMapEntries);i++) {MADayEntry e=dayMapEntries[i];
+  text+="\n"+e.zone.frame+" "+(e.zone.side>0?"買":"売")+MAKind(e.zone.kind)+" "+DoubleToString(e.zone.low,_Digits)+"–"+DoubleToString(e.zone.high,_Digits)+" / 当日"+MADayStatus(e.status)+" / "+MAImportanceLabel(e.importance);
+ }
+ return text+"\n"+dayMapCoverage+" | 各220確定足。元帯の合算・反発確率ではない。P/EXIT条件不変。";
 }
 string Arrow(const int direction) {return direction>0?"UP":direction<0?"DOWN":"WAIT";}
 bool SignalText(const string kind,const datetime time,const double price,const string text,const color col,const string extra="") {
@@ -718,19 +765,20 @@ void Refresh(const bool force=false) {
  bool costChanged=RefreshBrokerCommissions();
  MqlTick tick;
  if(!ReadSessions()) {
-  ObjectsDeleteAll(0,prefix+"zone");ObjectsDeleteAll(0,prefix+"retired.");retiredPainted=0;retryHistory=true;
-  Panel("MT5 1.1.0-preview.13 | "+_Symbol+" | 業者セッションを取得できず新規判定を保留\n接続・休場とは区別。セッション不明のまま営業中と推定しません。");return;
+  dayMapReady=false;ObjectsDeleteAll(0,prefix+"zone");ObjectsDeleteAll(0,prefix+"retired.");retiredPainted=0;retryHistory=true;
+  Panel("MT5 1.1.0-preview.14 | "+_Symbol+" | 業者セッションを取得できず新規判定を保留\n接続・休場とは区別。セッション不明のまま営業中と推定しません。");return;
  }
  bool live=TerminalInfoInteger(TERMINAL_CONNECTED) && SymbolInfoTick(_Symbol,tick) && ChartQuote(tick)>0 && TimeTradeServer()>=tick.time && TimeTradeServer()-tick.time<120;
  if(!live || !SessionOpen(TimeCurrent())) {
   ObjectsDeleteAll(0,prefix+"zone");ObjectsDeleteAll(0,prefix+"retired.");retiredPainted=0;lastM15=0;
   retryHistory=true;
-  Panel("MT5 1.1.0-preview.13 | "+_Symbol+" | 休場・未接続・価格更新待ち\n新規判定停止。過去サインは確定履歴。EXITは反転エントリーではありません。"); return;
+  Panel("MT5 1.1.0-preview.14 | "+_Symbol+" | 休場・未接続・価格更新待ち\n新規判定停止。過去サインは確定履歴。EXITは反転エントリーではありません。"); return;
  }
  datetime m=iTime(_Symbol,PERIOD_M15,1),h=iTime(_Symbol,PERIOD_H1,1),q=iTime(_Symbol,PERIOD_H4,1);
  datetime x=iTime(_Symbol,(ENUM_TIMEFRAMES)_Period,1),minute=iTime(_Symbol,PERIOD_M1,1);
  if(!force && !costChanged && !retryHistory && m==lastM15 && h==lastH1 && q==lastH4 && x==lastExec && minute==lastMinute) return;
  retryHistory=false;
+ RefreshDayMap();
  lastM15=m;lastH1=h;lastH4=q;lastExec=x;lastMinute=minute;ArrayResize(candidates,0);ArrayResize(retiredCandidates,0);ArrayResize(importanceRecords,0);
  ArrayResize(m15Flow,0);ArrayResize(hourFlow,0);ArrayResize(chartFlow,0);chartAvailable=false;
  ENUM_TIMEFRAMES frames[]={PERIOD_M15,PERIOD_H1,PERIOD_H4};
@@ -803,7 +851,7 @@ void Refresh(const bool force=false) {
  bandState+="\n解消帯 "+(!showBands||!showRetired?"OFF":IntegerToString(retiredPainted)+"件 / 各足直近最大"+IntegerToString(RetiredZonesPerFrame)+"件・点線は解消時刻まで");
  if(zoneDrawError!="") holds+=zoneDrawError+"\n";
  BandCaption(painted);PaintSignals();PaintProfile();
- Panel("MT5 1.1.0-preview.13 | "+_Symbol+" | broker時刻 / 銘柄別独立版 "+ChartBasis()+"\n"+current+"\n"+response+"\n"+entry+"\n"+volume+"\n"+quote+"\n{LIVE_COST}\n"+bandState+"\nEXIT表示 "+IntegerToString(exitLabels)+"組 / 停滞中の集約 "+IntegerToString(exitGroups)+"組（点・保存は全件）\n"+holds+historyNotes+"ニュース自動判定なし / "+(ManualBlackout?"手動P停止中":"Pは研究条件・注文なし")+(ShowFrameDetails?"\n"+status:""));
+ Panel("MT5 1.1.0-preview.14 | "+_Symbol+" | broker時刻 / 銘柄別独立版 "+ChartBasis()+"\n"+current+"\n"+response+"\n"+entry+"\n"+volume+"\n"+quote+"\n{LIVE_COST}\n"+bandState+"\nEXIT表示 "+IntegerToString(exitLabels)+"組 / 停滞中の集約 "+IntegerToString(exitGroups)+"組（点・保存は全件）\n"+holds+historyNotes+"ニュース自動判定なし / "+(ManualBlackout?"手動P停止中":"Pは研究条件・注文なし")+(ShowFrameDetails?"\n"+status:""));
  ChartRedraw();
 }
 void SetPlots() {
@@ -836,6 +884,13 @@ string ImportanceJson(const MAZonePriority &q) {
  return "{\"version\":\"zone-importance-v1\",\"available\":true,\"role\":{\"order\":"+IntegerToString(q.role)+",\"label\":\""+MAImportanceRoleLabel(q.role)+"\"},\"score\":"+IntegerToString(q.score)+",\"grade\":\""+(q.grade==2?"high":q.grade==1?"medium":"support")+"\",\"partial\":"+JBool(q.partial)+
   ",\"parts\":{\"timeframe\":"+IntegerToString(q.tfPoints)+",\"volume\":"+IntegerToString(q.volPoints)+",\"displacement\":"+IntegerToString(q.bodyPoints)+",\"structure\":"+IntegerToString(q.structurePoints)+",\"freshness\":"+IntegerToString(q.freshPoints)+"},\"formation\":{\"confirmedServerTime\":"+IntegerToString((long)q.formationAt)+",\"displacementClosedServerTime\":"+IntegerToString((long)q.displacementAt)+",\"relativeVolume\":"+JNumber(q.relativeVolume)+",\"volumeBasis\":\""+MAVolumeName(VolumeBasis)+"\",\"baselinePeriod\":21,\"baselineBars\":"+IntegerToString(q.baselineBars)+",\"bodyATR\":"+JNumber(q.bodyATR)+",\"structureBreak\":"+JBool(q.structure)+"},\"current\":{\"observedThroughServerTime\":"+IntegerToString((long)q.observedThrough)+",\"visits\":"+IntegerToString(q.visits)+"},\"observationOnly\":true,\"sessionNormalized\":false}";
 }
+string DayMapJson() {
+ string json="{\"version\":\"previous-session-map-v1\",\"available\":"+JBool(dayMapReady)+",\"observationOnly\":true,\"reconstructed\":true,\"cutoffServerTime\":"+IntegerToString((long)dayMapCutoff)+",\"source\":\"BROKER_NATIVE_D1\",\"priceBasis\":\""+ChartBasis()+"\",\"historyBarsPerFrame\":220,\"coverage\":\""+MAJsonEscape(dayMapCoverage)+"\",\"previous\":{\"startServerTime\":"+IntegerToString((long)dayMapPreviousStart)+",\"high\":"+JNumber(dayMapHigh)+",\"low\":"+JNumber(dayMapLow)+",\"midpoint\":"+JNumber(dayMapMid)+"},\"entries\":[";
+ for(int i=0;i<ArraySize(dayMapEntries)&&dayMapReady;i++) {MADayEntry e=dayMapEntries[i];if(i>0) json+=",";
+  json+="{\"frame\":\""+e.zone.frame+"\",\"seconds\":"+IntegerToString(e.zone.seconds)+",\"kind\":\""+MAKind(e.zone.kind)+"\",\"side\":"+IntegerToString(e.zone.side)+",\"low\":"+JNumber(e.zone.low)+",\"high\":"+JNumber(e.zone.high)+",\"formedServerTime\":"+IntegerToString((long)e.zone.formed)+",\"importanceAtCutoff\":"+ImportanceJson(e.importance)+",\"current\":{\"status\":\""+MADayStatus(e.status)+"\",\"visits\":"+IntegerToString(e.visits)+",\"changedServerTime\":"+IntegerToString((long)e.changedAt)+",\"throughServerTime\":"+IntegerToString((long)e.through)+"}}";
+ }
+ return json+"]}";
+}
 void ExportFrameContext(const int file,const MqlRates &c[],const MAFlowRow &rows[],const bool ready,const ENUM_TIMEFRAMES tf) {
  MAResponseRow rs[];if(ready) MAResponse(c,rows,PeriodSeconds(tf),rs);int n=ArraySize(rs);
  FileWriteString(file,",\"response\":"+(n>0?ResponseJson(rs[n-1]):"null")+",\"responseEvents\":[");
@@ -857,12 +912,12 @@ void ExportAnalysis() {
  int file=FileOpen(name,FILE_WRITE|FILE_TXT|FILE_ANSI,0,CP_UTF8);if(file==INVALID_HANDLE) {Print("Market export could not open local file");return;}
  string symbol=MAJsonEscape(_Symbol);
  MqlTick quote;ZeroMemory(quote);bool quoted=SymbolInfoTick(_Symbol,quote);
- FileWriteString(file,"{\"version\":\"1.1.0-preview.13\",\"symbol\":\""+symbol+"\",\"clock\":\"BROKER_WALL_CLOCK_NOT_UTC\",\"exportedServerTime\":"+IntegerToString((long)TimeTradeServer())+",\"connected\":"+JBool((bool)TerminalInfoInteger(TERMINAL_CONNECTED))+",\"bid\":"+(quoted?JNumber(quote.bid):"null")+",\"ask\":"+(quoted?JNumber(quote.ask):"null")+",\"quoteTime\":"+(quoted?IntegerToString((long)quote.time):"null")+",\"assumedCostBps\":"+(PCostMode==MA_FIXED_BPS?JNumber(AssumedRoundTripCostBps):"null")+",\"volumeBasis\":\""+MAVolumeName(VolumeBasis)+"\",\"aggressorDelta\":null,\"cvd\":null,\"sessions\":[");
+ FileWriteString(file,"{\"version\":\"1.1.0-preview.14\",\"symbol\":\""+symbol+"\",\"clock\":\"BROKER_WALL_CLOCK_NOT_UTC\",\"exportedServerTime\":"+IntegerToString((long)TimeTradeServer())+",\"connected\":"+JBool((bool)TerminalInfoInteger(TERMINAL_CONNECTED))+",\"bid\":"+(quoted?JNumber(quote.bid):"null")+",\"ask\":"+(quoted?JNumber(quote.ask):"null")+",\"quoteTime\":"+(quoted?IntegerToString((long)quote.time):"null")+",\"assumedCostBps\":"+(PCostMode==MA_FIXED_BPS?JNumber(AssumedRoundTripCostBps):"null")+",\"volumeBasis\":\""+MAVolumeName(VolumeBasis)+"\",\"aggressorDelta\":null,\"cvd\":null,\"sessions\":[");
  for(int s=0;s<ArraySize(weeklySessions);s++) {
   if(s>0) FileWriteString(file,",");
   FileWriteString(file,"{\"weekday\":"+IntegerToString(weeklySessions[s].weekday)+",\"startSeconds\":"+IntegerToString(weeklySessions[s].start)+",\"stopSeconds\":"+IntegerToString(weeklySessions[s].stop)+"}");
  }
- FileWriteString(file,"],\"digits\":"+IntegerToString(_Digits)+",\"point\":"+JNumber(_Point)+",\"tickSize\":"+JNumber(SymbolInfoDouble(_Symbol,SYMBOL_TRADE_TICK_SIZE))+",\"chartPriceBasis\":\""+ChartBasis()+"\",\"baseCurrency\":\""+MAJsonEscape(SymbolInfoString(_Symbol,SYMBOL_CURRENCY_BASE))+"\",\"profitCurrency\":\""+MAJsonEscape(SymbolInfoString(_Symbol,SYMBOL_CURRENCY_PROFIT))+"\",\"spreadBpsNow\":"+(quoted?JNumber(MASpreadBps(quote.bid,quote.ask)):"null")+",\"costModel\":\""+(PCostMode==MA_BROKER_AUTO?"broker-spread-v1":"manual-fixed-bps-v1")+"\",\"commissionRulesReported\":"+IntegerToString(brokerCommissionCount)+",\"commissionObservedServerTime\":"+IntegerToString((long)brokerCommissionObservedAt)+",\"commissionApiError\":"+IntegerToString(brokerCommissionError)+",\"commissionSchedule\":\""+MAJsonEscape(brokerCommissionKey)+"\",\"historicalCommissionScheduleKnown\":false,\"costLimitations\":\"Recorded bar spread for confirmed P; current commission schedule reconstructed, not historical proof. Future slippage, exit spread and swaps unknown.\",\"planPriceDigits\":"+IntegerToString(MAPlanDigits(_Digits))+",\"frames\":[");
+ FileWriteString(file,"],\"digits\":"+IntegerToString(_Digits)+",\"point\":"+JNumber(_Point)+",\"tickSize\":"+JNumber(SymbolInfoDouble(_Symbol,SYMBOL_TRADE_TICK_SIZE))+",\"chartPriceBasis\":\""+ChartBasis()+"\",\"baseCurrency\":\""+MAJsonEscape(SymbolInfoString(_Symbol,SYMBOL_CURRENCY_BASE))+"\",\"profitCurrency\":\""+MAJsonEscape(SymbolInfoString(_Symbol,SYMBOL_CURRENCY_PROFIT))+"\",\"spreadBpsNow\":"+(quoted?JNumber(MASpreadBps(quote.bid,quote.ask)):"null")+",\"costModel\":\""+(PCostMode==MA_BROKER_AUTO?"broker-spread-v1":"manual-fixed-bps-v1")+"\",\"commissionRulesReported\":"+IntegerToString(brokerCommissionCount)+",\"commissionObservedServerTime\":"+IntegerToString((long)brokerCommissionObservedAt)+",\"commissionApiError\":"+IntegerToString(brokerCommissionError)+",\"commissionSchedule\":\""+MAJsonEscape(brokerCommissionKey)+"\",\"historicalCommissionScheduleKnown\":false,\"costLimitations\":\"Recorded bar spread for confirmed P; current commission schedule reconstructed, not historical proof. Future slippage, exit spread and swaps unknown.\",\"planPriceDigits\":"+IntegerToString(MAPlanDigits(_Digits))+",\"dayMap\":"+DayMapJson()+",\"frames\":[");
  ENUM_TIMEFRAMES frames[]={PERIOD_M1,PERIOD_M5,PERIOD_M15,PERIOD_H1,PERIOD_H4,PERIOD_D1};
  for(int f=0;f<6;f++) {
   if(f>0) FileWriteString(file,",");MqlRates c[];MAFlowRow rows[];
@@ -921,6 +976,7 @@ int OnInit() {
  showDetails=GlobalVariableCheck(key+".d")?GlobalVariableGet(key+".d")>0:InitialDetails;
  showAllZoneFrames=GlobalVariableCheck(key+".af")?GlobalVariableGet(key+".af")>0:InitialAllZoneFrames;
  showZoneLabels=GlobalVariableCheck(key+".zt")?GlobalVariableGet(key+".zt")>0:InitialZoneLabels;
+ showDayMap=GlobalVariableCheck(key+".dm")?GlobalVariableGet(key+".dm")>0:InitialDayMap;
  showPDisplayTrace=GlobalVariableCheck(key+".pt")?GlobalVariableGet(key+".pt")>0:InitialPDisplayTrace;
  LoadPDisplayTrace();
  SetIndexBuffer(0,e20,INDICATOR_DATA);SetIndexBuffer(1,e50,INDICATOR_DATA);
@@ -935,14 +991,14 @@ int OnInit() {
  color colors[]={clrCyan,clrDeepSkyBlue,clrDodgerBlue,clrRoyalBlue,clrMediumPurple,clrViolet,clrOrange,clrOrangeRed,clrGold,clrGold,clrLimeGreen,clrTomato,clrAqua,clrDeepPink};
  for(int i=0;i<19;i++) {PlotIndexSetDouble(i,PLOT_EMPTY_VALUE,EMPTY_VALUE);if(i>=5) {PlotIndexSetString(i,PLOT_LABEL,labels[i-5]);PlotIndexSetInteger(i,PLOT_LINE_COLOR,colors[i-5]);PlotIndexSetInteger(i,PLOT_LINE_WIDTH,i>=13?2:1);if(i>=13) PlotIndexSetInteger(i,PLOT_ARROW,i<=14?159:i==16||i==18?234:233);}}
  IndicatorSetInteger(INDICATOR_DIGITS,_Digits);
- IndicatorSetString(INDICATOR_SHORTNAME,"Multi-Analyzer 1.1.0-preview.13 "+_Symbol+" "+(VolumeBasis==MA_TICK_ACTIVITY?"tick":"real/off"));
+ IndicatorSetString(INDICATOR_SHORTNAME,"Multi-Analyzer 1.1.0-preview.14 "+_Symbol+" "+(VolumeBasis==MA_TICK_ACTIVITY?"tick":"real/off"));
  ApplyPalette();Controls();SetPlots();
  EventSetTimer(2);Refresh(true);return INIT_SUCCEEDED;
 }
 int OnCalculate(const int rates_total,const int prev_calculated,const datetime &time[],const double &open[],const double &high[],const double &low[],const double &close[],const long &tick_volume[],const long &volume[],const int &spread[]) {
  ArraySetAsSeries(time,false);Refresh();FillPlots(rates_total,time);return rates_total;
 }
-void OnTimer() {Refresh();SavePDisplayTrace();if(showDetails) Panel(panelText);}
+void OnTimer() {Refresh();SavePDisplayTrace();if(showDetails||showDayMap) Panel(panelText);}
 void OnChartEvent(const int id,const long &lparam,const double &dparam,const string &sparam) {
  if(id==CHARTEVENT_CHART_CHANGE) {ApplyPalette();Controls();int painted=RenderCandidates();BandCaption(painted);PaintSignals();PaintProfile();Panel(panelText);ChartRedraw();return;}
  if(id!=CHARTEVENT_OBJECT_CLICK) return;
@@ -953,6 +1009,7 @@ void OnChartEvent(const int id,const long &lparam,const double &dparam,const str
  if(sparam==prefix+"retired") {showRetired=!showRetired;GlobalVariableSet(key+".h",showRetired?1:0);Button("retired","解消帯",712,showRetired);Refresh(true);}
  if(sparam==prefix+"frameScope") {showAllZoneFrames=!showAllZoneFrames;GlobalVariableSet(key+".af",showAllZoneFrames?1:0);Controls();Refresh(true);}
  if(sparam==prefix+"bandText") {showZoneLabels=!showZoneLabels;GlobalVariableSet(key+".zt",showZoneLabels?1:0);Controls();Refresh(true);}
+ if(sparam==prefix+"dayMap") {showDayMap=!showDayMap;GlobalVariableSet(key+".dm",showDayMap?1:0);Controls();Refresh(true);Panel(panelText);ChartRedraw();}
  if(sparam==prefix+"pDisplay") {showPDisplayTrace=!showPDisplayTrace;GlobalVariableSet(key+".pt",showPDisplayTrace?1:0);Controls();PaintPDisplayTrace();ChartRedraw();}
  if(sparam==prefix+"signals") {showSignals=!showSignals;GlobalVariableSet(key+".s",showSignals?1:0);Button("signals","P / EXIT",312,showSignals);SetPlots();Refresh(true);}
  if(sparam==prefix+"details") {showDetails=!showDetails;GlobalVariableSet(key+".d",showDetails?1:0);Button("details","詳細",412,showDetails);Refresh(true);}

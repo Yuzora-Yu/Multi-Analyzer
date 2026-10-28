@@ -104,8 +104,8 @@ class Handler(SimpleHTTPRequestHandler):
         allowed.add('/marker-details.js')
         allowed.update({
             '/price-basis.js', '/chart-viewport.js', '/zone-focus.js', '/zone-view.js',
-            '/zone-geometry.js', '/zone-checkpoint.js', '/trend-context.js',
-            '/snapshot-health.js', '/demo-panel.js', '/market-knowledge.js', '/market-brief.js',
+            '/zone-geometry.js', '/zone-importance.js', '/zone-checkpoint.js', '/trend-context.js',
+            '/snapshot-health.js', '/demo-panel.js', '/market-knowledge.js', '/market-brief.js', '/day-map.js',
             '/reversal-context.js', '/reversal-chart.js', '/price-response.js',
             '/mt5.html', '/downloads/mt5-latest.json',
         })

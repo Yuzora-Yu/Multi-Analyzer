@@ -61,6 +61,6 @@ test('actual export string expressions produce valid JSON in automatic and legac
  assert(header&&meta&&costExpr&&barExpr);
  Object.assign(c,{symbol:'GOLD',TERMINAL_CONNECTED:1,TerminalInfoInteger:()=>true,quote:{bid:4000,ask:4000.5,time:1000},quoted:true,MAVolumeName:()=> 'broker tick activity',VolumeBasis:0,brokerCommissionKey:'0',brokerCommissionError:0,JNumber:v=>!Number.isFinite(v)||v===Number.MAX_VALUE?'null':String(v),MAVolume:b=>b.tick_volume,
   raw:[{time:0,open:4000,high:4001,low:3999,close:4000,tick_volume:10,real_volume:0,spread:40}],i:0,r:{ready:true,e13:4000,e21:4000,atr:2,adx:25,direction:1,ribbon:1,exitLong:false,exitShort:false,pullbackConfirmed:true},p:{stop:3990,tp2:4022,netRR:2,pCandidate:true},derived:true,cost:c.MACostParts(4000,.4,0,'BROKER_SPREAD_NO_COMMISSION_RULES_REPORTED')});
- c.ChartBasis=()=> 'BID';const evaluate=x=>vm.runInContext(x.replace(/\((?:long|bool)\)/g,''),c);
+ c.DayMapJson=()=> '{"available":false}';c.ChartBasis=()=> 'BID';const evaluate=x=>vm.runInContext(x.replace(/\((?:long|bool)\)/g,''),c);
  for(const mode of [c.MA_BROKER_AUTO,c.MA_FIXED_BPS]){c.PCostMode=mode;const text=evaluate(header)+evaluate(meta)+'{"bars":['+evaluate(costExpr)+evaluate(barExpr)+']}]}' ;const parsed=JSON.parse(text);assert.equal(parsed.symbol,'GOLD');assert.equal(parsed.frames[0].bars[0].cost.available,true);assert.equal(parsed.assumedCostBps,mode===c.MA_FIXED_BPS?7:null);}
 });
