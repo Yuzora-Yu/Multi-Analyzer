@@ -1,0 +1,77 @@
+{
+  "schema": 1,
+  "version": "discretionary-execution-practice-v1",
+  "reviewedDateJst": "2026-10-28",
+  "scope": "Human-requested discretionary planning knowledge, not a canonical signal, execution rule or validation result.",
+  "sources": [
+    {
+      "id": "basso-position-risk",
+      "person": "Tom Basso",
+      "type": "primary interview transcript",
+      "url": "https://investresolve.com/podcasts/resolve-riffs-with-tom-basso-on-the-making-of-a-trading-legend/",
+      "publishedDate": null,
+      "locator": "Position Sizing, 01:04:50-01:10:01; 01:26:21",
+      "summary": "Size exposure from the distance to the intended exit and market volatility, rather than using the same contract quantity for every trade.",
+      "context": "Diversified systematic futures and portfolio trading.",
+      "application": "Use a risk budget to derive size. Greater uncertainty need not mean indefinitely waiting for a perfect entry.",
+      "limit": "His percentages, diversification and long-horizon examples are not Gold M1/M5 sizing rules. Random-entry profitability statements are not adopted as evidence of an edge."
+    },
+    {
+      "id": "principato-starter",
+      "person": "Marc Principato",
+      "type": "author-written explanation",
+      "url": "https://www.smbtraining.com/blog/forex-trading-position-sizing-and-the-bigger-picture",
+      "publishedDate": "2013-05-08",
+      "summary": "A small initial position can accommodate uncertain timing; planned additions, including adverse movement, are evaluated against a pre-existing total stopping risk.",
+      "context": "FX positions based on larger-timeframe structure, potentially spanning sessions.",
+      "application": "Distinguish a planned, bounded zone ladder from expanding risk after an invalidation.",
+      "limit": "This is a trading opinion and example, not proof that averaging into losses improves Gold scalp returns. Do not copy his account-risk percentage."
+    },
+    {
+      "id": "bellafiore-starter-add",
+      "person": "Mike Bellafiore",
+      "type": "author-written trade review",
+      "url": "https://www.smbtraining.com/blog/rewind-replay-retrace",
+      "publishedDate": "2010-07-20",
+      "summary": "Review an initial position, later additions after favorable developments, partial exits and re-entry as distinct decisions while controlling risk.",
+      "context": "An intraday US equity example.",
+      "application": "Confirmation can justify an addition without being a mandatory condition for the earlier small probe.",
+      "limit": "A selected example does not establish how frequently adding works or justify larger risk after recent wins."
+    },
+    {
+      "id": "grimes-exit-system",
+      "person": "Adam H. Grimes",
+      "type": "author-written explanation",
+      "url": "https://www.adamhgrimes.com/trade-exits/",
+      "publishedDate": null,
+      "summary": "Initial stops, size, time management, profit-taking and trailing exits must fit the same trading style; smaller size can accommodate a structurally appropriate wider stop.",
+      "context": "Primarily his swing-trading practice, with intraday observations.",
+      "application": "Do not tighten a stop merely to manufacture attractive reward/risk, or treat every counter-zone as a mandatory full exit.",
+      "limit": "His ATR distances and preferred exit methods are not universal Gold scalp settings; different initial-loss and partial-exit choices can produce different outcomes."
+    },
+    {
+      "id": "grimes-reward-probability",
+      "person": "Adam H. Grimes",
+      "type": "author-written conceptual argument",
+      "url": "https://www.adamhgrimes.com/important-question-riskreward/",
+      "publishedDate": "2014-09-15",
+      "summary": "A distant target and close stop do not independently create an edge; target-hit probability and realized reward/risk interact.",
+      "context": "A stock-chart example and an explicit hypothetical random-walk argument.",
+      "application": "Record realized wins, losses, fees and partial exits alongside the proposed ratio. Unknown hit rates do not require withholding every bounded discretionary hypothesis.",
+      "limit": "The random-walk example is not a measured win rate for chart patterns or Gold."
+    }
+  ],
+  "synthesis": {
+    "attribution": "The following planning policy is our synthesis, not a verbatim rule jointly endorsed by the authors.",
+    "entryModes": ["small zone probe", "confirmed entry or addition", "skip because price/risk geometry is unsuitable"],
+    "sequence": "Define the thesis horizon and local invalidation, choose the risk budget, then derive size and entry geography. Separate first reaction obstacles from the main target.",
+    "normalAdverseMovement": "Movement inside a predeclared risk boundary is not automatically a thesis failure. Losing the chosen boundary is a different event; do not widen it afterward.",
+    "campaignRisk": "For planned additions or retries, track realized losses plus the planned loss on all open portions within one original idea budget. A small first lot alone does not bound the combined risk.",
+    "ladderVersusConfirmation": "A preplanned ladder within the original zone and an addition after favorable confirmation are different alternatives. Neither is a universal requirement.",
+    "costs": "Use available spread/commission information and explicit uncertainty for missing execution costs. Evaluate primary-target reward and the risk after costs; do not assume unknown costs are zero.",
+    "expectancy": "Compare hit probability, realized average win, average loss and costs. Do not declare an edge from a nominal ratio or insist every style use the same minimum ratio.",
+    "learning": "Retain failed probes, normal adverse excursion, favorable excursion, early exits, no-fill cases and confirmation delay. Replays are learning evidence, not retrospective preregistration."
+  },
+  "deliveryBoundary": "Knowledge and review guidance only. The application does not automatically create orders, size positions, change P/EXIT, modify fixed accounts or restart paused research/schedules from this file.",
+  "goldEvidence": "No improvement in Gold predictive accuracy or net expectancy is established by these sources."
+}
