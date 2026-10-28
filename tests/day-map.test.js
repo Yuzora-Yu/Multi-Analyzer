@@ -58,3 +58,9 @@ test('MT5 actual map export expression keeps native clock, bounds and frozen imp
  const ctx=vm.createContext({dayMapReady:true,dayMapCutoff:1000,dayMapPreviousStart:10,dayMapHigh:120,dayMapLow:90,dayMapMid:105,dayMapCoverage:'H1 OK',dayMapEntries:[entry],JBool:JSON.stringify,JNumber:String,IntegerToString:String,ChartBasis:()=> 'BID',MAJsonEscape:x=>x,ArraySize:a=>a.length,MAKind:()=> 'FVG',MADayStatus:()=> '解消',ImportanceJson:JSON.stringify});vm.runInContext(`function exportMap(){${body}}`,ctx);
  const output=JSON.parse(ctx.exportMap());assert.equal(output.source,'BROKER_NATIVE_D1');assert.equal(output.priceBasis,'BID');assert.equal(output.cutoffServerTime,1000);assert.equal(output.entries[0].low,100);assert.equal(output.entries[0].importanceAtCutoff.score,40);assert.equal(output.entries[0].current.status,'解消');ctx.dayMapReady=false;assert.equal(JSON.parse(ctx.exportMap()).entries.length,0);
 });
+test('native map display is independent of the detail toggle and export refreshes its own context',()=>{
+ const s=fs.readFileSync(require.resolve('../mt5/MultiAnalyzerGold.mq5'),'utf8'),panel=s.slice(s.indexOf('void Panel('),s.indexOf('bool ReadSessions('));
+ assert.match(panel,/if\(!showDetails&&!showDayMap\) return;/);assert.match(panel,/string display=showDayMap\?DayMapText\(\):"";/);assert.match(panel,/if\(showDetails\) display\+=/);
+ assert.match(s,/void ExportAnalysis\(\) \{\s*RefreshBrokerCommissions\(\);ReadSessions\(\);RefreshDayMap\(\);/);
+ const controls=s.slice(s.indexOf('void Button('),s.indexOf('void Controls('));assert.match(controls,/ObjectSetInteger\(0,id,OBJPROP_ZORDER,10000\)/);
+});

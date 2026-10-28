@@ -1,7 +1,7 @@
 #property copyright "Multi-Analyzer"
 #property link "https://yuzora-yu.github.io/Multi-Analyzer/"
-#property version "1.140"
-#property description "Multi-Analyzer MT5 1.1.0-preview.14. Previous-day context map and source-zone follow-up. No trading."
+#property version "1.150"
+#property description "Multi-Analyzer MT5 1.1.0-preview.15. Previous-day context map and source-zone follow-up. No trading."
 #property indicator_chart_window
 #property indicator_buffers 33
 #property indicator_plots 26
@@ -275,6 +275,7 @@ void Button(const string name,const string text,const int x,const bool on) {
  ObjectSetInteger(0,id,OBJPROP_COLOR,LightChart()?(on?C'19,64,114':C'71,85,105'):(on?clrGold:clrSilver));
  ObjectSetInteger(0,id,OBJPROP_BGCOLOR,LightChart()?(on?C'225,237,250':C'245,247,250'):clrBlack);
  ObjectSetInteger(0,id,OBJPROP_BORDER_COLOR,LightChart()?C'148,163,184':clrSlateGray);ObjectSetInteger(0,id,OBJPROP_STATE,false);
+ ObjectSetInteger(0,id,OBJPROP_ZORDER,10000); // Bands crossing the toolbar must not steal button clicks.
  ObjectSetString(0,id,OBJPROP_FONT,"Meiryo"); ObjectSetString(0,id,OBJPROP_TEXT,text+(on?" ON":" OFF"));
 }
 void Controls() {
@@ -291,8 +292,10 @@ void Controls() {
  ObjectSetString(0,prefix+"bandText",OBJPROP_TOOLTIP,"有効帯の説明文字だけを切替。解消帯は点線とツールチップを保持。");
 }
 void Panel(const string text) {
- panelText=text;ObjectsDeleteAll(0,prefix+"panel");if(!showDetails) return;
- string display=text;StringReplace(display,"{LIVE_COST}",LiveCostSummary());
+ panelText=text;ObjectsDeleteAll(0,prefix+"panel");if(!showDetails&&!showDayMap) return;
+ string display=showDayMap?DayMapText():"";
+ if(showDetails) display+=(StringLen(display)>0?"\n":"")+text;
+ StringReplace(display,"{LIVE_COST}",LiveCostSummary());
  string source[];int count=StringSplit(display,'\n',source);string lines[];int n=0;
  int width=(int)MathMax(100,ChartGetInteger(0,CHART_WIDTH_IN_PIXELS)-40);
  for(int i=0;i<count;i++) {
@@ -766,13 +769,13 @@ void Refresh(const bool force=false) {
  MqlTick tick;
  if(!ReadSessions()) {
   dayMapReady=false;ObjectsDeleteAll(0,prefix+"zone");ObjectsDeleteAll(0,prefix+"retired.");retiredPainted=0;retryHistory=true;
-  Panel("MT5 1.1.0-preview.14 | "+_Symbol+" | 業者セッションを取得できず新規判定を保留\n接続・休場とは区別。セッション不明のまま営業中と推定しません。");return;
+  Panel("MT5 1.1.0-preview.15 | "+_Symbol+" | 業者セッションを取得できず新規判定を保留\n接続・休場とは区別。セッション不明のまま営業中と推定しません。");return;
  }
  bool live=TerminalInfoInteger(TERMINAL_CONNECTED) && SymbolInfoTick(_Symbol,tick) && ChartQuote(tick)>0 && TimeTradeServer()>=tick.time && TimeTradeServer()-tick.time<120;
  if(!live || !SessionOpen(TimeCurrent())) {
   ObjectsDeleteAll(0,prefix+"zone");ObjectsDeleteAll(0,prefix+"retired.");retiredPainted=0;lastM15=0;
   retryHistory=true;
-  Panel("MT5 1.1.0-preview.14 | "+_Symbol+" | 休場・未接続・価格更新待ち\n新規判定停止。過去サインは確定履歴。EXITは反転エントリーではありません。"); return;
+  Panel("MT5 1.1.0-preview.15 | "+_Symbol+" | 休場・未接続・価格更新待ち\n新規判定停止。過去サインは確定履歴。EXITは反転エントリーではありません。"); return;
  }
  datetime m=iTime(_Symbol,PERIOD_M15,1),h=iTime(_Symbol,PERIOD_H1,1),q=iTime(_Symbol,PERIOD_H4,1);
  datetime x=iTime(_Symbol,(ENUM_TIMEFRAMES)_Period,1),minute=iTime(_Symbol,PERIOD_M1,1);
@@ -851,7 +854,7 @@ void Refresh(const bool force=false) {
  bandState+="\n解消帯 "+(!showBands||!showRetired?"OFF":IntegerToString(retiredPainted)+"件 / 各足直近最大"+IntegerToString(RetiredZonesPerFrame)+"件・点線は解消時刻まで");
  if(zoneDrawError!="") holds+=zoneDrawError+"\n";
  BandCaption(painted);PaintSignals();PaintProfile();
- Panel("MT5 1.1.0-preview.14 | "+_Symbol+" | broker時刻 / 銘柄別独立版 "+ChartBasis()+"\n"+current+"\n"+response+"\n"+entry+"\n"+volume+"\n"+quote+"\n{LIVE_COST}\n"+bandState+"\nEXIT表示 "+IntegerToString(exitLabels)+"組 / 停滞中の集約 "+IntegerToString(exitGroups)+"組（点・保存は全件）\n"+holds+historyNotes+"ニュース自動判定なし / "+(ManualBlackout?"手動P停止中":"Pは研究条件・注文なし")+(ShowFrameDetails?"\n"+status:""));
+ Panel("MT5 1.1.0-preview.15 | "+_Symbol+" | broker時刻 / 銘柄別独立版 "+ChartBasis()+"\n"+current+"\n"+response+"\n"+entry+"\n"+volume+"\n"+quote+"\n{LIVE_COST}\n"+bandState+"\nEXIT表示 "+IntegerToString(exitLabels)+"組 / 停滞中の集約 "+IntegerToString(exitGroups)+"組（点・保存は全件）\n"+holds+historyNotes+"ニュース自動判定なし / "+(ManualBlackout?"手動P停止中":"Pは研究条件・注文なし")+(ShowFrameDetails?"\n"+status:""));
  ChartRedraw();
 }
 void SetPlots() {
@@ -906,13 +909,13 @@ void ExportFrameContext(const int file,const MqlRates &c[],const MAFlowRow &rows
  FileWriteString(file,"],\"contextBasis\":\"RECONSTRUCTED_FROM_THIS_EXPORT_CLOSED_BARS_NOT_A_CONTEMPORANEOUS_SIGNAL_LEDGER\"");
 }
 void ExportAnalysis() {
- RefreshBrokerCommissions();
+ RefreshBrokerCommissions();ReadSessions();RefreshDayMap();
  string folder="MultiAnalyzerGold";FolderCreate(folder);
  string name=folder+"/MT5-"+MAFileSymbol(_Symbol)+"-"+IntegerToString((long)TimeLocal())+"-"+IntegerToString((long)GetMicrosecondCount())+".json";
  int file=FileOpen(name,FILE_WRITE|FILE_TXT|FILE_ANSI,0,CP_UTF8);if(file==INVALID_HANDLE) {Print("Market export could not open local file");return;}
  string symbol=MAJsonEscape(_Symbol);
  MqlTick quote;ZeroMemory(quote);bool quoted=SymbolInfoTick(_Symbol,quote);
- FileWriteString(file,"{\"version\":\"1.1.0-preview.14\",\"symbol\":\""+symbol+"\",\"clock\":\"BROKER_WALL_CLOCK_NOT_UTC\",\"exportedServerTime\":"+IntegerToString((long)TimeTradeServer())+",\"connected\":"+JBool((bool)TerminalInfoInteger(TERMINAL_CONNECTED))+",\"bid\":"+(quoted?JNumber(quote.bid):"null")+",\"ask\":"+(quoted?JNumber(quote.ask):"null")+",\"quoteTime\":"+(quoted?IntegerToString((long)quote.time):"null")+",\"assumedCostBps\":"+(PCostMode==MA_FIXED_BPS?JNumber(AssumedRoundTripCostBps):"null")+",\"volumeBasis\":\""+MAVolumeName(VolumeBasis)+"\",\"aggressorDelta\":null,\"cvd\":null,\"sessions\":[");
+ FileWriteString(file,"{\"version\":\"1.1.0-preview.15\",\"symbol\":\""+symbol+"\",\"clock\":\"BROKER_WALL_CLOCK_NOT_UTC\",\"exportedServerTime\":"+IntegerToString((long)TimeTradeServer())+",\"connected\":"+JBool((bool)TerminalInfoInteger(TERMINAL_CONNECTED))+",\"bid\":"+(quoted?JNumber(quote.bid):"null")+",\"ask\":"+(quoted?JNumber(quote.ask):"null")+",\"quoteTime\":"+(quoted?IntegerToString((long)quote.time):"null")+",\"assumedCostBps\":"+(PCostMode==MA_FIXED_BPS?JNumber(AssumedRoundTripCostBps):"null")+",\"volumeBasis\":\""+MAVolumeName(VolumeBasis)+"\",\"aggressorDelta\":null,\"cvd\":null,\"sessions\":[");
  for(int s=0;s<ArraySize(weeklySessions);s++) {
   if(s>0) FileWriteString(file,",");
   FileWriteString(file,"{\"weekday\":"+IntegerToString(weeklySessions[s].weekday)+",\"startSeconds\":"+IntegerToString(weeklySessions[s].start)+",\"stopSeconds\":"+IntegerToString(weeklySessions[s].stop)+"}");
@@ -991,7 +994,7 @@ int OnInit() {
  color colors[]={clrCyan,clrDeepSkyBlue,clrDodgerBlue,clrRoyalBlue,clrMediumPurple,clrViolet,clrOrange,clrOrangeRed,clrGold,clrGold,clrLimeGreen,clrTomato,clrAqua,clrDeepPink};
  for(int i=0;i<19;i++) {PlotIndexSetDouble(i,PLOT_EMPTY_VALUE,EMPTY_VALUE);if(i>=5) {PlotIndexSetString(i,PLOT_LABEL,labels[i-5]);PlotIndexSetInteger(i,PLOT_LINE_COLOR,colors[i-5]);PlotIndexSetInteger(i,PLOT_LINE_WIDTH,i>=13?2:1);if(i>=13) PlotIndexSetInteger(i,PLOT_ARROW,i<=14?159:i==16||i==18?234:233);}}
  IndicatorSetInteger(INDICATOR_DIGITS,_Digits);
- IndicatorSetString(INDICATOR_SHORTNAME,"Multi-Analyzer 1.1.0-preview.14 "+_Symbol+" "+(VolumeBasis==MA_TICK_ACTIVITY?"tick":"real/off"));
+ IndicatorSetString(INDICATOR_SHORTNAME,"Multi-Analyzer 1.1.0-preview.15 "+_Symbol+" "+(VolumeBasis==MA_TICK_ACTIVITY?"tick":"real/off"));
  ApplyPalette();Controls();SetPlots();
  EventSetTimer(2);Refresh(true);return INIT_SUCCEEDED;
 }

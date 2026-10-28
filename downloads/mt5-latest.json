@@ -1,6 +1,6 @@
 {
-  "version": "1.1.0-preview.14",
-  "mqlVersion": "1.140",
+  "version": "1.1.0-preview.15",
+  "mqlVersion": "1.150",
   "stage": "preview",
   "sourceFiles": [
     "MultiAnalyzerGold.mq5",
@@ -17,13 +17,13 @@
     "README_JA.txt",
     "CHANGELOG.md"
   ],
-  "scope": "前日D1の高安・半値と、前日終了までに形成された元OB/FVGを別表示する前日地図を追加。当日の接触・解消を追跡しAI保存にも記録。元P/EXIT・費用条件と帯履歴は維持。",
-  "runtimeVerification": "前日情報の固定・未来足の除外・欠損時保留・解消後の復活防止を自動検査。MetaEditorコンパイル0エラー0警告。実チャート装着・ネイティブ表示と予測精度は未確認",
-  "file": "MultiAnalyzerGold-1.1.0-preview.14.zip",
-  "bytes": 333139,
-  "sha256": "58c1d65cebb51c60b2361a2cb3dd75057a6c1a8ea7ec36cda0dbefcb6cb4da58",
+  "scope": "前日地図の詳細OFF時の表示と、帯が操作ボタンのクリックを奪う問題を修正。AI保存の直前にも地図を更新。元のP/EXIT・費用条件と帯履歴は維持。",
+  "runtimeVerification": "MetaEditorコンパイル0エラー0警告、地図の独立表示とAI保存の更新呼出し・履歴固定・欠損・解消処理を自動検査。ライブ実チャートの表示・AI保存は装着後に別途確認。予測精度は未確認",
+  "file": "MultiAnalyzerGold-1.1.0-preview.15.zip",
+  "bytes": 338044,
+  "sha256": "858371b7c21af140fbea39edb4a371031393bf788422e07915611386c29681c0",
   "sources": {
-    "MultiAnalyzerGold.mq5": "4de8e5acc380e335d839d13448c825a485ce27be866289bf0571b5cfdf3335ab",
+    "MultiAnalyzerGold.mq5": "0de141e45c68e60f5a1edb0d9e12a4722af1449e5ef698f8e63ced569000a30e",
     "MAZoneCore.mqh": "878b328cc1e0f8fe1f39b8e5c72b8a17af93f13d7a50213ebc004b9089d1f464",
     "MAFlowCore.mqh": "0472f9687e14466caadde4cc12826d3759c4a6961ccc35c43c90ab09d7173507",
     "MAHistoryCore.mqh": "46bff12e6dde4c851d9d6ec8479f318731f40962a86cb9a204ee487b777a02f0",
@@ -34,10 +34,10 @@
     "MAZoneImportance.mqh": "afb48bdd27314b85301c16420e58212df3da0d2aed14372631b4d413dd483f87",
     "MAPDisplayCore.mqh": "e9741d26d3cb8158e77baf9d5461896d4771f29ecea7ce4f77a421892c202411",
     "MADayMapCore.mqh": "96e3c461ff53f3cb4e46ca0aa2a8fff0fb976957331ab476d2038a2a6b606961",
-    "README_JA.txt": "2026a7490490a8d8d551f3982e1198d9c75d59859f2aee0a749948fab6435a02",
-    "CHANGELOG.md": "32ecde18f89844c59162120c76d7cd3d471450810d34f9c1adcda40a0385a68d"
+    "README_JA.txt": "c5501b0cb4fa906fcffddadec2b7db3436be2dcb117088b385abf6de5047b9a7",
+    "CHANGELOG.md": "8647449724076720aba3bf95328d7bfb7b536570b16957ab2f2f2ef5ffe1147c"
   },
-  "compiledSha256": "db4c81b0f0886392811c5a76da34c3b41107f1095729671b67bad9edcf8b7f93",
+  "compiledSha256": "99d0d7abe8450bad07bc402bb5b5eb9d6e6928a68db87a64a1a5fede58ebb92b",
   "compiler": {
     "errors": 0,
     "warnings": 0

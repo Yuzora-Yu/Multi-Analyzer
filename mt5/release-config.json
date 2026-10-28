@@ -1,6 +1,6 @@
 {
-  "version": "1.1.0-preview.14",
-  "mqlVersion": "1.140",
+  "version": "1.1.0-preview.15",
+  "mqlVersion": "1.150",
   "stage": "preview",
   "sourceFiles": [
     "MultiAnalyzerGold.mq5",
@@ -17,6 +17,6 @@
     "README_JA.txt",
     "CHANGELOG.md"
   ],
-  "scope": "前日D1の高安・半値と、前日終了までに形成された元OB/FVGを別表示する前日地図を追加。当日の接触・解消を追跡しAI保存にも記録。元P/EXIT・費用条件と帯履歴は維持。",
-  "runtimeVerification": "前日情報の固定・未来足の除外・欠損時保留・解消後の復活防止を自動検査。MetaEditorコンパイル0エラー0警告。実チャート装着・ネイティブ表示と予測精度は未確認"
+  "scope": "前日地図の詳細OFF時の表示と、帯が操作ボタンのクリックを奪う問題を修正。AI保存の直前にも地図を更新。元のP/EXIT・費用条件と帯履歴は維持。",
+  "runtimeVerification": "MetaEditorコンパイル0エラー0警告、地図の独立表示とAI保存の更新呼出し・履歴固定・欠損・解消処理を自動検査。ライブ実チャートの表示・AI保存は装着後に別途確認。予測精度は未確認"
 }
