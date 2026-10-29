@@ -21,11 +21,11 @@
   <h1>Gold・BTC・ドル円を、MT5上で分析</h1>
   <p>Windows版MT5向けのカスタムインジケーターです。装着した銘柄の確定足から計算し、XMなどの業者が配信するFX・貴金属・暗号資産・指数などのCFDに使えます。コンパイル済みのex5を同梱しています。</p>
   <section aria-label="最新版のダウンロード">
-    <h2>1.1.0-preview.15 <small>検証版</small></h2>
-    <p>前日地図の詳細OFF時の表示と、帯が操作ボタンのクリックを奪う問題を修正。AI保存の直前にも地図を更新。元のP/EXIT・費用条件と帯履歴は維持。</p>
-    <a class="download" href="downloads/MultiAnalyzerGold-1.1.0-preview.15.zip" download>最新版MT5版をダウンロード（ZIP）</a>
-    <p><small>Windows用 ex5・ソース・日本語手順 / 338,044 bytes</small></p>
-    <details><summary>検証範囲・SHA256</summary><p>MetaEditorコンパイル0エラー0警告、地図の独立表示とAI保存の更新呼出し・履歴固定・欠損・解消処理を自動検査。ライブ実チャートの表示・AI保存は装着後に別途確認。予測精度は未確認。Web版全機能の移植や予測精度を検証した版ではありません。</p><code class="digest">858371b7c21af140fbea39edb4a371031393bf788422e07915611386c29681c0</code></details>
+    <h2>1.1.0-preview.16 <small>検証版</small></h2>
+    <p>画面外の同足OBで有効H4 FVGが隠れる表示を修正。画面内H1以上のOB/FVGを別枠で保持し、有効帯の経過本数だけの表示除外を解除。元のP/EXIT・重要度・費用条件と解消履歴は維持。</p>
+    <a class="download" href="downloads/MultiAnalyzerGold-1.1.0-preview.16.zip" download>最新版MT5版をダウンロード（ZIP）</a>
+    <p><small>Windows用 ex5・ソース・日本語手順 / 343,241 bytes</small></p>
+    <details><summary>検証範囲・SHA256</summary><p>MetaEditorコンパイル0エラー0警告、実際のH4価格幅・画面範囲、隣接・重複・古い有効帯・失効と既存条件不変を自動検査。修正版の実チャート装着・視認性と予測精度は未確認。Web版全機能の移植や予測精度を検証した版ではありません。</p><code class="digest">159a6b0fe845a8ca10e60f2a1a1b834a0376e2f6d9ebead22c9569fb6fdc38d7</code></details>
   </section>
   <nav aria-label="このページの手順">
     <a href="#install">初めての導入</a><a href="#update">既存版から更新</a><a href="#controls">ボタンの使い方</a><a href="#ai-save">AI保存とチャットへの添付</a>
@@ -35,11 +35,11 @@
   <ol>
     <li>上のZIPをダウンロードして展開します。使用するのは <code>MultiAnalyzerGold.ex5</code> です。ソースからのコンパイルは必要ありません。</li>
     <li>XMのWindows版MT5を開き、メニューの<strong>「ファイル → データフォルダを開く」</strong>を選びます。</li>
-    <li><code>MQL5 → Indicators</code> と進み、<code>MultiAnalyzerGold → 1.1.0-preview.15</code> フォルダを作成します。その中へ <code>MultiAnalyzerGold.ex5</code> をコピーします。</li>
+    <li><code>MQL5 → Indicators</code> と進み、<code>MultiAnalyzerGold → 1.1.0-preview.16</code> フォルダを作成します。その中へ <code>MultiAnalyzerGold.ex5</code> をコピーします。</li>
     <li>MT5へ戻り、ナビゲータの「インディケータ」を右クリックして<strong>「更新」</strong>します。見えない場合は <code>Ctrl＋N</code> でナビゲータを表示します。</li>
-    <li>分析したい <strong>GOLD・BTCUSD・USDJPYなど、業者に表示されている銘柄のチャート</strong>を開きます。接尾辞付きの銘柄もそのまま使います。ナビゲータの <code>MultiAnalyzerGold → 1.1.0-preview.15 → MultiAnalyzerGold</code> を、そのチャートへドラッグします。ファイル名は従来互換のためGoldを含みますが、Gold専用ではありません。</li>
+    <li>分析したい <strong>GOLD・BTCUSD・USDJPYなど、業者に表示されている銘柄のチャート</strong>を開きます。接尾辞付きの銘柄もそのまま使います。ナビゲータの <code>MultiAnalyzerGold → 1.1.0-preview.16 → MultiAnalyzerGold</code> を、そのチャートへドラッグします。ファイル名は従来互換のためGoldを含みますが、Gold専用ではありません。</li>
     <li>入力値を確認して「OK」を押します。取得本数 <code>HistoryBars</code> は220〜1500本、初期値は1000本です。価格の同期が済むまで少し待ちます。</li>
-    <li><strong>「詳細 ON」</strong>でパネル先頭の版番号が <code>1.1.0-preview.15</code> か確認します。確認後は「詳細 OFF」で文字を隠せます。</li>
+    <li><strong>「詳細 ON」</strong>でパネル先頭の版番号が <code>1.1.0-preview.16</code> か確認します。確認後は「詳細 OFF」で文字を隠せます。</li>
   </ol>
   <p class="note">自動売買・DLL・外部URLの許可は不要です。自動発注はしません。スマートフォン版MT5にはカスタムインジケーターを直接追加できません。</p>
 
@@ -85,6 +85,7 @@
   <p><strong>帯の重要度：</strong>H1以上は「大局」、M15は「波」、M1/M5は「短期」。同じ役割では形成時の相対量・変位実体・確認済み構造突破・再訪回数で比較します。高重要度は輪郭を強調し、短いラベルとマウスを重ねた説明で根拠を確認できます。FVGの相対量は中央の変位足と直前21本平均の比で、時間帯補正はありません。ティック数は業者の活動量です。未取得項目は未評価として残し、重要度は反発率やP成立を意味しません。AI保存にも評価版・内訳・形成と観察の時刻を保存します。</p>
   <p>「詳細 ON」では保持方向と、終値・EMA13/21の短期圧力を分けて確認できます。確認済み高安の終値突破を起点に、後続の同じ時間足で押し支え・戻り失敗・奪回による撤回を観察します。幅は突破前ATRの0.15倍で固定し、期限は12本です。新しい観察用の定義で、P・EXITや固定デモの条件には採用していません。</p>
   <p>帯にはM5と表示中の時間足も加えます。1分・5分の帯と上位足の帯は、形成した時間足・確定時刻・撤回条件を分けて表示します。形成元の足が未取得・保留なら、その足の帯を作りません。</p>
+  <p><strong>preview.16の表示修正：</strong>画面内のH1以上のOB/FVGは、通常の間引きと別に形成足・方向・種類ごとに最大1件を確保します。同じ組では現在値に近い帯、同距離なら新しい帯を選びます。隣接する同足のOBとFVGや、重なるH1/H4の元帯を合算せず保持し、画面外のOBによって画面内FVGを隠しません。有効OB/FVGは形成からの経過本数だけでは表示候補から除外しません。取得履歴・現在値との距離・表示足と画面範囲による選択、帯文字各方向最大2件とON/OFFは残ります。解消帯の履歴、重要度、P/EXITと撤回条件は変わりません。</p>
   <ol>
     <li>インジの<strong>「AI保存」</strong>を押します。</li>
     <li>MT5の<strong>「ファイル → データフォルダを開く」</strong>から <code>MQL5 → Files → MultiAnalyzerGold</code> を開きます。</li>
@@ -98,5 +99,5 @@
   <h2>データの違いと検証範囲</h2>
   <p>MT5版は装着先の業者・銘柄の価格とサーバー時刻を使い、Web版のGoldは従来のBybit先物を使います。H4・日足の区切りや出来高を同じものとして扱いません。業者のティック数は価格更新の活動量で、取引所の売買別約定量やCVDではありません。ニュース・経済予定の自動取得、固定デモ、外部との常時連携は対象外です。</p>
   <p>Pは押し/戻り、EMA13再突破、出来高倍率、ADX、確定H1一致、費用控除後RRを確認する研究条件です。今回の自動費用取得はXM実配信・実チャートでは未確認で、収益精度も未検証です。取得仕様は<a href="https://www.mql5.com/ru/docs/marketinformation/symbolinfocommissions">MetaQuotes公式資料</a>を参照しています。</p>
-  <p><a href="https://github.com/Yuzora-Yu/Multi-Analyzer/releases/tag/mt5-v1.1.0-preview.15">この版のリリース</a> · <a href="https://github.com/Yuzora-Yu/Multi-Analyzer/tree/main/mt5">ソース・変更履歴</a></p>
+  <p><a href="https://github.com/Yuzora-Yu/Multi-Analyzer/releases/tag/mt5-v1.1.0-preview.16">この版のリリース</a> · <a href="https://github.com/Yuzora-Yu/Multi-Analyzer/tree/main/mt5">ソース・変更履歴</a></p>
 </main></body></html>

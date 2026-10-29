@@ -8,6 +8,52 @@ test('higher-frame view hides intraday clutter and all-frames restores every sou
  assert.deepEqual(frames.filter(s=>V.frameVisible(s,14400,true)),frames);
  assert.equal(V.frameVisible(0,14400,true),false);
 });
+test('an offscreen H4 OB cannot consume the slot of its on-screen adjacent FVG',()=>{
+ const bands=[
+  {seconds:14400,kind:0,side:1,low:3988.85,high:4011.78,formed:100},
+  {seconds:14400,kind:1,side:1,low:4011.78,high:4024.45,formed:100},
+  {seconds:300,kind:1,side:-1,low:4033.99,high:4035.04,formed:200}
+ ];
+ assert.deepEqual(V.contextZones(bands,4032.58,4018.22,4044.09),[1]);
+ // With both visible, the shared edge is not overlap-based suppression.
+ assert.deepEqual(V.contextZones(bands,4032.58,3980,4044.09),[0,1]);
+});
+test('native higher-frame OB/FVG ranges and sides have independent bounded context slots',()=>{
+ const band=(seconds,kind,side,low,high,formed=100)=>({seconds,kind,side,low,high,formed});
+ const bands=[band(3600,0,1,3998,4018),band(3600,1,1,4014,4021),band(14400,1,1,4012,4024),
+  band(3600,0,-1,4036,4069),band(3600,1,-1,4037,4040),band(14400,1,-1,4040,4050),
+  band(3600,1,1,4000,4010),band(3600,1,1,4014,4021,200),band(3600,2,1,4019,4023)];
+ assert.deepEqual(V.contextZones(bands,4032,4018,4044),[0,7,2,3,4,5]);
+ assert.equal(V.contextZones(bands,4032,4018,4044).length,6);
+ // A viewport change reselects relevant context; the old offscreen winner has no slot.
+ assert.deepEqual(V.contextZones(bands,4032,4000,4011),[0,6]);
+});
+test('context selection rejects malformed ranges and a missing or reversed viewport',()=>{
+ const band={seconds:3600,kind:1,side:1,low:4010,high:4020,formed:100};
+ for(const patch of [{low:NaN},{high:Infinity},{low:4020},{low:-1},{side:0},{kind:2},{seconds:300}])
+  assert.deepEqual(V.contextZones([{...band,...patch}],4032,4000,4040),[]);
+ for(const bounds of [[0,4040],[4040,4000],[4000,Infinity]])assert.deepEqual(V.contextZones([band],4032,...bounds),[]);
+ assert.deepEqual(V.contextZones([],4032,4000,4040),[]);
+});
+test('source-active OB/FVG do not expire by display age and withdrawn zones never revive',()=>{
+ for(const kind of [0,1]){
+  assert.equal(V.activeEligible(true,kind,40,24),true);
+  assert.equal(V.activeEligible(true,kind,500,12),true);
+  assert.equal(V.activeEligible(false,kind,1,24),false);
+ }
+ assert.equal(V.activeEligible(true,2,24,24),true);
+ assert.equal(V.activeEligible(true,2,25,24),false);
+ assert.equal(V.activeEligible(true,1,-1,24),false);
+ assert.equal(V.activeEligible(true,3,1,24),false);
+});
+test('renderer reserves context separately, deduplicates it, and recalculates it on viewport changes',()=>{
+ const source=fs.readFileSync(path.join(__dirname,'../mt5/MultiAnalyzerGold.mq5'),'utf8');
+ assert.equal((source.match(/if\(MAActiveZoneEligible\(zs\[z\]\.active/g)||[]).length,2);
+ assert.match(source,/int i=picked\[contextPicks\[j\]\];/);
+ assert.match(source,/!drawn\[active\]&&PaintZone/);
+ assert.match(source,/!drawn\[second\]&&PaintZone/);
+ assert.match(source,/CHARTEVENT_CHART_CHANGE\)[^\n]+RenderCandidates\(\)/);
+});
 test('crowded callouts reject collisions, chart controls, price line and offscreen space at narrow and wide sizes',()=>{
  for(const width of [440,648,1838])for(const minTop of [80,144]){
   const height=600,boxes=[{left:0,right:width,top:390,bottom:410}],w=260,h=18,left=width-w-8;

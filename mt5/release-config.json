@@ -1,6 +1,6 @@
 {
-  "version": "1.1.0-preview.15",
-  "mqlVersion": "1.150",
+  "version": "1.1.0-preview.16",
+  "mqlVersion": "1.160",
   "stage": "preview",
   "sourceFiles": [
     "MultiAnalyzerGold.mq5",
@@ -17,6 +17,6 @@
     "README_JA.txt",
     "CHANGELOG.md"
   ],
-  "scope": "前日地図の詳細OFF時の表示と、帯が操作ボタンのクリックを奪う問題を修正。AI保存の直前にも地図を更新。元のP/EXIT・費用条件と帯履歴は維持。",
-  "runtimeVerification": "MetaEditorコンパイル0エラー0警告、地図の独立表示とAI保存の更新呼出し・履歴固定・欠損・解消処理を自動検査。ライブ実チャートの表示・AI保存は装着後に別途確認。予測精度は未確認"
+  "scope": "画面外の同足OBで有効H4 FVGが隠れる表示を修正。画面内H1以上のOB/FVGを別枠で保持し、有効帯の経過本数だけの表示除外を解除。元のP/EXIT・重要度・費用条件と解消履歴は維持。",
+  "runtimeVerification": "MetaEditorコンパイル0エラー0警告、実際のH4価格幅・画面範囲、隣接・重複・古い有効帯・失効と既存条件不変を自動検査。修正版の実チャート装着・視認性と予測精度は未確認"
 }

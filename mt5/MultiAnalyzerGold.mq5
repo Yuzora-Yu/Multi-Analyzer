@@ -1,7 +1,7 @@
 #property copyright "Multi-Analyzer"
 #property link "https://yuzora-yu.github.io/Multi-Analyzer/"
-#property version "1.150"
-#property description "Multi-Analyzer MT5 1.1.0-preview.15. Previous-day context map and source-zone follow-up. No trading."
+#property version "1.160"
+#property description "Multi-Analyzer MT5 1.1.0-preview.16. Visible higher-frame OB/FVG context. No trading."
 #property indicator_chart_window
 #property indicator_buffers 33
 #property indicator_plots 26
@@ -700,7 +700,25 @@ int RenderCandidates() {
   }
   if(!duplicate) {int n=ArraySize(picked);ArrayResize(picked,n+1);picked[n]=i;}
  }
+ // Reserve on-screen higher-frame context before the ordinary display cap.
+ // OB and FVG have separate slots, including adjacent/overlapping native ranges.
+ int contextSeconds[],contextKinds[],contextSides[],contextPicks[];
+ double contextLows[],contextHighs[];datetime contextFormed[];
+ int poolSize=ArraySize(picked);
+ ArrayResize(contextSeconds,poolSize);ArrayResize(contextKinds,poolSize);ArrayResize(contextSides,poolSize);
+ ArrayResize(contextLows,poolSize);ArrayResize(contextHighs,poolSize);ArrayResize(contextFormed,poolSize);
+ for(int j=0;j<poolSize;j++) {
+  MAZone z=candidates[picked[j]];contextSeconds[j]=z.seconds;contextKinds[j]=z.kind;contextSides[j]=z.side;
+  contextLows[j]=z.low;contextHighs[j]=z.high;contextFormed[j]=z.formed;
+ }
+ MAContextZoneSelection(contextSeconds,contextKinds,contextSides,contextLows,contextHighs,contextFormed,price,
+  ChartGetDouble(0,CHART_PRICE_MIN),ChartGetDouble(0,CHART_PRICE_MAX),contextPicks);
+ bool drawn[];ArrayResize(drawn,ArraySize(candidates));ArrayInitialize(drawn,false);
  int painted=0;
+ for(int j=0;j<ArraySize(contextPicks);j++) {
+  int i=picked[contextPicks[j]];
+  if(PaintZone(candidates[i],painted)) {drawn[i]=true;painted++;}
+ }
  for(int side=-1;side<=1;side+=2) {
   int active=-1; double distance=DBL_MAX;
   for(int j=0;j<ArraySize(picked);j++) {
@@ -710,14 +728,14 @@ int RenderCandidates() {
    if(active>=0) bestPriority=ImportanceFor(candidates[active]);
    if(active<0||MAMoreImportant(candidatePriority,d,bestPriority,distance)) {distance=d; active=i;}
   }
-  int count=0; if(active>=0) {if(PaintZone(candidates[active],painted)) painted++;count++;}
+  int count=0; if(active>=0) {if(!drawn[active]&&PaintZone(candidates[active],painted)) {drawn[active]=true;painted++;}count++;}
   int second=-1;double secondDistance=DBL_MAX;
   for(int j=0;j<ArraySize(picked)&&active>=0;j++) {
    int i=picked[j];if(candidates[i].side!=side||candidates[i].kind==2||candidates[i].frame==candidates[active].frame) continue;
    if(candidates[i].low<=candidates[active].high&&candidates[i].high>=candidates[active].low) continue;
    double d=MathMax(candidates[i].low-price,MathMax(price-candidates[i].high,0));if(d<secondDistance) {secondDistance=d;second=i;}
   }
-  if(second>=0) {if(PaintZone(candidates[second],painted)) painted++;count++;}
+  if(second>=0) {if(!drawn[second]&&PaintZone(candidates[second],painted)) {drawn[second]=true;painted++;}count++;}
   // Pick recent distinct sweeps; no probability ranking.
   datetime before=LONG_MAX; int beforeIndex=INT_MAX;
   while(count<3) {
@@ -743,7 +761,7 @@ void AppendFrameZones(const MqlRates &c[],const int seconds,const string frame,c
  MAZone zs[];MAAnalyze(c,seconds,frame,zs);int n=ArraySize(c);
   CacheFrameImportance(c,zs);
  if(n>0) AppendRetiredZones(zs,c[n-1].time+seconds,maxAge);
- for(int z=0;z<ArraySize(zs);z++) if(zs[z].active&&n-1-zs[z].index<=maxAge) {
+ for(int z=0;z<ArraySize(zs);z++) if(MAActiveZoneEligible(zs[z].active,zs[z].kind,n-1-zs[z].index,maxAge)) {
   if(atr>0&&MathMax(zs[z].low-reference,MathMax(reference-zs[z].high,0))>atr*8) continue;
   int size=ArraySize(candidates);ArrayResize(candidates,size+1);candidates[size]=zs[z];
  }
@@ -769,13 +787,13 @@ void Refresh(const bool force=false) {
  MqlTick tick;
  if(!ReadSessions()) {
   dayMapReady=false;ObjectsDeleteAll(0,prefix+"zone");ObjectsDeleteAll(0,prefix+"retired.");retiredPainted=0;retryHistory=true;
-  Panel("MT5 1.1.0-preview.15 | "+_Symbol+" | 業者セッションを取得できず新規判定を保留\n接続・休場とは区別。セッション不明のまま営業中と推定しません。");return;
+  Panel("MT5 1.1.0-preview.16 | "+_Symbol+" | 業者セッションを取得できず新規判定を保留\n接続・休場とは区別。セッション不明のまま営業中と推定しません。");return;
  }
  bool live=TerminalInfoInteger(TERMINAL_CONNECTED) && SymbolInfoTick(_Symbol,tick) && ChartQuote(tick)>0 && TimeTradeServer()>=tick.time && TimeTradeServer()-tick.time<120;
  if(!live || !SessionOpen(TimeCurrent())) {
   ObjectsDeleteAll(0,prefix+"zone");ObjectsDeleteAll(0,prefix+"retired.");retiredPainted=0;lastM15=0;
   retryHistory=true;
-  Panel("MT5 1.1.0-preview.15 | "+_Symbol+" | 休場・未接続・価格更新待ち\n新規判定停止。過去サインは確定履歴。EXITは反転エントリーではありません。"); return;
+  Panel("MT5 1.1.0-preview.16 | "+_Symbol+" | 休場・未接続・価格更新待ち\n新規判定停止。過去サインは確定履歴。EXITは反転エントリーではありません。"); return;
  }
  datetime m=iTime(_Symbol,PERIOD_M15,1),h=iTime(_Symbol,PERIOD_H1,1),q=iTime(_Symbol,PERIOD_H4,1);
  datetime x=iTime(_Symbol,(ENUM_TIMEFRAMES)_Period,1),minute=iTime(_Symbol,PERIOD_M1,1);
@@ -797,7 +815,7 @@ void Refresh(const bool force=false) {
   int n=ArraySize(c),maxAge=f==0?32:f==1?24:12;
   AppendRetiredZones(zs,c[n-1].time+PeriodSeconds(tf),maxAge);
   if(f==0) {double atr[];MAATR(c,atr);nearATR=atr[n-1];reference=c[n-1].close;}
-  for(int z=0;z<ArraySize(zs);z++) if(zs[z].active && n-1-zs[z].index<=maxAge) {
+  for(int z=0;z<ArraySize(zs);z++) if(MAActiveZoneEligible(zs[z].active,zs[z].kind,n-1-zs[z].index,maxAge)) {
    if(nearATR>0 && MathMax(zs[z].low-reference,MathMax(reference-zs[z].high,0))>nearATR*8) continue;
    int size=ArraySize(candidates);ArrayResize(candidates,size+1);candidates[size]=zs[z];
   }
@@ -854,7 +872,7 @@ void Refresh(const bool force=false) {
  bandState+="\n解消帯 "+(!showBands||!showRetired?"OFF":IntegerToString(retiredPainted)+"件 / 各足直近最大"+IntegerToString(RetiredZonesPerFrame)+"件・点線は解消時刻まで");
  if(zoneDrawError!="") holds+=zoneDrawError+"\n";
  BandCaption(painted);PaintSignals();PaintProfile();
- Panel("MT5 1.1.0-preview.15 | "+_Symbol+" | broker時刻 / 銘柄別独立版 "+ChartBasis()+"\n"+current+"\n"+response+"\n"+entry+"\n"+volume+"\n"+quote+"\n{LIVE_COST}\n"+bandState+"\nEXIT表示 "+IntegerToString(exitLabels)+"組 / 停滞中の集約 "+IntegerToString(exitGroups)+"組（点・保存は全件）\n"+holds+historyNotes+"ニュース自動判定なし / "+(ManualBlackout?"手動P停止中":"Pは研究条件・注文なし")+(ShowFrameDetails?"\n"+status:""));
+ Panel("MT5 1.1.0-preview.16 | "+_Symbol+" | broker時刻 / 銘柄別独立版 "+ChartBasis()+"\n"+current+"\n"+response+"\n"+entry+"\n"+volume+"\n"+quote+"\n{LIVE_COST}\n"+bandState+"\nEXIT表示 "+IntegerToString(exitLabels)+"組 / 停滞中の集約 "+IntegerToString(exitGroups)+"組（点・保存は全件）\n"+holds+historyNotes+"ニュース自動判定なし / "+(ManualBlackout?"手動P停止中":"Pは研究条件・注文なし")+(ShowFrameDetails?"\n"+status:""));
  ChartRedraw();
 }
 void SetPlots() {
@@ -915,7 +933,7 @@ void ExportAnalysis() {
  int file=FileOpen(name,FILE_WRITE|FILE_TXT|FILE_ANSI,0,CP_UTF8);if(file==INVALID_HANDLE) {Print("Market export could not open local file");return;}
  string symbol=MAJsonEscape(_Symbol);
  MqlTick quote;ZeroMemory(quote);bool quoted=SymbolInfoTick(_Symbol,quote);
- FileWriteString(file,"{\"version\":\"1.1.0-preview.15\",\"symbol\":\""+symbol+"\",\"clock\":\"BROKER_WALL_CLOCK_NOT_UTC\",\"exportedServerTime\":"+IntegerToString((long)TimeTradeServer())+",\"connected\":"+JBool((bool)TerminalInfoInteger(TERMINAL_CONNECTED))+",\"bid\":"+(quoted?JNumber(quote.bid):"null")+",\"ask\":"+(quoted?JNumber(quote.ask):"null")+",\"quoteTime\":"+(quoted?IntegerToString((long)quote.time):"null")+",\"assumedCostBps\":"+(PCostMode==MA_FIXED_BPS?JNumber(AssumedRoundTripCostBps):"null")+",\"volumeBasis\":\""+MAVolumeName(VolumeBasis)+"\",\"aggressorDelta\":null,\"cvd\":null,\"sessions\":[");
+ FileWriteString(file,"{\"version\":\"1.1.0-preview.16\",\"symbol\":\""+symbol+"\",\"clock\":\"BROKER_WALL_CLOCK_NOT_UTC\",\"exportedServerTime\":"+IntegerToString((long)TimeTradeServer())+",\"connected\":"+JBool((bool)TerminalInfoInteger(TERMINAL_CONNECTED))+",\"bid\":"+(quoted?JNumber(quote.bid):"null")+",\"ask\":"+(quoted?JNumber(quote.ask):"null")+",\"quoteTime\":"+(quoted?IntegerToString((long)quote.time):"null")+",\"assumedCostBps\":"+(PCostMode==MA_FIXED_BPS?JNumber(AssumedRoundTripCostBps):"null")+",\"volumeBasis\":\""+MAVolumeName(VolumeBasis)+"\",\"aggressorDelta\":null,\"cvd\":null,\"sessions\":[");
  for(int s=0;s<ArraySize(weeklySessions);s++) {
   if(s>0) FileWriteString(file,",");
   FileWriteString(file,"{\"weekday\":"+IntegerToString(weeklySessions[s].weekday)+",\"startSeconds\":"+IntegerToString(weeklySessions[s].start)+",\"stopSeconds\":"+IntegerToString(weeklySessions[s].stop)+"}");
@@ -994,7 +1012,7 @@ int OnInit() {
  color colors[]={clrCyan,clrDeepSkyBlue,clrDodgerBlue,clrRoyalBlue,clrMediumPurple,clrViolet,clrOrange,clrOrangeRed,clrGold,clrGold,clrLimeGreen,clrTomato,clrAqua,clrDeepPink};
  for(int i=0;i<19;i++) {PlotIndexSetDouble(i,PLOT_EMPTY_VALUE,EMPTY_VALUE);if(i>=5) {PlotIndexSetString(i,PLOT_LABEL,labels[i-5]);PlotIndexSetInteger(i,PLOT_LINE_COLOR,colors[i-5]);PlotIndexSetInteger(i,PLOT_LINE_WIDTH,i>=13?2:1);if(i>=13) PlotIndexSetInteger(i,PLOT_ARROW,i<=14?159:i==16||i==18?234:233);}}
  IndicatorSetInteger(INDICATOR_DIGITS,_Digits);
- IndicatorSetString(INDICATOR_SHORTNAME,"Multi-Analyzer 1.1.0-preview.15 "+_Symbol+" "+(VolumeBasis==MA_TICK_ACTIVITY?"tick":"real/off"));
+ IndicatorSetString(INDICATOR_SHORTNAME,"Multi-Analyzer 1.1.0-preview.16 "+_Symbol+" "+(VolumeBasis==MA_TICK_ACTIVITY?"tick":"real/off"));
  ApplyPalette();Controls();SetPlots();
  EventSetTimer(2);Refresh(true);return INIT_SUCCEEDED;
 }
